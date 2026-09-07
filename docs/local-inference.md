@@ -31,6 +31,33 @@ binary to every vendor SDK in the first package. See
 [Local embedding adapters](local-embedding-adapter.md) for the protocol and
 attestation contract.
 
+## FastEmbed diagnostics
+
+Build with `--features embedded-embeddings` to inspect and exercise
+FastEmbed's model catalogue independently of the shared semantic profile:
+
+```console
+cfetch embed-model list
+cfetch embed-model --model EmbeddingGemma300M status
+cfetch embed-model --model EmbeddingGemma300M download
+cfetch embed-model --model EmbeddingGemma300M test "A diagnostic input"
+```
+
+`--model` accepts the exact variant names printed by `list`; it applies only
+to that command. The default remains `MultilingualE5Base`. `status` inspects
+the selected repository's cache directory without downloading files or
+initializing a model. An existing directory does not prove complete files or
+loadability. `download` and `test` explicitly load the selected model and may
+fetch missing files. `HF_HOME` overrides the model cache for both inspection
+and loading.
+
+These commands run the catalogue model's own tokenizer, sequence, and pooling
+behavior. Their vectors are never indexed or shared. A model name, matching
+dimension count, or successful diagnostic cannot admit a producer into the
+shared space; the package and global compatibility gates below determine
+that. There is no automatic shared-store model switch or re-embedding command
+in this diagnostic interface. Query-local reranking remains independent.
+
 ## Backend plan
 
 Different hardware families require different native artifacts and may use

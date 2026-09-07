@@ -146,5 +146,9 @@ jobs:
         run: cargo test --locked
       - name: Check feature combinations
         run: cargo check --all-targets --all-features --locked
+      - name: Test isolated FastEmbed diagnostics
+        run: |
+          cargo test --locked --features embedded-embeddings --test embed_model_cli
+          cargo test --locked --features embedded-embeddings embedded_embed::tests
       - name: Clippy (zero warnings)
         run: cargo clippy --all-targets --all-features --locked -- -D warnings

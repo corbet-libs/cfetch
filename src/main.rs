@@ -113,9 +113,12 @@ enum Command {
         #[command(subcommand)]
         source: ImportSource,
     },
-    /// Run the isolated experimental Nomic probe (never shared vectors)
+    /// Inspect or run diagnostic FastEmbed models (never shared vectors)
     #[cfg(feature = "embedded-embeddings")]
     EmbedModel {
+        /// Diagnostic catalogue variant; does not select a shared-store model
+        #[arg(long, global = true, default_value = "MultilingualE5Base", value_parser = embedded_embed::parse_model)]
+        model: fastembed::EmbeddingModel,
         #[command(subcommand)]
         action: EmbedModelAction,
     },
@@ -546,20 +549,16 @@ enum MaintainAction {
 #[derive(Subcommand)]
 #[cfg(feature = "embedded-embeddings")]
 enum EmbedModelAction {
-    /// Download and verify the pinned nomic-embed-text ONNX model (~130 MB)
+    /// Download and load the selected diagnostic model
     Download,
-    /// Check whether the model is downloaded and loadable
+    /// Inspect the selected model's cache location without loading or downloading
     Status,
     /// Embed a test string locally; the result is never stored or shared
     Test {
         /// Text to embed
         text: String,
     },
-    /// Check if the local model matches the shared vector store
-    CheckCompat,
-    /// Switch to the model expected by the shared vector store
-    SwitchToShared,
-    /// List all available embedding and reranker models
+    /// List diagnostic embedding models and query-local rerankers
     List,
 }
 
@@ -3055,11 +3054,13 @@ fn main() {
             hooks::run(&event, agent.as_deref());
         }
             #[cfg(feature = "embedded-embeddings")]
-            Command::EmbedModel { action } => match action {
+        Command::EmbedModel { model, action } => {
+            println!("FastEmbed embeddings: diagnostic only; output is never stored or shared");
+            match action {
                 EmbedModelAction::Download => {
-                    // fastembed downloads models on first use; trigger it now
-                    match embedded_embed::EmbeddedEmbedder::load() {
-                        Ok(_) => println!("embedding model downloaded and cached"),
+                    println!("model: {model:?}");
+                    match embedded_embed::EmbeddedEmbedder::load(model) {
+                        Ok(_) => println!("selected diagnostic model downloaded and loaded"),
                         Err(e) => {
                             eprintln!("cfetch embed-model download: {e:#}");
                             std::process::exit(1);
@@ -3068,83 +3069,31 @@ fn main() {
                 }
                 EmbedModelAction::Status => {
                     let cache = embedded_embed::cache_dir();
+                    let info = fastembed::TextEmbedding::get_model_info(&model)
+                        .expect("the CLI accepts only listed diagnostic models");
+                    println!("model: {model:?} ({} dimensions)", info.dim);
+                    println!("repository: {}", info.model_code);
                     println!("cache dir: {}", cache.display());
-                    if cache.join("models--intfloat--multilingual-e5-base").is_dir() {
-                        println!("embedding model: cached (multilingual-e5-base)");
+                    let repository =
+                        cache.join(format!("models--{}", info.model_code.replace('/', "--")));
+                    if repository.is_dir() {
+                        println!("cache entry: present (file completeness unverified)");
                     } else {
-                        println!("embedding model: not cached (downloads on first embed)");
+                        println!("cache entry: not cached");
                     }
-                    println!("reranker model: not cached (downloads on first rerank)");
-                    match embedded_embed::EmbeddedEmbedder::load() {
-                        Ok(_) => println!("status: loadable"),
-                        Err(e) => println!("status: load failed: {e:#}"),
-                    }
-                }
-                EmbedModelAction::CheckCompat => {
-                    let report = embedded_embed::check_compatibility();
-                    match report.status {
-                        embedded_embed::CompatStatus::NoSharedStore => {
-                            println!("no shared vector store found — nothing to check");
-                        }
-                        embedded_embed::CompatStatus::Compatible => {
-                            println!("compatible: local model matches shared store");
-                            println!("  shared: {} ({}d)", report.shared_model, report.shared_dim);
-                            println!("  local:  {}", report.local_model);
-                        }
-                        embedded_embed::CompatStatus::Incompatible => {
-                            println!("INCOMPATIBLE: shared store uses a different model");
-                            println!("  shared: {} ({}d)", report.shared_model, report.shared_dim);
-                            println!("  local:  {}", report.local_model);
-                            if report.can_auto_switch {
-                                println!();
-                                println!("  fix: cfetch embed-model switch-to-shared");
-                                println!("  (downloads the correct model and re-embeds local content)");
-                            } else {
-                                println!();
-                                println!("  the shared model is not available in fastembed;");
-                                println!("  ask the store owner which model they use");
-                            }
-                        }
-                    }
-                }
-                EmbedModelAction::SwitchToShared => {
-                    let report = embedded_embed::check_compatibility();
-                    match report.status {
-                        embedded_embed::CompatStatus::NoSharedStore => {
-                            println!("no shared vector store found — nothing to switch to");
-                        }
-                        embedded_embed::CompatStatus::Compatible => {
-                            println!("already compatible — no switch needed");
-                        }
-                        embedded_embed::CompatStatus::Incompatible => {
-                            let Some(model) = report.fastembed_variant else {
-                                eprintln!("cannot auto-switch: shared model {:?} not in fastembed", report.shared_model);
-                                std::process::exit(1);
-                            };
-                            println!("switching to {} ...", report.shared_model);
-                            let _ = model; // fastembed downloads on first embed
-                            println!("downloading model...");
-                            match embedded_embed::EmbeddedEmbedder::load() {
-                                Ok(_) => {
-                                    println!("model downloaded");
-                                    println!();
-                                    println!("next steps:");
-                                    println!("  1. clear local vectors: python -c \"import sqlite3; conn = sqlite3.connect(r'%LOCALAPPDATA%\\cfetch\\index.db'); conn.execute('DELETE FROM vectors'); conn.commit()\"");
-                                    println!("  2. re-embed: cfetch embed-index");
-                                    println!("  3. verify: cfetch embed-model check-compat");
-                                }
-                                Err(e) => {
-                                    eprintln!("download failed: {e:#}");
-                                    std::process::exit(1);
-                                }
-                            }
-                        }
-                    }
+                    println!(
+                        "loadability: not checked; use `download` or `test` to load explicitly"
+                    );
                 }
                 EmbedModelAction::List => {
-                    println!("Embedding models:");
-                    for (name, desc) in embedded_embed::available_models() {
-                        println!("  {:<28} {}", name, desc);
+                    println!("Embedding models (select with --model):");
+                    for info in embedded_embed::available_models() {
+                        println!(
+                            "  {:<32} {:>4}d  {}",
+                            format!("{:?}", info.model),
+                            info.dim,
+                            info.model_code
+                        );
                     }
                     println!();
                     println!("Reranker models:");
@@ -3153,7 +3102,8 @@ fn main() {
                     }
                 }
                 EmbedModelAction::Test { text } => {
-                    let mut embedder = match embedded_embed::EmbeddedEmbedder::load() {
+                    println!("model: {model:?}");
+                    let mut embedder = match embedded_embed::EmbeddedEmbedder::load(model) {
                         Ok(e) => e,
                         Err(e) => {
                             eprintln!("cfetch embed-model test: {e:#}");
@@ -3166,7 +3116,12 @@ fn main() {
                             let elapsed = start.elapsed();
                             if let Some(vec) = embeddings.first() {
                                 let norm: f32 = vec.iter().map(|v| v * v).sum::<f32>().sqrt();
-                                println!("dims: {}, norm: {:.4}, time: {:?}", vec.len(), norm, elapsed);
+                                println!(
+                                    "dims: {}, norm: {:.4}, time: {:?}",
+                                    vec.len(),
+                                    norm,
+                                    elapsed
+                                );
                                 println!("first 5: {:?}", &vec[..5.min(vec.len())]);
                                 println!("last 5:  {:?}", &vec[vec.len().saturating_sub(5)..]);
                             } else {
@@ -3179,7 +3134,8 @@ fn main() {
                         }
                     }
                 }
-            },
+            }
+        }
             Command::Daemon { action } => {
             let result = match action {
                 DaemonAction::Run => daemon::run(),

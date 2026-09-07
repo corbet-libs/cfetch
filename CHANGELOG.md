@@ -5,6 +5,15 @@ listed here is a fix or an internal change with no effect on behavior.
 
 ## Unreleased
 
+- **Explicit, read-only FastEmbed model diagnostics.** `embed-model --model`
+  passes the selected catalogue variant to the loader, including distinct
+  quantized variants. `list` uses the linked library's actual catalogue.
+  `status` observes the selected cache directory, including `HF_HOME`, without
+  downloading or loading anything. Removed `check-compat` and
+  `switch-to-shared`: model-name matching cannot certify the shared semantic
+  pipeline, and the old switch discarded its selected model. Diagnostic
+  output remains isolated from the canonical vector store; query-local
+  reranking is unchanged.
 - **`--settings <file>` stops double-installing Claude's hooks.** The
   explicit settings path redirected `apply_claude`'s hooks and status
   line, but agent-config's Claude hook surface still wrote the DEFAULT

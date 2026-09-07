@@ -1,22 +1,12 @@
-//! Embedded embedding and reranking via fastembed (ONNX Runtime).
+//! Isolated model diagnostics and query-local reranking via FastEmbed.
 //!
-//! Feature-gated behind `embedded-embeddings`. Uses the `fastembed` crate
-//! which handles model download, tokenization, pooling, caching, and ONNX
-//! inference — all in-process with zero external server dependencies.
-//!
-//! Supported models include multilingual-e5-base (768-dim, 100+ languages,
-//! for German/English semantic recall), embeddinggemma-300m (cfetch's
-//! canonical profile), BGE-M3 (multi-vector), and Jina reranker v2
-//! multilingual (local cross-encoder reranking).
+//! Catalogue embeddings do not implement cfetch's admitted semantic pipeline.
+//! Even a matching model name and width do not prove compatible vectors.
+//! This module never supplies `EmbedClient` or writes the shared vector store.
 
 #![cfg(feature = "embedded-embeddings")]
 
 use std::path::PathBuf;
-
-/// Default embedding model: multilingual-e5-base (278M, 768 dims).
-/// Covers 100+ languages including German and English.
-pub const DEFAULT_EMBEDDING_MODEL: fastembed::EmbeddingModel =
-    fastembed::EmbeddingModel::MultilingualE5Base;
 
 /// Default reranking model: Jina reranker v2 multilingual.
 /// Cross-encoder that scores query-document pairs locally.
@@ -29,100 +19,21 @@ pub const DEFAULT_RERANKER_MODEL_NAME: &str = "jina-reranker-v2-base-multilingua
 
 /// Where fastembed caches downloaded models.
 pub fn cache_dir() -> PathBuf {
-    crate::paths::state_dir().join("models")
+    // FastEmbed's HF transport gives HF_HOME precedence over with_cache_dir.
+    // Inspection and loading must agree on the directory actually used.
+    std::env::var("HF_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| crate::paths::state_dir().join("models"))
 }
 
-/// Reads the shared vector store's model metadata (without loading it).
-/// Returns None if no shared store exists.
-/// The filename encodes the spec: network1-<profile>-<model>-<dim>-<precision>-<hash>.idx
-pub fn shared_store_model() -> Option<(String, usize)> {
-    let store_dir = crate::paths::shared_vector_dir(&crate::paths::default_brain_root());
-    let entries = std::fs::read_dir(&store_dir).ok()?;
-    let idx_file = entries.flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|e| e == "idx"))?;
-    let filename = idx_file.file_name()?.to_str()?;
-    let parts: Vec<&str> = filename.split('-').collect();
-    // Expected: [network1, profile, ..., model_name, dim, precision, hash.idx]
-    // Find the dim part (a pure number) near the end
-    if parts.len() < 4 {
-        return None;
-    }
-    let dim: usize = parts.get(parts.len().saturating_sub(3))?.parse().ok()?;
-    let model = parts[2..parts.len().saturating_sub(3)].join("-");
-    Some((model, dim))
-}
-
-/// Maps a model name (from the shared store) to a fastembed model.
-/// Handles both the canonical HuggingFace name and the filename variant.
-pub fn model_from_name(name: &str) -> Option<fastembed::EmbeddingModel> {
-    use fastembed::EmbeddingModel::*;
-    let lower = name.to_lowercase().replace('_', "/");
-    if lower.contains("multilingual-e5-base") {
-        Some(MultilingualE5Base)
-    } else if lower.contains("multilingual-e5-large") {
-        Some(MultilingualE5Large)
-    } else if lower.contains("multilingual-e5-small") {
-        Some(MultilingualE5Small)
-    } else if lower.contains("embeddinggemma") {
-        Some(EmbeddingGemma300M)
-    } else if lower.contains("bge-small-en") {
-        Some(BGESmallENV15)
-    } else if lower.contains("bge-large-en") {
-        Some(BGELargeENV15)
-    } else if lower.contains("nomic-embed-text") {
-        Some(NomicEmbedTextV15)
-    } else if lower.contains("minilm-l6") {
-        Some(AllMiniLML6V2)
-    } else {
-        None
-    }
-}
-
-/// Checks whether the local model is compatible with the shared vector store.
-/// Returns a human-readable report and whether auto-switch is possible.
-pub fn check_compatibility() -> CompatibilityReport {
-    let Some((shared_model, shared_dim)) = shared_store_model() else {
-        return CompatibilityReport {
-            status: CompatStatus::NoSharedStore,
-            shared_model: String::new(),
-            shared_dim: 0,
-            local_model: "multilingual-e5-base (default)".to_string(),
-            can_auto_switch: false,
-            fastembed_variant: None,
-        };
-    };
-    // For now, the local model is always the default (MultilingualE5Base).
-    // When per-model config is added, read from config here.
-    let local = "multilingual-e5-base";
-    let compatible = shared_model.contains("multilingual-e5-base")
-        || shared_model.replace('_', "/").contains("multilingual/e5/base");
-    let fastembed_variant = model_from_name(&shared_model);
-    CompatibilityReport {
-        status: if compatible { CompatStatus::Compatible } else { CompatStatus::Incompatible },
-        shared_model,
-        shared_dim,
-        local_model: local.to_string(),
-        can_auto_switch: fastembed_variant.is_some(),
-        fastembed_variant,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum CompatStatus {
-    NoSharedStore,
-    Compatible,
-    Incompatible,
-}
-
-#[derive(Debug, Clone)]
-pub struct CompatibilityReport {
-    pub status: CompatStatus,
-    pub shared_model: String,
-    pub shared_dim: usize,
-    pub local_model: String,
-    pub can_auto_switch: bool,
-    pub fastembed_variant: Option<fastembed::EmbeddingModel>,
+/// Resolve only exact catalogue variant names. In particular, quantized
+/// variants must not collapse into their similarly named floating models.
+pub fn parse_model(name: &str) -> Result<fastembed::EmbeddingModel, String> {
+    available_models()
+        .into_iter()
+        .find(|info| format!("{:?}", info.model).eq_ignore_ascii_case(name))
+        .map(|info| info.model)
+        .ok_or_else(|| format!("unknown diagnostic model {name:?}; run `cfetch embed-model list`"))
 }
 
 /// An in-process embedding backend using fastembed.
@@ -132,24 +43,26 @@ pub struct EmbeddedEmbedder {
 }
 
 impl EmbeddedEmbedder {
-    /// Loads the embedding model, downloading it on first use.
-    pub fn load() -> anyhow::Result<Self> {
-        let model = fastembed::TextEmbedding::try_new(
-            fastembed::TextInitOptions::new(DEFAULT_EMBEDDING_MODEL)
-                .with_cache_dir(cache_dir())
-                .with_show_download_progress(true),
-        )
-        .map_err(|e| anyhow::anyhow!("load embedding model: {e}"))?;
+    /// Loads exactly the requested diagnostic model, downloading on first use.
+    pub fn load(model_name: fastembed::EmbeddingModel) -> anyhow::Result<Self> {
+        let model = fastembed::TextEmbedding::try_new(diagnostic_options(model_name))
+            .map_err(|e| anyhow::anyhow!("load embedding model: {e}"))?;
         Ok(Self { model })
     }
 
-    /// Embeds texts into 768-dim f32 vectors.
-    /// fastembed handles tokenization, truncation, and mean pooling.
+    /// Runs the selected catalogue pipeline. Width and pooling are model
+    /// specific; its tokenizer may truncate. This is never canonical output.
     pub fn embed(&mut self, texts: Vec<String>) -> anyhow::Result<Vec<Vec<f32>>> {
         self.model
             .embed(texts, None)
             .map_err(|e| anyhow::anyhow!("embed: {e}"))
     }
+}
+
+fn diagnostic_options(model: fastembed::EmbeddingModel) -> fastembed::TextInitOptions {
+    fastembed::TextInitOptions::new(model)
+        .with_cache_dir(cache_dir())
+        .with_show_download_progress(true)
 }
 
 /// An in-process reranker using fastembed.
@@ -193,7 +106,9 @@ impl EmbeddedReranker {
     /// Scores every document against the query, one score per input document
     /// in INPUT order — the same contract as `RerankClient::rank`.
     pub fn rank(&mut self, query: &str, documents: &[&str]) -> anyhow::Result<Vec<f32>> {
-        let results = self.model.rerank(query, documents, false, None)
+        let results = self
+            .model
+            .rerank(query, documents, false, None)
             .map_err(|e| anyhow::anyhow!("rerank: {e}"))?;
         let mut scores = vec![f32::MIN; documents.len()];
         for r in results {
@@ -205,21 +120,11 @@ impl EmbeddedReranker {
     }
 }
 
-/// Lists all available embedding models (for `cfetch embed-model list`).
-#[allow(dead_code)]
-pub fn available_models() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("MultilingualE5Base", "278M, 768d, 100+ languages (default)"),
-        ("MultilingualE5Large", "560M, 1024d, 100+ languages"),
-        ("MultilingualE5Small", "118M, 384d, 100+ languages"),
-        ("EmbeddingGemma300M", "300M, 768d, cfetch canonical"),
-        ("BGESmallENV15", "33M, 384d, English"),
-        ("BGELargeENV15", "335M, 1024d, English"),
-        ("AllMiniLML6V2", "22M, 384d, English (fastest)"),
-        ("NomicEmbedTextV15", "137M, 768d, English"),
-        ("MultilingualE5BaseQ", "quantized, 768d, 100+ languages"),
-        ("EmbeddingGemma300MQ4", "4-bit, 768d, cfetch canonical"),
-    ]
+/// Use the linked library's catalogue so every listed variant is selectable.
+pub fn available_models() -> Vec<fastembed::ModelInfo<fastembed::EmbeddingModel>> {
+    let mut models = fastembed::TextEmbedding::list_supported_models();
+    models.sort_by_key(|info| format!("{:?}", info.model));
+    models
 }
 
 /// Lists all available reranker models.
@@ -237,7 +142,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cache_dir_is_under_state() {
-        assert!(cache_dir().starts_with(crate::paths::state_dir()));
+    fn cache_dir_matches_the_runtime_override_or_state_default() {
+        let expected = std::env::var("HF_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| crate::paths::state_dir().join("models"));
+        assert_eq!(cache_dir(), expected);
+    }
+
+    #[test]
+    fn every_listed_model_selects_its_own_runtime_options() {
+        for info in available_models() {
+            let requested = parse_model(&format!("{:?}", info.model)).unwrap();
+            assert_eq!(diagnostic_options(requested).model_name, info.model);
+        }
+    }
+
+    #[test]
+    fn quantized_models_remain_distinct_and_substring_matches_are_refused() {
+        use fastembed::EmbeddingModel::{EmbeddingGemma300M, EmbeddingGemma300MQ4};
+        assert_eq!(
+            parse_model("EmbeddingGemma300M").unwrap(),
+            EmbeddingGemma300M
+        );
+        assert_eq!(
+            parse_model("embeddinggemma300mq4").unwrap(),
+            EmbeddingGemma300MQ4
+        );
+        assert!(parse_model("EmbeddingGemma300M-made-up").is_err());
     }
 }
