@@ -532,7 +532,7 @@ fn ranked_paths(hits: &[index::Hit]) -> Vec<String> {
 
 fn path_for_hash(conn: &rusqlite::Connection, hash: &str) -> anyhow::Result<String> {
     conn.query_row(
-        "SELECT d.path FROM blocks b JOIN docs d ON d.id = b.doc_id WHERE b.hash = ?1 ORDER BY d.path LIMIT 1",
+        "SELECT d.path FROM blocks b JOIN docs d ON d.id = b.doc_id WHERE b.embedding_hash = ?1 ORDER BY d.path LIMIT 1",
         [hash],
         |row| row.get(0),
     )

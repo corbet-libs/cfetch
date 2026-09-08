@@ -207,6 +207,8 @@ struct LocalBackendState {
     supervisor: crate::local_adapter::AdapterSupervisor,
     ordered_scope_ids: Vec<String>,
     selected_scope: Option<usize>,
+    /// Failed scopes stay disabled even if the dispatcher process restarts.
+    unavailable_scopes: std::collections::BTreeSet<usize>,
 }
 
 type SharedLocalBackendState = std::sync::Arc<std::sync::Mutex<LocalBackendState>>;
@@ -275,6 +277,7 @@ fn cached_local_backend_state(
                 ordered_scope_ids: supervisor.ordered_scope_ids().to_vec(),
                 supervisor,
                 selected_scope: None,
+                unavailable_scopes: std::collections::BTreeSet::new(),
             }))
         })
         .map_err(|error| format!("{error:#}"));
@@ -323,6 +326,52 @@ impl std::fmt::Display for ScopeUnavailableError {
 }
 
 impl std::error::Error for ScopeUnavailableError {}
+
+/// A deterministic refusal of the input itself. Runtime/model failures never
+/// acquire this type: only the adapter's exact overlength envelope qualifies.
+#[derive(Debug)]
+struct InputRefusal {
+    token_count: usize,
+}
+
+impl std::fmt::Display for InputRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "prefixed input contains {} tokens; the profile limit is {} and truncation is forbidden",
+            self.token_count,
+            crate::embedding_profile::MAX_TOKENS
+        )
+    }
+}
+
+impl std::error::Error for InputRefusal {}
+
+/// The packaged adapter currently sends `{ "error": "..." }` for every
+/// HTTP 400. Match the complete known overlength message, not a status code,
+/// substring, or arbitrary request error that row retries cannot repair.
+fn input_refusal(status: u16, body: &str) -> Option<InputRefusal> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Envelope {
+        error: String,
+    }
+
+    if status != 400 {
+        return None;
+    }
+    let envelope = serde_json::from_str::<Envelope>(body).ok()?;
+    let suffix = format!(
+        " tokens; the profile limit is {} and truncation is forbidden",
+        crate::embedding_profile::MAX_TOKENS
+    );
+    let count = envelope.error.strip_prefix("prefixed input contains ")?.strip_suffix(&suffix)?;
+    let token_count = count.parse::<usize>().ok()?;
+    if token_count <= crate::embedding_profile::MAX_TOKENS || count != token_count.to_string() {
+        return None;
+    }
+    Some(InputRefusal { token_count })
+}
 
 pub struct EmbedClient {
     backend: EmbedBackend,
@@ -953,6 +1002,8 @@ impl EmbedClient {
 
     /// Enforces the profile width. Truncating, padding, or accepting a native
     /// width would create a second vector space inside the same major.
+    /// Wrong width and degenerate output are systemic execution failures,
+    /// not evidence that retrying each input separately will repair the model.
     fn fit(&self, v: Vec<f32>) -> anyhow::Result<Vec<f32>> {
         if self.dimensions == 0 {
             return Ok(v);
@@ -1094,19 +1145,22 @@ impl EmbedClient {
             .map_err(|_| anyhow::anyhow!("package-local adapter supervisor lock was poisoned"))?;
         let selected = state.selected_scope;
         let mut attempts = Vec::new();
-        if let Some(index) = selected {
+        if let Some(index) = selected.filter(|index| !state.unavailable_scopes.contains(index)) {
             attempts.push(index);
         }
         attempts.extend(
-            (0..state.ordered_scope_ids.len()).filter(|index| Some(*index) != selected),
+            (0..state.ordered_scope_ids.len()).filter(|index| {
+                Some(*index) != selected && !state.unavailable_scopes.contains(index)
+            }),
         );
 
-        let mut unavailable = Vec::new();
+        let mut unavailable: Vec<String> = state.unavailable_scopes.iter()
+            .map(|index| state.ordered_scope_ids[*index].clone()).collect();
         for index in attempts {
             let scope_id = state.ordered_scope_ids[index].clone();
             let endpoint = state.supervisor.endpoint()?;
             let url = format!("{}/embeddings", endpoint.base_url.trim_end_matches('/'));
-            let mut result = self.embed_request(
+            let result = self.embed_request(
                 agent,
                 &url,
                 Some(&endpoint.authorization),
@@ -1119,16 +1173,14 @@ impl EmbedClient {
                 .err()
                 .is_some_and(|error| error.downcast_ref::<AdapterTransportError>().is_some())
             {
-                let restarted = state.supervisor.restart_after_transport_failure()?;
-                let retry_url = format!("{}/embeddings", restarted.base_url.trim_end_matches('/'));
-                result = self.embed_request(
-                    agent,
-                    &retry_url,
-                    Some(&restarted.authorization),
-                    texts,
-                    timeout,
-                    Some(&scope_id),
-                );
+                state.unavailable_scopes.insert(index);
+                state.selected_scope = None;
+                unavailable.push(scope_id);
+                // Confirm cleanup before another scope can execute. A live
+                // hung dispatcher latches the supervisor off; a confirmed
+                // crash can consume its one restart for the next scope.
+                state.supervisor.restart_after_transport_failure()?;
+                continue;
             }
             match result {
                 Ok(batch) => {
@@ -1137,6 +1189,7 @@ impl EmbedClient {
                 }
                 Err(error) if error.downcast_ref::<ScopeUnavailableError>().is_some() => {
                     state.selected_scope = None;
+                    state.unavailable_scopes.insert(index);
                     unavailable.push(scope_id);
                 }
                 Err(error) => return Err(error),
@@ -1213,6 +1266,9 @@ impl EmbedClient {
                 unavailable.error.scope_id
             ))
             .into());
+        }
+        if let Some(refusal) = input_refusal(status.as_u16(), &text) {
+            return Err(refusal.into());
         }
         anyhow::ensure!(
             status.is_success(),
@@ -1359,38 +1415,48 @@ pub fn run(
         println!("imported {imported} vector(s) from the shared store (already derived by this group)");
     }
     let mut embedded = 0usize;
+    // Refusals stay missing in the durable store, but must not be selected
+    // again during this run or a poisoned head would starve later inputs.
+    let mut refused = std::collections::HashSet::new();
     let mut pending = index::hashes_without_vectors(conn, &spec, batch)?;
     if !pending.is_empty() {
         // The write lock is taken only when there IS something to derive: a
         // host that only reads never needs the store to be writable.
         let mut writer = store.begin_write()?;
         loop {
+            let refused_before = refused.len();
             let texts: Vec<&str> = pending.iter().map(|(_, t)| t.as_str()).collect();
-            // One poisoned block must not freeze the whole queue: the pending
-            // set is ordered by id, and a row-level refusal (a degenerate or
-            // wrong-width vector, `fit`) aborts the batch before any write,
-            // so the identical head would be re-selected and re-failed
-            // forever - every block after it never reaches the endpoint.
-            // On a batch failure, fall back to one-row batches: rows that
-            // fail alone are skipped with a note (and retried next run),
-            // the rest proceed. An empty vector marks a skipped row.
+            // Only a proven input refusal justifies isolating the rows. A
+            // transport, auth, scope, protocol, or model failure stops at once;
+            // turning those into singleton requests multiplies broken work.
+            // An empty vector marks a refused row, preserving input alignment.
             let vectors = match client.embed_documents_batch(&texts) {
                 Ok(v) => v,
-                Err(first) => {
-                    let first = format!("{first:#}");
-                    eprintln!("cfetch embed-index: batch failed ({first}); retrying rows individually");
-                    let mut single: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
-                    for t in &texts {
-                        match client.embed_documents_batch(std::slice::from_ref(t)) {
-                            Ok(mut v) => single.append(&mut v),
-                            Err(row) => {
-                                eprintln!("cfetch embed-index: skipping one block this run: {row:#}");
-                                single.push(Vec::new());
+                Err(first) if first.downcast_ref::<InputRefusal>().is_some() => {
+                    if texts.len() == 1 {
+                        eprintln!("cfetch embed-index: skipping one block this run: {first:#}");
+                        refused.insert(pending[0].0.clone());
+                        vec![Vec::new()]
+                    } else {
+                        eprintln!("cfetch embed-index: input refused ({first:#}); isolating rows");
+                        let mut single: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
+                        for ((hash, _), t) in pending.iter().zip(&texts) {
+                            match client.embed_documents_batch(std::slice::from_ref(t)) {
+                                Ok(mut v) => single.append(&mut v),
+                                Err(row) if row.downcast_ref::<InputRefusal>().is_some() => {
+                                    eprintln!("cfetch embed-index: skipping one block this run: {row:#}");
+                                    refused.insert(hash.clone());
+                                    single.push(Vec::new());
+                                }
+                                Err(error) => return Err(error)
+                                    .context("embedding stopped during input isolation; earlier committed batches are kept"),
                             }
                         }
+                        single
                     }
-                    single
                 }
+                Err(error) => return Err(error)
+                    .context("embedding stopped; earlier committed batches are kept"),
             };
             // Record first, cache second: the shared artifact is what the
             // group keeps, the local row is a convenience. Pairs, not two
@@ -1412,32 +1478,39 @@ pub fn run(
                 }
             }
             let succeeded = cached.len();
-            // Liveness guard: if EVERY row was refused (per-row fallback
-            // included), nothing is inserted and the refetched pending set
-            // is identical - retrying would loop forever. Stop with the
-            // error; progress from earlier batches is already committed and
-            // the run resumes where it left off once the endpoint recovers.
-            if succeeded == 0 {
-                anyhow::bail!(
-                    "embedding made no progress: every row in the batch was refused; \
-                     fix the endpoint and re-run (progress so far is kept)"
-                );
+            anyhow::ensure!(
+                succeeded > 0 || refused.len() > refused_before,
+                "embedding made no progress: no cacheable vectors or newly refused inputs; earlier committed work is kept"
+            );
+            if succeeded > 0 {
+                writer.flush()?;
+                let tx = conn.transaction()?;
+                for (hash, vector) in &cached {
+                    index::insert_vector(&tx, hash, &spec, vector)?;
+                }
+                tx.commit()?;
+                embedded += succeeded;
+                let (done, total) = index::vector_coverage(conn, &spec)?;
+                println!("embedded {done}/{total} blocks");
             }
-            writer.flush()?;
-            let tx = conn.transaction()?;
-            for (hash, vector) in &cached {
-                index::insert_vector(&tx, hash, &spec, vector)?;
-            }
-            tx.commit()?;
-            embedded += succeeded;
-            let (done, total) = index::vector_coverage(conn, &spec)?;
-            println!("embedded {done}/{total} blocks");
-            pending = index::hashes_without_vectors(conn, &spec, batch)?;
+            // Widen the window by this run's refused keys, then remove them.
+            // Even an entirely refused batch advances to remaining work.
+            pending = index::hashes_without_vectors(conn, &spec, batch.saturating_add(refused.len()))?
+                .into_iter()
+                .filter(|(hash, _)| !refused.contains(hash))
+                .take(batch)
+                .collect();
             if pending.is_empty() {
                 break;
             }
         }
     }
+    anyhow::ensure!(
+        refused.is_empty(),
+        "embedding incomplete: {} input(s) exceeded the profile token limit; \
+         {embedded} newly derived vector(s) and earlier committed work are kept",
+        refused.len()
+    );
     let (_, total_blocks) = index::vector_coverage(conn, &spec)?;
     Ok(EmbedIndexReport { embedded, imported, total_blocks })
 }
@@ -1802,6 +1875,34 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("1..=64"), "{error}");
+    }
+
+    #[test]
+    fn only_the_exact_adapter_overlength_envelope_is_an_input_refusal() {
+        let message = |count: &str| format!(
+            "prefixed input contains {count} tokens; the profile limit is {} and truncation is forbidden",
+            crate::embedding_profile::MAX_TOKENS
+        );
+        let body = serde_json::json!({"error": message("2049")}).to_string();
+        assert_eq!(input_refusal(400, &body).unwrap().token_count, 2049);
+        for status in [200, 401, 413, 429, 500, 503] {
+            assert!(input_refusal(status, &body).is_none(), "HTTP {status} must stop");
+        }
+        for count in ["2048", "0", "-2049", "+2049", "02049", "2049.0", "2049 ", "99999999999999999999999999999999999999"] {
+            let body = serde_json::json!({"error": message(count)}).to_string();
+            assert!(input_refusal(400, &body).is_none(), "noncanonical/impossible count {count}");
+        }
+        for body in [
+            "not json".to_string(),
+            serde_json::json!({"error": "cfetch_requested_scope_id must name an exact scope in this target package"}).to_string(),
+            serde_json::json!({"error": {"message": message("2049")}}).to_string(),
+            serde_json::json!({"error": message("2049"), "unexpected": true}).to_string(),
+            serde_json::json!({"error": format!("{} extra", message("2049"))}).to_string(),
+            serde_json::json!({"error": message("2049").replace("2048", "4096")}).to_string(),
+            format!(r#"{{"error":{},"error":{}}}"#, serde_json::json!(message("2049")), serde_json::json!(message("2049"))),
+        ] {
+            assert!(input_refusal(400, &body).is_none(), "arbitrary 400 must stop: {body}");
+        }
     }
 
     #[test]
@@ -2615,17 +2716,128 @@ mod tests {
         );
     }
 
+    fn overlength_response() -> String {
+        http_response(400, &serde_json::json!({
+            "error": format!(
+                "prefixed input contains {} tokens; the profile limit is {} and truncation is forbidden",
+                crate::embedding_profile::MAX_TOKENS + 1,
+                crate::embedding_profile::MAX_TOKENS
+            )
+        }).to_string())
+    }
+
+    #[test]
+    fn embed_index_systemic_failures_make_one_request_without_row_retries() {
+        for case in ["503", "transport", "400", "auth", "parse", "model", "width", "degenerate"] {
+            let (brain, _state, mut conn) = five_block_index();
+            let (url, bodies, _) = spawn_server(move |_, body| match case {
+                "503" => http_response(503, r#"{"error":"resource governor unavailable"}"#),
+                "transport" => String::new(), // Close after receiving the request.
+                "400" => http_response(400, r#"{"error":"invalid requested scope"}"#),
+                "auth" => http_response(401, r#"{"error":"unauthorized"}"#),
+                "parse" => http_response(200, "not json"),
+                "model" => canned_embeddings(body, 0.0).replace("test-model", "wrong-model"),
+                "width" => canned_width(body, 3),
+                "degenerate" => {
+                    let request: serde_json::Value = serde_json::from_str(body).unwrap();
+                    let rows = (0..request["input"].as_array().unwrap().len())
+                        .map(|index| format!(r#"{{"index":{index},"embedding":[0.0,0.0]}}"#))
+                        .collect::<Vec<_>>().join(",");
+                    attested_rows("test-model", &rows)
+                }
+                _ => unreachable!(),
+            });
+            let mut store = store_for(brain.path());
+            let error = match run(&mut conn, &client_for(&url), 5, &mut store) {
+                Ok(_) => panic!("systemic failure must stop the run"),
+                Err(error) => error,
+            };
+            assert!(error.downcast_ref::<InputRefusal>().is_none(), "{case}: {error:#}");
+            assert_eq!(bodies.lock().unwrap().len(), 1, "{case} must not become five singleton retries");
+            assert!(store.is_empty(), "{case} must not admit any failed batch");
+            assert_eq!(index::vector_coverage(&conn, &spec_for(2)).unwrap(), (0, 5));
+        }
+    }
+
+    #[test]
+    fn embed_index_stops_isolation_at_the_first_systemic_failure() {
+        let (brain, _state, mut conn) = five_block_index();
+        let (url, bodies, _) = spawn_server(|n, body| match n {
+            0 => overlength_response(),
+            1 => canned_embeddings(body, 0.0),
+            _ => http_response(503, r#"{"error":"all execution scopes exhausted"}"#),
+        });
+        let mut store = store_for(brain.path());
+        let error = match run(&mut conn, &client_for(&url), 5, &mut store) {
+            Ok(_) => panic!("a systemic error during row isolation must stop"),
+            Err(error) => error,
+        };
+        assert!(format!("{error:#}").contains("503"), "original failure must survive: {error:#}");
+        assert_eq!(bodies.lock().unwrap().len(), 3, "batch, first row, failing second row; nothing after failure");
+        assert!(store.is_empty(), "the interrupted batch was never admitted");
+        assert_eq!(index::vector_coverage(&conn, &spec_for(2)).unwrap(), (0, 5));
+    }
+
+    #[test]
+    fn embed_index_skips_overlength_heads_once_and_preserves_later_progress() {
+        for (batch, poison_count) in [(1, 1), (1, 2), (2, 1), (2, 2)] {
+            let (brain, _state, mut conn) = five_block_index();
+            let (url, bodies, _) = spawn_server(move |_, body| {
+                let request: serde_json::Value = serde_json::from_str(body).unwrap();
+                let too_long = request["input"].as_array().unwrap().iter().any(|text| {
+                    let text = text.as_str().unwrap();
+                    text.ends_with("- one") || (poison_count == 2 && text.ends_with("- two"))
+                });
+                if too_long { overlength_response() } else { canned_embeddings(body, 0.0) }
+            });
+            let mut store = store_for(brain.path());
+            let error = match run(&mut conn, &client_for(&url), batch, &mut store) {
+                Ok(_) => panic!("refused inputs cannot report a complete run"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains(&format!("{poison_count} input(s) exceeded")), "{error:#}");
+            assert_eq!(store.len(), 5 - poison_count, "later valid inputs are durably stored");
+            assert_eq!(index::vector_coverage(&conn, &spec_for(2)).unwrap(), (5 - poison_count, 5));
+            assert_eq!(index::hashes_without_vectors(&conn, &spec_for(2), 10).unwrap().len(), poison_count);
+            let requests = bodies.lock().unwrap();
+            assert_eq!(requests.len(), 5, "refused heads are not reselected; singleton refusals are not retried");
+            for suffix in ["- one", "- two"].into_iter().take(poison_count) {
+                let occurrences = requests.iter().map(|body| {
+                    let request: serde_json::Value = serde_json::from_str(body).unwrap();
+                    request["input"].as_array().unwrap().iter().filter(|text| text.as_str().unwrap().ends_with(suffix)).count()
+                }).sum::<usize>();
+                assert_eq!(occurrences, batch, "one initial batch plus isolation only when needed");
+            }
+        }
+    }
+
+    #[test]
+    fn embed_index_all_overlength_inputs_finish_with_one_bounded_isolation_pass() {
+        let (brain, _state, mut conn) = five_block_index();
+        let (url, bodies, _) = spawn_server(|_, _| overlength_response());
+        let mut store = store_for(brain.path());
+        let error = match run(&mut conn, &client_for(&url), 5, &mut store) {
+            Ok(_) => panic!("all-refused run must fail without looping"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("5 input(s) exceeded"), "{error:#}");
+        assert_eq!(bodies.lock().unwrap().len(), 6, "one batch and one isolation attempt per input");
+        assert!(store.is_empty());
+        assert_eq!(index::vector_coverage(&conn, &spec_for(2)).unwrap(), (0, 5));
+    }
+
     #[test]
     fn embed_index_is_resumable_after_midway_failure() {
         let (brain, _state, mut conn) = five_block_index();
         // First server: batch 1 succeeds, batch 2 fails -> run() errors, but
         // the first batch's vectors are already committed.
-        let (url_a, _, _) = spawn_server(|n, body| {
+        let (url_a, bodies_a, _) = spawn_server(|n, body| {
             if n == 0 { canned_embeddings(body, 0.0) } else { http_response(500, "{}") }
         });
         let client_a = client_for(&url_a);
         let mut store = store_for(brain.path());
         assert!(run(&mut conn, &client_a, 2, &mut store).is_err());
+        assert_eq!(bodies_a.lock().unwrap().len(), 2, "failure stops without row retries");
         assert_eq!(
             index::vector_coverage(&conn, &spec_for(2)).unwrap().0,
             2,
@@ -2755,7 +2967,7 @@ mod tests {
         let client = EmbedClient::new(&cfg).unwrap();
         let mut store = crate::vectors::VectorStore::open(brain.path(), &cfg.spec()).unwrap();
         run(&mut conn, &client, 8, &mut store).unwrap();
-        let stored = store.get(&index::content_hash("- one")).unwrap().unwrap();
+        let stored = store.get(&crate::embedding_input::hash("- one")).unwrap().unwrap();
         assert_eq!(stored.len(), 4, "the artifact carries the configured width");
         let dim: i64 = conn.query_row("SELECT dim FROM vectors LIMIT 1", [], |r| r.get(0)).unwrap();
         assert_eq!(dim, 4);

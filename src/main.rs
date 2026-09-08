@@ -68,6 +68,7 @@ mod maintenance_inbox;
 mod maintenance_model;
 mod maintenance_worker;
 mod memory_eval;
+mod embedding_input;
 mod mcp;
 mod migrate;
 mod net;

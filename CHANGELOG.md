@@ -6,10 +6,17 @@ listed here is a fix or an internal change with no effect on behavior.
 ## Unreleased
 
 - **Exact statement identity and vector invalidation.** Case, spacing, and
-  line-break changes now produce distinct body hashes. The disposable catalog
-  rebuilds at schema 8; citations change, and legacy normalized-body vector
-  keys cannot hydrate the new exact-body keys. Markdown and retained vector
-  records are preserved.
+  line-break changes produce distinct body hashes. Schema 9 separates those
+  citation hashes from vector payload hashes: documents include enclosing
+  headings and full table headers under the unchanged encoder prefix.
+  Context-only edits invalidate dependent vectors and preserve citations.
+  Legacy vectors remain stored but cannot hydrate the new keys; identical
+  table rows under different headers remain distinct recall hits.
+- **Bounded derivation failures.** Only an explicit overlength-input refusal
+  triggers row isolation. Transport, authentication, scope, malformed output,
+  and invalid-vector failures stop immediately. Refused rows are not retried
+  during the same run; completed work remains resumable. An unresponsive
+  adapter is stopped, and failed scopes remain disabled across its restart.
 - **Hybrid recall keeps lexical trust reservation.** The lexical input to
   fusion now applies the same single top-trust slot as standalone recall,
   preventing fusion from silently using a different lexical ordering.

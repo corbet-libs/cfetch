@@ -314,7 +314,8 @@ mod tests {
                id INTEGER PRIMARY KEY, cite TEXT NOT NULL, doc_id INTEGER NOT NULL,
                start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, text TEXT NOT NULL,
                ctx TEXT NOT NULL DEFAULT '', chain TEXT NOT NULL DEFAULT '',
-               hash TEXT NOT NULL DEFAULT ''
+               hash TEXT NOT NULL DEFAULT '',
+               embedding_text TEXT NOT NULL, embedding_hash TEXT NOT NULL
              );
              CREATE TABLE links(from_doc INTEGER NOT NULL, to_doc INTEGER NOT NULL);
              CREATE TABLE doc_links(doc_id INTEGER NOT NULL, target TEXT NOT NULL);
@@ -331,9 +332,9 @@ mod tests {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO blocks(cite, doc_id, start_line, end_line, text, ctx, chain, hash)
-             VALUES ('r1-a', 1, 1, 1, 'overview', '', '', 'a'),
-                    ('r3-b', 2, 1, 1, 'alpha', '', '', 'b')",
+            "INSERT INTO blocks(cite, doc_id, start_line, end_line, text, ctx, chain, hash, embedding_text, embedding_hash)
+             VALUES ('r1-a', 1, 1, 1, 'overview', '', '', 'a', 'overview', 'payload-a'),
+                    ('r3-b', 2, 1, 1, 'alpha', '', '', 'b', 'alpha', 'payload-b')",
             [],
         )
         .unwrap();

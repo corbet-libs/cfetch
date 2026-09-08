@@ -17,6 +17,7 @@ use crate::{embedding_profile as profile, hashing, index};
 pub enum Representation {
     Body,
     HeadingContext,
+    ContextPayload,
 }
 
 #[derive(Deserialize)]
@@ -65,6 +66,8 @@ struct Block {
     context: String,
     chain: String,
     input_id: String,
+    #[serde(skip)]
+    payload_hash: String,
 }
 
 #[derive(Serialize)]
@@ -217,7 +220,7 @@ fn build(
     let mut inputs = BTreeMap::new();
     {
         let mut stmt = conn.prepare(
-            "SELECT b.id,d.path,b.start_line,b.end_line,d.ring,b.cite,b.hash,b.text,b.ctx,b.chain
+            "SELECT b.id,d.path,b.start_line,b.end_line,d.ring,b.cite,b.hash,b.text,b.ctx,b.chain,b.embedding_text
              FROM blocks b JOIN docs d ON d.id=b.doc_id ORDER BY b.id",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -234,11 +237,13 @@ fn build(
                     context: row.get(8)?,
                     chain: row.get(9)?,
                     input_id: String::new(),
+                    payload_hash: crate::embedding_input::hash(&row.get::<_, String>(10)?),
                 },
+                row.get::<_, String>(10)?,
             ))
         })?;
         for row in rows {
-            let (id, mut block) = row?;
+            let (id, mut block, payload) = row?;
             let text = match representation {
                 Representation::Body => format!("{}{}", profile::DOCUMENT_PREFIX, block.body),
                 Representation::HeadingContext if block.context.is_empty() => {
@@ -246,6 +251,9 @@ fn build(
                 }
                 Representation::HeadingContext => {
                     format!("title: {} | text: {}", block.context, block.body)
+                }
+                Representation::ContextPayload => {
+                    format!("{}{}", profile::DOCUMENT_PREFIX, payload)
                 }
             };
             block.input_id = input_id(&text);
@@ -257,7 +265,7 @@ fn build(
             // Only this temporary evaluation catalog uses the experimental
             // input identity. Cites/source_hash retain real source provenance.
             conn.execute(
-                "UPDATE blocks SET hash=?1 WHERE id=?2",
+                "UPDATE blocks SET embedding_hash=?1 WHERE id=?2",
                 rusqlite::params![block.input_id, id],
             )?;
             blocks.push(block);
@@ -305,7 +313,7 @@ fn build(
                 .find(|b| b.path == relevant.path && b.body == relevant.text)
                 .unwrap();
             ensure!(
-                logical_labels.insert((&block.source_hash, &block.chain)),
+                logical_labels.insert((&block.source_hash, &block.payload_hash)),
                 "query {} labels multiple mirrors of one logical statement",
                 query.id
             );

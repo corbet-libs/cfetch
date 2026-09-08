@@ -97,14 +97,19 @@ impl AdapterSupervisor {
             .clone())
     }
 
-    /// Transport failure is retryable only when the supervised child really
-    /// crashed. A malformed signed response or a live process that refuses a
-    /// request is not converted into broad fallback by this layer.
+    /// A dead child gets the existing one-restart allowance. A live child
+    /// after transport failure may be stuck inside native code: terminate it
+    /// within the cleanup bound and latch this supervisor unavailable. That
+    /// ambiguous failure must not re-enter the same accelerator operation.
     pub fn restart_after_transport_failure(&mut self) -> anyhow::Result<AdapterEndpoint> {
-        anyhow::ensure!(
-            self.child_exited()?,
-            "package-local adapter transport failed while its supervised process remained alive"
-        );
+        if !self.child_exited()? {
+            self.restarted_after_crash = true;
+            self.stop().context("stop unresponsive package-local adapter after transport failure")?;
+            anyhow::bail!(
+                "package-local adapter transport failed while its supervised process remained alive; \
+                 the owned process was stopped and further launches are disabled"
+            );
+        }
         self.restart_once("package-local adapter crashed during a request")?;
         self.endpoint()
     }
@@ -560,11 +565,18 @@ mod tests {
         assert!(endpoint.authorization.starts_with("Bearer "));
         assert_eq!(endpoint.authorization.len(), "Bearer ".len() + 64);
         let pid = supervisor.running.as_ref().unwrap().child.id();
+        let started = Instant::now();
         let error = supervisor.restart_after_transport_failure().unwrap_err();
         assert!(error.to_string().contains("remained alive"));
-        assert!(!supervisor.restarted_after_crash);
-        assert_eq!(supervisor.running.as_ref().unwrap().child.id(), pid);
-        assert_eq!(supervisor.endpoint().unwrap(), endpoint);
+        assert!(error.to_string().contains("owned process was stopped"), "PID {pid}: {error}");
+        assert!(supervisor.restarted_after_crash);
+        assert!(supervisor.running.is_none());
+        assert!(supervisor.cleanup_pending.is_none());
+        assert!(started.elapsed() < TERMINATE_TIMEOUT + Duration::from_secs(1));
+        for _ in 0..3 {
+            assert!(supervisor.endpoint().unwrap_err().to_string().contains("restart was already consumed"));
+            assert!(supervisor.running.is_none());
+        }
         drop(supervisor);
     }
 

@@ -879,7 +879,7 @@ fn offer_peer_vectors(req: &Request, peer: &str, slice: &str, ctx: &Ctx) -> Resp
     };
     serve_query(ctx, |conn| {
         let mut path_stmt = conn.prepare(
-            "SELECT DISTINCT d.path FROM blocks b JOIN docs d ON d.id=b.doc_id WHERE b.hash=?1",
+            "SELECT DISTINCT d.path FROM blocks b JOIN docs d ON d.id=b.doc_id WHERE b.embedding_hash=?1",
         )?;
         let mut unique = std::collections::HashSet::with_capacity(hashes.len());
         let mut artifacts = Vec::new();

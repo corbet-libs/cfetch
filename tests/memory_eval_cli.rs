@@ -10,6 +10,7 @@ use sha2::Digest as _;
 struct Fixture {
     root: tempfile::TempDir,
     corpus: PathBuf,
+    representation: &'static str,
 }
 
 impl Fixture {
@@ -17,14 +18,15 @@ impl Fixture {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("corpus.json");
         std::fs::write(&path, serde_json::to_vec_pretty(corpus).unwrap()).unwrap();
-        Self { root, corpus: path }
+        Self { root, corpus: path, representation: "body" }
     }
 
     fn run(&self, export: Option<&Path>, vectors: Option<&Path>) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_cfetch"));
         command
             .args(["retrieval-eval", "--corpus"])
-            .arg(&self.corpus);
+            .arg(&self.corpus)
+            .args(["--representation", self.representation]);
         if let Some(path) = export {
             command.arg("--export").arg(path);
         }
@@ -112,6 +114,34 @@ fn corpus() -> Value {
              "relevant": [{"path": "knowledge/backups.md", "text": "- Keep backups.", "grade": 3}]}
         ]
     })
+}
+
+#[test]
+fn context_payload_keeps_the_fixed_prefix_and_body_citations() {
+    let mut fixture = Fixture::new(&json!({
+        "schema_version": 1, "description": "context identity regression",
+        "documents": [
+            {"path": "knowledge/alpha.md", "text": "# Alpha\n\n- Keep backups.\n"},
+            {"path": "knowledge/beta.md", "text": "# Beta\n\n- Keep backups.\n"}
+        ],
+        "queries": [{"id": "alpha", "category": "context", "text": "Alpha backups",
+            "critical": false,
+            "relevant": [{"path": "knowledge/alpha.md", "text": "- Keep backups.", "grade": 3}]}]
+    }));
+    fixture.representation = "context-payload";
+    let manifest: Value = serde_json::from_slice(&fixture.export()).unwrap();
+    let blocks: Vec<&Value> = manifest["blocks"].as_array().unwrap().iter()
+        .filter(|block| block["body"] == "- Keep backups.").collect();
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0]["cite"], blocks[1]["cite"]);
+    assert_eq!(blocks[0]["source_hash"], blocks[1]["source_hash"]);
+    assert_ne!(blocks[0]["input_id"], blocks[1]["input_id"]);
+    let inputs = manifest["inputs"].as_array().unwrap();
+    for (block, heading) in blocks.iter().zip(["Alpha", "Beta"]) {
+        let input = inputs.iter().find(|input| input["id"] == block["input_id"]).unwrap();
+        assert_eq!(input["text"], format!("title: none | text: {heading}\n\n- Keep backups."));
+    }
+    fixture.assert_isolated();
 }
 
 fn report(output: Output) -> Value {
