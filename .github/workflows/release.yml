@@ -1,12 +1,11 @@
-# Tag v* -> GitHub release with every entry in release/variants.json.
+# Tag v* -> GitHub release with endpoint variants and admitted local packages.
 # Every archive contains the binary, cfetch's license and the generated
 # third-party license/NOTICE bundle. Uses only the workflow's own GITHUB_TOKEN
 # (via the contents: write permission) — no configured secrets.
 #
 # The backend is part of every artifact name. Today every real build is the
-# endpoint-only `remote` flavor. Accelerator variants enter the manifest only
-# after their runtime is linked and tested; release automation cannot publish
-# a name which the executable catalog does not contain.
+# endpoint-only `remote` flavor. Candidate targets remain in the executable
+# catalog and normal build CI; only admitted local packages enter a release.
 name: Release
 
 on:
@@ -48,7 +47,9 @@ jobs:
         id: catalog
         shell: bash
         run: |
-          echo "matrix=$(bash scripts/variant-matrix.sh)" >> "$GITHUB_OUTPUT"
+          python -m unittest -v scripts.test_variant_matrix
+          matrix=$(bash scripts/variant-matrix.sh --release)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.id }})
