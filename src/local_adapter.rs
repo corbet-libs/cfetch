@@ -8,13 +8,15 @@ use std::io::{BufRead as _, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use sha2::Digest as _;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_READY_BYTES: usize = 16 * 1024;
+const TERMINATE_TIMEOUT: Duration = Duration::from_secs(2);
+const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdapterEndpoint {
@@ -35,13 +37,16 @@ struct RunningAdapter {
     child: Child,
     /// Kept open for the whole child lifetime. The adapter treats EOF as a
     /// parent-death signal and shuts down instead of becoming an orphan.
-    _stdin: ChildStdin,
+    _stdin: Option<ChildStdin>,
     endpoint: AdapterEndpoint,
 }
 
 pub struct AdapterSupervisor {
     launch: AdapterLaunch,
     running: Option<RunningAdapter>,
+    /// A failed startup whose child could not be confirmed dead. Retaining
+    /// it prevents another launch and lets Drop retry bounded cleanup.
+    cleanup_pending: Option<Child>,
     restarted_after_crash: bool,
 }
 
@@ -59,6 +64,7 @@ impl AdapterSupervisor {
         Ok(Self {
             launch,
             running: None,
+            cleanup_pending: None,
             restarted_after_crash: false,
         })
     }
@@ -70,11 +76,18 @@ impl AdapterSupervisor {
     /// Starts lazily and returns the current authenticated loopback endpoint.
     /// A child found dead is restarted once for this supervisor's lifetime.
     pub fn endpoint(&mut self) -> anyhow::Result<AdapterEndpoint> {
+        if let Some(child) = &self.cleanup_pending {
+            anyhow::bail!("package-local adapter startup cleanup is incomplete for PID {}; refusing another launch", child.id());
+        }
         if self.child_exited()? {
             self.restart_once("package-local adapter exited")?;
         }
         if self.running.is_none() {
-            self.running = Some(spawn_adapter(&self.launch)?);
+            anyhow::ensure!(
+                !self.restarted_after_crash,
+                "package-local adapter is unavailable; the one supervised restart was already consumed"
+            );
+            self.running = Some(spawn_adapter(&self.launch, &mut self.cleanup_pending)?);
         }
         Ok(self
             .running
@@ -115,26 +128,33 @@ impl AdapterSupervisor {
             "{reason}; the one supervised restart was already consumed"
         );
         self.restarted_after_crash = true;
-        self.stop();
-        self.running = Some(spawn_adapter(&self.launch)?);
+        self.stop()?;
+        self.running = Some(spawn_adapter(&self.launch, &mut self.cleanup_pending)?);
         Ok(())
     }
 
-    fn stop(&mut self) {
-        if let Some(mut running) = self.running.take() {
+    fn stop(&mut self) -> anyhow::Result<()> {
+        if let Some(running) = self.running.as_mut() {
             // Closing stdin first gives a well-behaved adapter a clean exit.
-            drop(running._stdin);
-            if running.child.try_wait().ok().flatten().is_none() {
-                let _ = running.child.kill();
-            }
-            let _ = running.child.wait();
+            running._stdin.take();
+            // Keep the owned child on failure: an uncertain exit must not
+            // make the next endpoint call start a second adapter.
+            terminate(&mut running.child)?;
         }
+        self.running.take();
+        if let Some(child) = self.cleanup_pending.as_mut() {
+            terminate(child)?;
+        }
+        self.cleanup_pending.take();
+        Ok(())
     }
 }
 
 impl Drop for AdapterSupervisor {
     fn drop(&mut self) {
-        self.stop();
+        if let Err(error) = self.stop() {
+            eprintln!("cfetch: package-local adapter cleanup failed: {error:#}");
+        }
     }
 }
 
@@ -212,7 +232,7 @@ fn file_sha256(path: &Path) -> anyhow::Result<String> {
     Ok(crate::hashing::hex_lower(digest.finalize()))
 }
 
-fn spawn_adapter(launch: &AdapterLaunch) -> anyhow::Result<RunningAdapter> {
+fn spawn_adapter(launch: &AdapterLaunch, cleanup_pending: &mut Option<Child>) -> anyhow::Result<RunningAdapter> {
     // Re-check immediately before execution. Construction and first use may
     // be separated by a long-running daemon's lifetime.
     validate_launch(launch)?;
@@ -231,58 +251,56 @@ fn spawn_adapter(launch: &AdapterLaunch) -> anyhow::Result<RunningAdapter> {
         .stderr(Stdio::inherit())
         .spawn()
         .with_context(|| format!("start package-local adapter {}", launch.binary.display()))?;
-    let mut stdin = child.stdin.take().context("adapter stdin was not piped")?;
-    let secret_line = serde_json::to_vec(&serde_json::json!({"bearer": bearer}))?;
-    stdin.write_all(&secret_line)?;
-    stdin.write_all(b"\n")?;
-    stdin.flush()?;
+    let startup: anyhow::Result<(ChildStdin, ReadyLine)> = (|| {
+        let mut stdin = child.stdin.take().context("adapter stdin was not piped")?;
+        let secret_line = serde_json::to_vec(&serde_json::json!({"bearer": bearer}))?;
+        stdin.write_all(&secret_line).context("write package-local adapter authentication")?;
+        stdin.write_all(b"\n")?;
+        stdin.flush()?;
 
-    let stdout = child.stdout.take().context("adapter stdout was not piped")?;
-    let (sender, receiver) = mpsc::sync_channel(1);
-    std::thread::spawn(move || {
-        let mut reader = std::io::BufReader::new(stdout);
-        let mut bytes = Vec::new();
-        let result = reader
-            .by_ref()
-            .take((MAX_READY_BYTES + 1) as u64)
-            .read_until(b'\n', &mut bytes)
-            .map(|_| bytes);
-        let _ = sender.send(result);
-    });
-    let ready_bytes = match receiver.recv_timeout(READY_TIMEOUT) {
-        Ok(Ok(bytes)) => bytes,
-        Ok(Err(error)) => {
-            terminate(&mut child);
-            return Err(error).context("read package-local adapter readiness");
-        }
-        Err(_) => {
-            terminate(&mut child);
-            anyhow::bail!("timed out waiting for package-local adapter readiness");
-        }
-    };
-    if ready_bytes.len() > MAX_READY_BYTES || !ready_bytes.ends_with(b"\n") {
-        terminate(&mut child);
-        anyhow::bail!("package-local adapter readiness line is missing or exceeds its bound");
-    }
-    let ready: ReadyLine = match serde_json::from_slice(&ready_bytes) {
-        Ok(ready) => ready,
+        let stdout = child.stdout.take().context("adapter stdout was not piped")?;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let mut reader = std::io::BufReader::new(stdout);
+            let mut bytes = Vec::new();
+            let result = reader
+                .by_ref()
+                .take((MAX_READY_BYTES + 1) as u64)
+                .read_until(b'\n', &mut bytes)
+                .map(|_| bytes);
+            let _ = sender.send(result);
+        });
+        let ready_bytes = match receiver.recv_timeout(READY_TIMEOUT) {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(error)) => return Err(error).context("read package-local adapter readiness"),
+            Err(_) => anyhow::bail!("timed out waiting for package-local adapter readiness"),
+        };
+        anyhow::ensure!(
+            ready_bytes.len() <= MAX_READY_BYTES && ready_bytes.ends_with(b"\n"),
+            "package-local adapter readiness line is missing or exceeds its bound"
+        );
+        let ready: ReadyLine = serde_json::from_slice(&ready_bytes)
+            .context("parse package-local adapter readiness")?;
+        validate_ready_line(&ready, &launch.ordered_scope_ids)?;
+        Ok((stdin, ready))
+    })();
+    match startup {
+        Ok((stdin, ready)) => Ok(RunningAdapter {
+            child,
+            _stdin: Some(stdin),
+            endpoint: AdapterEndpoint {
+                base_url: ready.url,
+                authorization: format!("Bearer {bearer}"),
+            },
+        }),
         Err(error) => {
-            terminate(&mut child);
-            return Err(error).context("parse package-local adapter readiness");
+            if let Err(cleanup_error) = terminate(&mut child) {
+                *cleanup_pending = Some(child);
+                return Err(error).context(format!("package-local adapter startup cleanup failed: {cleanup_error:#}"));
+            }
+            Err(error)
         }
-    };
-    if let Err(error) = validate_ready_line(&ready, &launch.ordered_scope_ids) {
-        terminate(&mut child);
-        return Err(error);
     }
-    Ok(RunningAdapter {
-        child,
-        _stdin: stdin,
-        endpoint: AdapterEndpoint {
-            base_url: ready.url,
-            authorization: format!("Bearer {bearer}"),
-        },
-    })
 }
 
 fn validate_ready_line(ready: &ReadyLine, expected_scopes: &[String]) -> anyhow::Result<()> {
@@ -303,9 +321,39 @@ fn validate_ready_line(ready: &ReadyLine, expected_scopes: &[String]) -> anyhow:
     Ok(())
 }
 
-fn terminate(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+fn terminate(child: &mut Child) -> anyhow::Result<()> {
+    let pid = child.id();
+    if child.try_wait().with_context(|| format!("inspect package-local adapter PID {pid} before termination"))?.is_some() {
+        return Ok(());
+    }
+    if let Err(error) = child.kill() {
+        // The process may have exited between inspection and the kill.
+        if child.try_wait().with_context(|| format!("inspect package-local adapter PID {pid} after failed termination"))?.is_some() {
+            return Ok(());
+        }
+        return Err(error).with_context(|| format!("terminate package-local adapter PID {pid}; process may still be alive"));
+    }
+    wait_for_owned_exit(pid, TERMINATE_TIMEOUT, || child.try_wait().map(|status| status.is_some()))
+}
+
+fn wait_for_owned_exit(
+    pid: u32,
+    timeout: Duration,
+    mut exited: impl FnMut() -> std::io::Result<bool>,
+) -> anyhow::Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if exited().with_context(|| format!("inspect package-local adapter PID {pid} during termination"))? {
+            return Ok(());
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        anyhow::ensure!(
+            !remaining.is_zero(),
+            "timed out confirming package-local adapter PID {pid} exit after {} ms; process may still be alive",
+            timeout.as_millis()
+        );
+        std::thread::sleep(EXIT_POLL_INTERVAL.min(remaining));
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -321,6 +369,137 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn termination_poll_times_out_and_reports_the_owned_pid() {
+        let started = Instant::now();
+        let error = wait_for_owned_exit(123, Duration::ZERO, || Ok(false)).unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(1));
+        let message = error.to_string();
+        assert!(message.contains("PID 123") && message.contains("timed out"), "{message}");
+        assert!(message.contains("process may still be alive"), "{message}");
+    }
+
+    #[test]
+    fn termination_poll_reports_inspection_errors_without_retrying() {
+        let mut inspections = 0;
+        let error = wait_for_owned_exit(123, TERMINATE_TIMEOUT, || {
+            inspections += 1;
+            Err(std::io::Error::other("fake inspection failure"))
+        })
+        .unwrap_err();
+        assert_eq!(inspections, 1);
+        let message = format!("{error:#}");
+        assert!(message.contains("PID 123") && message.contains("fake inspection failure"), "{message}");
+    }
+
+    #[cfg(unix)]
+    fn idle_child() -> Child {
+        // exec preserves the exact child PID and leaves no shell descendant.
+        std::process::Command::new("sh")
+            .args(["-c", "exec sleep 60"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn termination_reaps_only_the_owned_child_and_is_repeatable() {
+        let mut owned = idle_child();
+        let mut other = idle_child();
+        let started = Instant::now();
+        let result = (|| -> anyhow::Result<()> {
+            terminate(&mut owned)?;
+            anyhow::ensure!(owned.try_wait()?.is_some(), "owned child was not reaped");
+            anyhow::ensure!(other.try_wait()?.is_none(), "another child was terminated");
+            terminate(&mut owned)?;
+            Ok(())
+        })();
+        // Clean both exact children before asserting, including failure paths.
+        let owned_cleanup = terminate(&mut owned);
+        let other_cleanup = terminate(&mut other);
+        result.unwrap();
+        owned_cleanup.unwrap();
+        other_cleanup.unwrap();
+        assert!(started.elapsed() < TERMINATE_TIMEOUT + Duration::from_secs(1));
+    }
+
+    #[cfg(unix)]
+    fn fake_launch(script: &str) -> (tempfile::TempDir, AdapterLaunch) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let binary = directory.path().join("fake-adapter");
+        let package_manifest = directory.path().join("package-manifest.json");
+        std::fs::write(&binary, script).unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(&package_manifest, "{}\n").unwrap();
+        let launch = AdapterLaunch {
+            sha256: file_sha256(&binary).unwrap(),
+            binary,
+            package_manifest_sha256: file_sha256(&package_manifest).unwrap(),
+            package_manifest,
+            ordered_scope_ids: vec!["cpu-scope".into()],
+        };
+        (directory, launch)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malformed_readiness_cleans_up_the_fake_adapter_within_the_bound() {
+        let (_directory, launch) = fake_launch(
+            "#!/bin/sh\nIFS= read -r secret\nprintf '%s\\n' 'invalid readiness'\nexec sleep 60\n",
+        );
+        let mut supervisor = AdapterSupervisor::new(launch).unwrap();
+        let started = Instant::now();
+        let error = supervisor.endpoint().unwrap_err();
+        assert!(format!("{error:#}").contains("parse package-local adapter readiness"));
+        assert!(supervisor.running.is_none());
+        assert!(supervisor.cleanup_pending.is_none());
+        assert!(!supervisor.restarted_after_crash);
+        assert!(started.elapsed() < TERMINATE_TIMEOUT + Duration::from_secs(1));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn incomplete_startup_cleanup_blocks_another_launch_without_consuming_a_restart() {
+        let (_directory, launch) = fake_launch("#!/bin/sh\nexit 0\n");
+        let mut supervisor = AdapterSupervisor::new(launch).unwrap();
+        supervisor.cleanup_pending = Some(idle_child());
+        let pid = supervisor.cleanup_pending.as_ref().unwrap().id();
+        let error = supervisor.endpoint().unwrap_err().to_string();
+        assert!(error.contains(&format!("PID {pid}")) && error.contains("refusing another launch"), "{error}");
+        assert!(supervisor.running.is_none());
+        assert!(!supervisor.restarted_after_crash);
+        assert!(supervisor.cleanup_pending.as_mut().unwrap().try_wait().unwrap().is_none());
+        supervisor.stop().unwrap();
+        assert!(supervisor.cleanup_pending.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repeated_endpoint_calls_after_second_crash_cannot_launch_again() {
+        let (directory, launch) = fake_launch(
+            "#!/bin/sh\nIFS= read -r secret\nprintf '%s\\n' \"$$\" >> \"$0.starts\"\nprintf '%s\\n' '{\"schema_version\":1,\"url\":\"http://127.0.0.1:43123/v1\",\"scope_ids\":[\"cpu-scope\"]}'\nwhile IFS= read -r command; do :; done\n",
+        );
+        let mut supervisor = AdapterSupervisor::new(launch).unwrap();
+        supervisor.endpoint().unwrap();
+        terminate(&mut supervisor.running.as_mut().unwrap().child).unwrap();
+        supervisor.endpoint().unwrap();
+        assert!(supervisor.restarted_after_crash);
+        terminate(&mut supervisor.running.as_mut().unwrap().child).unwrap();
+
+        for _ in 0..3 {
+            let error = supervisor.endpoint().unwrap_err().to_string();
+            assert!(error.contains("one supervised restart was already consumed"), "{error}");
+            assert!(supervisor.running.is_none());
+        }
+        let starts = std::fs::read_to_string(directory.path().join("fake-adapter.starts")).unwrap();
+        assert_eq!(starts.lines().count(), 2, "only the initial launch and one restart may run");
+    }
 
     #[test]
     fn readiness_is_exact_and_loopback_only() {
@@ -380,6 +559,12 @@ mod tests {
         assert_eq!(endpoint.base_url, "http://127.0.0.1:43123/v1");
         assert!(endpoint.authorization.starts_with("Bearer "));
         assert_eq!(endpoint.authorization.len(), "Bearer ".len() + 64);
+        let pid = supervisor.running.as_ref().unwrap().child.id();
+        let error = supervisor.restart_after_transport_failure().unwrap_err();
+        assert!(error.to_string().contains("remained alive"));
+        assert!(!supervisor.restarted_after_crash);
+        assert_eq!(supervisor.running.as_ref().unwrap().child.id(), pid);
+        assert_eq!(supervisor.endpoint().unwrap(), endpoint);
         drop(supervisor);
     }
 

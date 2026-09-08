@@ -7,7 +7,11 @@ import argparse
 from collections.abc import Sequence
 import copy
 import hashlib
+import io
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -26,6 +30,7 @@ from export_adapter_cache import (
     DATASET_REVISION,
     DIMENSIONS,
     DOCUMENT_PREFIX,
+    ExportCheckpoint,
     MAX_ADAPTER_RESPONSE_BYTES,
     MAX_TOKENS,
     MODEL,
@@ -41,6 +46,7 @@ from export_adapter_cache import (
     WIRE_BATCH_INPUT_SELECTION,
     attestation_message,
     build_cache_metadata,
+    build_checkpoint_identity,
     build_parser,
     canonical_i8,
     collect_cache_arrays,
@@ -658,6 +664,7 @@ class ExportAdapterCacheTests(unittest.TestCase):
             row["canonical_output_bytes_sha256"] = expected_digest
 
         calls: list[list[str]] = []
+        trials: list[str] = []
 
         def fake_request(
             endpoint: str,
@@ -671,6 +678,10 @@ class ExportAdapterCacheTests(unittest.TestCase):
             calls.append(list(texts))
             return floats_for(texts)
 
+        def trial_requests(trial: str):
+            trials.append(trial)
+            return fake_request
+
         outputs = verify_wire_batch_contract(
             "http://127.0.0.1/embeddings",
             "test-scope",
@@ -679,9 +690,11 @@ class ExportAdapterCacheTests(unittest.TestCase):
             None,
             sequence,
             fake_request,
+            trial_requests,
         )
 
         self.assertEqual(outputs.shape, (64, 64, DIMENSIONS))
+        self.assertEqual(trials, [f"wire-{size}" for size in range(1, 65)])
         self.assertTrue(
             all(np.array_equal(outputs[0], item) for item in outputs[1:])
         )
@@ -714,6 +727,7 @@ class ExportAdapterCacheTests(unittest.TestCase):
                 ).hexdigest()
 
         calls: list[tuple[list[str], list[dict[str, object]]]] = []
+        trials: list[str] = []
 
         def fake_request(
             texts: Sequence[str], metadata: Sequence[dict[str, object]]
@@ -721,9 +735,17 @@ class ExportAdapterCacheTests(unittest.TestCase):
             calls.append((list(texts), list(metadata)))
             return floats.copy()
 
-        arrays = collect_sequence_probe_arrays(sequence, fake_request)
+        def trial_requests(trial: str):
+            trials.append(trial)
+            return fake_request
+
+        arrays = collect_sequence_probe_arrays(sequence, fake_request, trial_requests)
 
         self.assertEqual(len(calls), 4)
+        self.assertEqual(trials, [
+            "sequence-32-first", "sequence-32-repeat",
+            "sequence-64-first", "sequence-64-repeat",
+        ])
         self.assertEqual(len(arrays), len(SEQUENCE_PROBE_ARRAY_NAMES))
         self.assertTrue(all(array.shape == (2, DIMENSIONS) for array in arrays))
         self.assertTrue(np.array_equal(arrays[0], arrays[3]))
@@ -1356,6 +1378,282 @@ class ExportAdapterCacheTests(unittest.TestCase):
                     opener=SigningOpener(response_body),
                     attestation_public_key=public_key,
                 )
+
+
+class ExportCheckpointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.private_key = Ed25519PrivateKey.generate()
+        self.public_key = self.private_key.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        ).hex()
+        self.inputs = [QUERY_PREFIX + "one", QUERY_PREFIX + "two"]
+        self.requests: list[list[str]] = []
+        self.fail_after: int | None = None
+        self.changed_output = False
+        self.bad_signature = False
+
+    def open(self, request, timeout: float):
+        del timeout
+        if self.fail_after is not None and len(self.requests) >= self.fail_after:
+            raise RuntimeError("interrupted request")
+        texts = json.loads(request.data)["input"]
+        self.requests.append(texts)
+        headers = {name.lower(): value for name, value in request.header_items()}
+        nonce = bytes.fromhex(headers["x-cfetch-attestation-nonce"])
+        rows = []
+        for index, _text in enumerate(texts):
+            values = [1.0] + [0.0] * (DIMENSIONS - 1)
+            if self.changed_output:
+                values[1] = 0.5
+            rows.append({"index": index, "embedding": values})
+        payload = attested_response(rows)
+        payload["cfetch_execution"]["compatibility_report_sha256"] = "a" * 64
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        signature = self.private_key.sign(attestation_message(nonce, request.data, raw)).hex()
+        if self.bad_signature:
+            signature = "0" * 128
+        response = io.BytesIO(raw)
+        response.headers = {"X-Cfetch-Attestation-Signature": signature}
+        return response
+
+    def request(self, checkpoint, key, texts, nonces):
+        return request_embeddings(
+            "http://127.0.0.1:1234/embeddings", "test-scope", texts, 1.0,
+            opener=self, attestation_public_key=self.public_key,
+            expected_compatibility_report_sha256="a" * 64,
+            used_attestation_nonces=nonces,
+            checkpoint=checkpoint, checkpoint_key=key,
+        )
+
+    def trial_requests(self, checkpoint, nonces):
+        def factory(trial: str):
+            position = 0
+
+            def request(endpoint, scope, texts, timeout, token):
+                del endpoint, scope, timeout, token
+                nonlocal position
+                key = f"{trial}-{position}"
+                position += 1
+                return self.request(checkpoint, key, texts, nonces)
+
+            return request
+
+        return factory
+
+    def test_checkpoint_is_opt_in_and_rejects_another_process_writer(self) -> None:
+        option = next(
+            action for action in build_parser()._actions
+            if action.dest == "checkpoint_directory"
+        )
+        self.assertIsNone(option.default)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "checkpoint"
+            with ExportCheckpoint(directory, {"scope": "one"}):
+                result = subprocess.run(
+                    [sys.executable, "-c", (
+                        "import sys\nfrom pathlib import Path\n"
+                        "from export_adapter_cache import ExportCheckpoint\n"
+                        "with ExportCheckpoint(Path(sys.argv[1]), {'scope': 'one'}):\n"
+                        "    pass\n"
+                    ), str(directory)],
+                    cwd=Path(__file__).resolve().parent,
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("already has a writer", result.stderr)
+            with ExportCheckpoint(directory, {"scope": "one"}):
+                pass
+            with self.assertRaisesRegex(ValueError, "identity does not match"):
+                with ExportCheckpoint(directory, {"scope": "two"}):
+                    pass
+
+    def test_checkpoint_identity_binds_scope_evidence_inputs_and_implementation(self) -> None:
+        args, _, _, _ = valid_evidence_fixture()
+        args.attestation_public_key = self.public_key
+        args.sequence_capability_evidence_sha256 = "2" * 64
+        args.placement_evidence_sha256 = "3" * 64
+        args.performance_evidence_sha256 = "4" * 64
+        args.accelerated_placement = True
+        args.batch_size = 1
+        documents = [DOCUMENT_PREFIX + "document"]
+        identity = build_checkpoint_identity(args, self.inputs, documents)
+        for field, changed in (
+            ("scope_id", "another-scope"), ("artifact_sha256", "8" * 64),
+            ("runtime", "another-runtime"), ("compiler", "another-compiler"),
+            ("attestation_public_key", "9" * 64),
+            ("sequence_capability_evidence_sha256", "a" * 64),
+            ("placement_evidence_sha256", "b" * 64),
+            ("performance_evidence_sha256", "c" * 64), ("batch_size", 2),
+        ):
+            with self.subTest(field=field):
+                changed_args = copy.copy(args)
+                setattr(changed_args, field, changed)
+                self.assertNotEqual(
+                    identity, build_checkpoint_identity(changed_args, self.inputs, documents)
+                )
+        self.assertNotEqual(
+            identity, build_checkpoint_identity(args, list(reversed(self.inputs)), documents)
+        )
+        implementation = identity["implementation_sha256"]
+        self.assertEqual(
+            implementation["export_adapter_cache.py"],
+            hashlib.sha256((Path(__file__).parent / "export_adapter_cache.py").read_bytes()).hexdigest(),
+        )
+        self.assertIn("requirements-lock.txt", implementation)
+
+    def test_interruption_resumes_missing_transactions_and_runs_independent_repeats(self) -> None:
+        documents = [DOCUMENT_PREFIX + "one", DOCUMENT_PREFIX + "two"]
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "checkpoint"
+            self.fail_after = 3
+            with ExportCheckpoint(directory, {"scope": self.public_key}) as checkpoint:
+                with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                    collect_cache_arrays(
+                        "http://127.0.0.1/embeddings", "test-scope", self.inputs,
+                        documents, 1, 1.0,
+                        trial_request_factory=self.trial_requests(checkpoint, set()),
+                    )
+            self.assertEqual(len(self.requests), 3)
+            self.fail_after = None
+            with ExportCheckpoint(directory, {"scope": self.public_key}) as checkpoint:
+                arrays = collect_cache_arrays(
+                    "http://127.0.0.1/embeddings", "test-scope", self.inputs,
+                    documents, 1, 1.0,
+                    trial_request_factory=self.trial_requests(checkpoint, set()),
+                )
+            self.assertEqual(len(self.requests), 8)
+            self.assertTrue(np.array_equal(arrays[0], arrays[2]))
+            self.assertTrue(np.array_equal(arrays[1], arrays[3]))
+            self.assertEqual(
+                {path.stem for path in directory.glob("*.json")} - {"identity"},
+                {f"{trial}-{offset}" for trial in (
+                    "queries-first", "documents-first", "queries-repeat", "documents-repeat"
+                ) for offset in range(2)},
+            )
+            self.fail_after = 0
+            with ExportCheckpoint(directory, {"scope": self.public_key}) as checkpoint:
+                resumed = collect_cache_arrays(
+                    "http://127.0.0.1/embeddings", "test-scope", self.inputs,
+                    documents, 1, 1.0,
+                    trial_request_factory=self.trial_requests(checkpoint, set()),
+                )
+            self.assertTrue(all(np.array_equal(a, b) for a, b in zip(arrays, resumed)))
+
+    def test_resume_reauthenticates_and_rejects_changed_or_copied_transactions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "checkpoint"
+            with ExportCheckpoint(directory, {}) as checkpoint:
+                self.request(checkpoint, "first", self.inputs, set())
+            path = directory / "first.json"
+            original = path.read_bytes()
+            document = json.loads(original)
+            document["signature"] = "0" * 128
+            path.write_text(json.dumps(document))
+            with ExportCheckpoint(directory, {}) as checkpoint:
+                with self.assertRaisesRegex(ValueError, "scope-key signature"):
+                    self.request(checkpoint, "first", self.inputs, set())
+            self.assertEqual(len(self.requests), 1)
+            path.write_bytes(original)
+            with ExportCheckpoint(directory, {}) as checkpoint:
+                with self.assertRaisesRegex(ValueError, "input does not match"):
+                    self.request(checkpoint, "first", list(reversed(self.inputs)), set())
+            (directory / "repeat.json").write_bytes(original)
+            with ExportCheckpoint(directory, {}) as checkpoint:
+                nonces: set[bytes] = set()
+                self.request(checkpoint, "first", self.inputs, nonces)
+                with self.assertRaisesRegex(ValueError, "repeated a prior challenge"):
+                    self.request(checkpoint, "repeat", self.inputs, nonces)
+            path.write_bytes(b'{"schema_version":')
+            with ExportCheckpoint(directory, {}) as checkpoint:
+                with self.assertRaises(ValueError):
+                    self.request(checkpoint, "first", self.inputs, set())
+            self.assertEqual(path.read_bytes(), b'{"schema_version":')
+
+    def test_resume_does_not_hide_repeatability_failure(self) -> None:
+        documents = [DOCUMENT_PREFIX + "document"]
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "checkpoint"
+            self.fail_after = 3
+            with ExportCheckpoint(directory, {}) as checkpoint:
+                with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                    collect_cache_arrays(
+                        "http://127.0.0.1/embeddings", "test-scope", self.inputs,
+                        documents, 1, 1.0,
+                        trial_request_factory=self.trial_requests(checkpoint, set()),
+                    )
+            self.fail_after = None
+            self.changed_output = True
+            with ExportCheckpoint(directory, {}) as checkpoint:
+                with self.assertRaisesRegex(ValueError, "not byte-repeatable"):
+                    collect_cache_arrays(
+                        "http://127.0.0.1/embeddings", "test-scope", self.inputs,
+                        documents, 1, 1.0,
+                        trial_request_factory=self.trial_requests(checkpoint, set()),
+                    )
+            self.assertEqual(len(self.requests), 6)
+
+    def test_failed_verification_or_publication_never_creates_a_completed_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "checkpoint"
+            with ExportCheckpoint(directory, {}) as checkpoint:
+                self.bad_signature = True
+                with self.assertRaisesRegex(ValueError, "scope-key signature"):
+                    self.request(checkpoint, "first", self.inputs, set())
+                self.assertFalse((directory / "first.json").exists())
+                self.bad_signature = False
+                with patch("export_adapter_cache.os.link", side_effect=OSError("interrupted publish")):
+                    with self.assertRaisesRegex(OSError, "interrupted publish"):
+                        self.request(checkpoint, "first", self.inputs, set())
+                self.assertFalse((directory / "first.json").exists())
+                self.request(checkpoint, "first", self.inputs, set())
+                original = (directory / "first.json").read_bytes()
+                with self.assertRaises(FileExistsError):
+                    checkpoint._publish(directory / "first.json", b"changed")
+                self.assertEqual((directory / "first.json").read_bytes(), original)
+
+    @unittest.skipIf(os.name == "nt", "Windows symlink creation requires additional privileges")
+    def test_checkpoint_rejects_symlinked_directory_and_transactions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            actual = root / "actual"
+            actual.mkdir()
+            alias = root / "alias"
+            alias.symlink_to(actual, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "real directory"):
+                with ExportCheckpoint(alias, {}):
+                    pass
+            with ExportCheckpoint(actual, {}) as checkpoint:
+                (actual / "first.json").symlink_to(root / "missing")
+                with self.assertRaisesRegex(ValueError, "symlinks"):
+                    self.request(checkpoint, "first", self.inputs, set())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX named pipes")
+    def test_checkpoint_rejects_fifo_identity_and_transaction_without_blocking(self) -> None:
+        for filename in ("identity.json", "first.json"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary) / "checkpoint"
+                directory.mkdir()
+                if filename != "identity.json":
+                    with ExportCheckpoint(directory, {}):
+                        pass
+                os.mkfifo(directory / filename)
+                result = subprocess.run(
+                    [sys.executable, "-c", (
+                        "import sys\nfrom pathlib import Path\n"
+                        "from export_adapter_cache import ExportCheckpoint\n"
+                        "try:\n"
+                        "    with ExportCheckpoint(Path(sys.argv[1]), {}) as checkpoint:\n"
+                        "        checkpoint.read_transaction('first', b'request')\n"
+                        "except ValueError as error:\n"
+                        "    if 'not regular' not in str(error):\n"
+                        "        raise\n"
+                        "else:\n"
+                        "    raise RuntimeError('FIFO checkpoint was accepted')\n"
+                    ), str(directory)],
+                    cwd=Path(__file__).resolve().parent,
+                    capture_output=True, text=True, timeout=5,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

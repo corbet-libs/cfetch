@@ -1,8 +1,8 @@
 """Admission identities intentionally excluded from their implementation bundle."""
 
 ADMISSION_IMPLEMENTATION_BUNDLE_SHA256 = (
-    "b57608c15915c71b4b0703a209ddf1656ffbd2372c5553fa5d306067e6233fcd"
+    "7a8bca24dc89ab1f23d00632de9653f4f045cae8aa8f876a936c4d6e9ab7e8bd"
 )
 ADMISSION_POLICY_SHA256 = (
-    "ee80d7320f1bac3e80302e91de3c3967946d52634f68c01dd4db11b9fefc2ac5"
+    "36375d4e6fb5f6a48e5ecb7036ccc141c2314c2f2609c37063a6f79aa367fcc2"
 )
