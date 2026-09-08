@@ -6,9 +6,9 @@
 //! recreated on any corruption. The git-tracked markdown stays the only source
 //! of truth.
 //!
-//! Citations are content-addressed: `r<ring>-<prefix of sha256(normalized
-//! block)>`. They survive reordering and unrelated edits; an edited entry
-//! becomes a new citation by construction. The ring prefix makes the trust
+//! Citations are content-addressed: `r<ring>-<prefix of the versioned exact
+//! block-body hash>`. They survive reordering and unrelated edits; an edited
+//! entry becomes a new citation by construction. The ring prefix makes the trust
 //! level of a hit visible in the id itself.
 //!
 //! The FULL digest behind that prefix is the block's content address, and it
@@ -215,10 +215,6 @@ pub(crate) fn frontmatter_ring(text: &str) -> (Option<u8>, usize) {
     (None, 0)
 }
 
-fn normalize(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase()
-}
-
 /// Extracts `[[wikilink]]` targets: alias (`|â€¦`) and heading (`#â€¦`) parts
 /// dropped, lowercased; slash-qualified targets (`[[hosts/zfs]]`) survive
 /// whole. Fenced code blocks are skipped first (brain-lint parity): a
@@ -309,16 +305,21 @@ pub fn markdown_links(text: &str) -> Vec<String> {
     out
 }
 
-/// THE content address of a statement: the full sha256 hex of its normalized
-/// text. Every derived artifact â€” vectors today, rerank scores tomorrow â€” is
-/// keyed by this, and it is stable across hosts, rescans and reorderings
-/// because it is a function of the content alone.
+/// THE content address of a statement: the full SHA-256 hex of a versioned
+/// domain followed by its exact segmented body bytes. Case, indentation and
+/// internal line breaks are preserved, just as they are in embedding input.
+/// The domain separates these keys from legacy normalized-body hashes, whose
+/// vectors may have been derived from different raw text. Every derived
+/// artifact uses this key, stable across hosts, rescans and reorderings.
 ///
 /// ONE hashing site: [`cite_from_hash`] shows a truncated PREFIX of this same
 /// digest, so a citation and the vector stored under its hash can never end
 /// up describing different content.
 pub fn content_hash(text: &str) -> String {
-    crate::hashing::hex_lower(sha2::Sha256::digest(normalize(text).as_bytes()))
+    let mut hash = sha2::Sha256::new();
+    hash.update(b"cfetch-statement-body-v1\0");
+    hash.update(text.as_bytes());
+    crate::hashing::hex_lower(hash.finalize())
 }
 
 /// 40 hash bits: at ~20k blocks the birthday collision expectation is ~0.0002
@@ -513,19 +514,29 @@ pub(crate) fn db_exists(state_dir: &Path) -> bool {
 
 /// READ-ONLY open for diagnostics: never creates the file, never repairs a
 /// corrupt one (`open`'s delete-and-rebuild is the writer's recovery, and a
-/// diagnostic must not be the thing that first writes an index). Reading a
-/// corrupt database surfaces as an error from the first query, not here —
-/// SQLite opens lazily.
+/// diagnostic must not be the thing that first writes an index). The schema
+/// check rejects a corrupt or outdated catalog without attempting repairs.
 pub fn open_read_only(state_dir: &Path) -> anyhow::Result<Connection> {
     let path = db_path(state_dir);
-    Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| anyhow::anyhow!("open {} read-only: {e}", path.display()))
+    let conn = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| anyhow::anyhow!("open {} read-only: {e}", path.display()))?;
+    ensure_current_schema(&conn)?;
+    Ok(conn)
 }
 
 /// Bump whenever tables/columns/id formats change: an old DB with a new
 /// binary is silently wrong (e.g. stale cite widths), and the cache is
 /// disposable â€” mismatches are handled by delete-and-rebuild in `open()`.
-const SCHEMA_VERSION: i64 = 7; // 7: blocks.hash + content-hash-keyed vectors(model, dim)
+const SCHEMA_VERSION: i64 = 8; // 8: versioned exact-body hashes for blocks, cites and vectors
+
+fn ensure_current_schema(conn: &Connection) -> anyhow::Result<()> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    anyhow::ensure!(
+        version == SCHEMA_VERSION,
+        "index schema v{version} != v{SCHEMA_VERSION}; rebuild required"
+    );
+    Ok(())
+}
 
 fn open_at(path: &Path) -> anyhow::Result<Connection> {
     if let Some(dir) = path.parent() {
@@ -1423,8 +1434,8 @@ pub fn catalog_checksum_matching(
 }
 
 /// Read-only open for serving-side query threads: never contends for the
-/// write lock, never creates or migrates schema. Fails when no index exists
-/// yet â€” the caller reports that instead of racing the builder.
+/// write lock, never creates or migrates schema. Fails when no current-schema
+/// index exists yet â€” the caller reports that instead of racing the builder.
 pub fn open_ro(state_dir: &Path) -> anyhow::Result<Connection> {
     use rusqlite::OpenFlags;
     let conn = Connection::open_with_flags(
@@ -1432,6 +1443,7 @@ pub fn open_ro(state_dir: &Path) -> anyhow::Result<Connection> {
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     conn.busy_timeout(std::time::Duration::from_millis(1000))?;
+    ensure_current_schema(&conn)?;
     Ok(conn)
 }
 
@@ -1612,6 +1624,18 @@ pub fn recall(conn: &Connection, query: &str, limit: usize) -> anyhow::Result<Ve
     recall_in(conn, query, limit, &[])
 }
 
+/// Reserve only the first lexical slot for the best matching ring-0/1
+/// candidate. Every other candidate keeps its relative BM25(+prior) order.
+/// Both displayed recall and the lexical input to hybrid use this policy.
+fn reserve_top_trust<T>(candidates: &mut Vec<T>, ring: impl Fn(&T) -> u8) {
+    if let Some(pos) = candidates.iter().position(|candidate| ring(candidate) <= 1)
+        && pos > 0
+    {
+        let reserved = candidates.remove(pos);
+        candidates.insert(0, reserved);
+    }
+}
+
 /// Recall restricted to documents under `prefixes` â€” the slice filter. An
 /// empty slice restricts nothing, which is what the root slice is.
 pub fn recall_in(
@@ -1656,15 +1680,7 @@ pub fn recall_in(
         }
         pool *= 2;
     }
-    // Ring-band slot reservation: rings 0-1 are the top-trust band â€” when
-    // any of them matches at all, the top slot carries the best of them.
-    // Everything else stays in BM25(+prior) order.
-    if let Some(pos) = hits.iter().position(|h| h.ring <= 1)
-        && pos > 0
-    {
-        let reserved = hits.remove(pos);
-        hits.insert(0, reserved);
-    }
+    reserve_top_trust(&mut hits, |hit| hit.ring);
     hits.truncate(limit);
     Ok(hits)
 }
@@ -2129,7 +2145,9 @@ pub fn semantic_recall(
     Ok(dedup_by_content(hits_for_block_ids(conn, &ids)?))
 }
 
-/// BM25-ranked block ids for the same query shape and order [`recall`] uses.
+/// Lexical candidate ids in BM25(+prior) order with the same single top-trust
+/// slot reservation as [`recall`]. Fusion needs block ids; mirror suppression
+/// still happens after fusion, whereas standalone recall suppresses first.
 fn bm25_block_ids(
     conn: &Connection,
     query: &str,
@@ -2140,10 +2158,14 @@ fn bm25_block_ids(
     if fts.is_empty() {
         return Ok(Vec::new());
     }
-    let mut stmt = conn.prepare(&ranked_match_sql("b.id", prefixes.len()))?;
-    let rows = stmt
-        .query_map(rusqlite::params_from_iter(ranked_params(&fts, limit, prefixes)), |r| r.get(0))?;
-    Ok(rows.filter_map(Result::ok).collect())
+    let mut stmt = conn.prepare(&ranked_match_sql("b.id, d.ring", prefixes.len()))?;
+    let rows = stmt.query_map(
+        rusqlite::params_from_iter(ranked_params(&fts, limit, prefixes)),
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)? as u8)),
+    )?;
+    let mut candidates: Vec<(i64, u8)> = rows.filter_map(Result::ok).collect();
+    reserve_top_trust(&mut candidates, |(_, ring)| *ring);
+    Ok(candidates.into_iter().map(|(id, _)| id).collect())
 }
 
 /// Reciprocal rank fusion over ranked id lists: score(d) = Î£ 1/(k + rank),
@@ -2622,13 +2644,14 @@ mod tests {
     }
 
     #[test]
-    fn citation_is_stable_under_reorder_and_case() {
+    fn citation_preserves_exact_body_identity_and_ring() {
         let a = cite_id(3, "The  Quick   Fox");
         let b = cite_id(3, "the quick fox");
-        assert_eq!(a, b);
+        assert_ne!(a, b, "different embedding input must not share a citation hash");
+        assert_eq!(a, cite_id(3, "The  Quick   Fox"));
         assert!(a.starts_with("r3-"));
         assert_ne!(a, cite_id(3, "the quick foxes"));
-        assert_ne!(a, cite_id(2, "the quick fox"), "ring is part of the id");
+        assert_ne!(a, cite_id(2, "The  Quick   Fox"), "ring is part of the id");
     }
 
     #[test]
@@ -3233,20 +3256,48 @@ mod tests {
     }
 
     #[test]
-    fn old_schema_version_triggers_rebuild_not_silent_reuse() {
+    fn normalized_body_schema_is_rejected_read_only_and_rebuilt_from_markdown() {
+        let dir = brain(&[("knowledge/a.md", "- US\n")]);
         let state = tempfile::tempdir().unwrap();
+        let spec = test_spec(2);
+        let legacy_hash = crate::hashing::hex_lower(sha2::Sha256::digest(b"- us"));
         {
-            let conn = open(state.path()).unwrap();
+            let mut conn = open(state.path()).unwrap();
+            scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
+            conn.execute(
+                "UPDATE blocks SET hash=?1, cite=?2",
+                rusqlite::params![legacy_hash, cite_from_hash(3, &legacy_hash)],
+            )
+            .unwrap();
+            ensure_vector_spec(&conn, &spec).unwrap();
+            insert_vector(&conn, &legacy_hash, &spec, &[1.0, 0.0]).unwrap();
             conn.execute("INSERT INTO meta(key,value) VALUES('marker','old')", []).unwrap();
-            conn.pragma_update(None, "user_version", 1i64).unwrap();
+            conn.pragma_update(None, "user_version", 7i64).unwrap();
+
+            for result in [open_ro(state.path()), open_read_only(state.path())] {
+                let error = result.expect_err("read-only opens must reject normalized-body schema");
+                assert!(error.to_string().contains("index schema v7 != v8"), "{error}");
+            }
+            let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+            assert_eq!(version, 7, "read-only opens do not migrate the catalog");
+            assert_eq!(vector_coverage(&conn, &spec).unwrap(), (1, 1));
         }
-        let conn = open(state.path()).unwrap();
+        let conn = ensure_fresh(state.path(), dir.path(), None, &RingRules::default()).unwrap();
         let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(v, SCHEMA_VERSION);
         let marker: Option<String> = conn
             .query_row("SELECT value FROM meta WHERE key='marker'", [], |r| r.get(0))
             .ok();
         assert!(marker.is_none(), "old-schema DB must be discarded, not reused");
+        let hits = recall(&conn, "US", 5).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].cite, cite_id(3, "- US"));
+        assert!(expand(&conn, &cite_from_hash(3, &legacy_hash)).unwrap().is_empty());
+        assert_eq!(vector_coverage(&conn, &spec).unwrap(), (0, 1));
+        assert_eq!(
+            hashes_without_vectors(&conn, &spec, 10).unwrap(),
+            vec![(content_hash("- US"), "- US".to_string())]
+        );
     }
 
     #[test]
@@ -3427,10 +3478,96 @@ mod tests {
         // so a vector keyed by hash always belongs to the cited block.
         let h = content_hash("The  Quick   Fox");
         assert_eq!(h.len(), 64, "full sha256 hex");
-        assert_eq!(h, content_hash("the quick fox"), "same normalization the citation uses");
-        assert_eq!(cite_id(3, "the quick fox"), format!("r3-{}", &h[..10]));
-        assert_eq!(cite_id(1, "the quick fox"), format!("r1-{}", &h[..10]), "ring labels, hash addresses");
+        assert_ne!(h, content_hash("the quick fox"), "embedding input is case and whitespace sensitive");
+        assert_eq!(cite_id(3, "The  Quick   Fox"), format!("r3-{}", &h[..10]));
+        assert_eq!(cite_id(1, "The  Quick   Fox"), format!("r1-{}", &h[..10]), "ring labels, hash addresses");
         assert_ne!(h, content_hash("the quick foxes"));
+    }
+
+    #[test]
+    fn vector_queue_preserves_case_spacing_and_line_breaks_but_deduplicates_exact_copies() {
+        let dir = brain(&[
+            ("knowledge/upper.md", "- US\n"),
+            ("knowledge/lower.md", "- us\n"),
+            ("knowledge/spaced.md", "- us  value\n"),
+            ("knowledge/single.md", "- us value\n"),
+            ("knowledge/tab.md", "- us\tvalue\n"),
+            ("knowledge/lines.md", "US\nstate\n"),
+            ("knowledge/inline.md", "US state\n"),
+            ("knowledge/copy.md", "---\nring: 1\n---\n- US\n"),
+        ]);
+        let state = tempfile::tempdir().unwrap();
+        let mut conn = open(state.path()).unwrap();
+        scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
+        let spec = test_spec(2);
+        let pending: std::collections::BTreeMap<String, String> =
+            hashes_without_vectors(&conn, &spec, 20).unwrap().into_iter().collect();
+        let bodies = [
+            "- US", "- us", "- us  value", "- us value", "- us\tvalue", "US\nstate", "US state",
+        ];
+        assert_eq!(pending.len(), bodies.len());
+        for body in bodies {
+            assert_eq!(pending.get(&content_hash(body)).map(String::as_str), Some(body));
+        }
+        insert_vector(&conn, &content_hash("- US"), &spec, &[1.0, 0.0]).unwrap();
+        assert_eq!(
+            vector_coverage(&conn, &spec).unwrap(),
+            (2, 8),
+            "identical copies share one artifact across rings"
+        );
+        assert_eq!(hashes_without_vectors(&conn, &spec, 20).unwrap().len(), 6);
+        let copies = expand(&conn, &cite_id(3, "- US")).unwrap();
+        assert_eq!(copies.len(), 2);
+        assert_eq!(copies[0].ring, 1);
+        assert_eq!(copies[1].ring, 3);
+    }
+
+    #[test]
+    fn exact_body_edits_invalidate_only_the_changed_vector_on_full_and_incremental_scans() {
+        for incremental in [false, true] {
+            let dir = brain(&[("knowledge/a.md", "- US\n- unchanged\n")]);
+            let path = dir.path().join("knowledge/a.md");
+            let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+            let state = tempfile::tempdir().unwrap();
+            let mut conn = open(state.path()).unwrap();
+            scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
+            let spec = test_spec(2);
+            embed_everything(&conn, &spec, &[1.0, 0.0]);
+            let mut previous = "- US";
+            for (step, body) in ["- us", "- us  ", "- us\t ", "- us\n  value"].into_iter().enumerate() {
+                std::fs::write(&path, format!("{body}\n- unchanged\n")).unwrap();
+                // Make same-size edits visible on filesystems with coarse mtimes.
+                std::fs::File::options()
+                    .write(true)
+                    .open(&path)
+                    .unwrap()
+                    .set_times(std::fs::FileTimes::new().set_modified(
+                        modified + std::time::Duration::from_secs(step as u64 + 1),
+                    ))
+                    .unwrap();
+                if incremental {
+                    rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().unwrap();
+                } else {
+                    scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
+                }
+                assert_eq!(
+                    hashes_without_vectors(&conn, &spec, 10).unwrap(),
+                    vec![(content_hash(body), body.to_string())],
+                    "only the exact edited body is queued, incremental={incremental}"
+                );
+                assert_eq!(vector_coverage(&conn, &spec).unwrap(), (1, 2));
+                assert!(expand(&conn, &cite_id(3, previous)).unwrap().is_empty());
+                let rows: i64 = conn.query_row("SELECT count(*) FROM vectors", [], |r| r.get(0)).unwrap();
+                assert_eq!(rows, 1, "the superseded vector is pruned");
+                embed_everything(&conn, &spec, &[0.0, 1.0]);
+                previous = body;
+            }
+            // Moving an unchanged body does not change its address or requeue it.
+            std::fs::write(&path, format!("- unchanged\n{previous}\n")).unwrap();
+            scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
+            assert!(hashes_without_vectors(&conn, &spec, 10).unwrap().is_empty());
+            assert_eq!(expand(&conn, &cite_id(3, previous)).unwrap().len(), 1);
+        }
     }
 
     #[test]
@@ -3699,6 +3836,50 @@ mod tests {
         // a.md: rank 1 lexical (1/3) + rank 2 semantic (1/4) = 0.583
         // b.md: rank 1 semantic (1/3) = 0.333
         assert_eq!(paths[0], "knowledge/a.md");
+    }
+
+    #[test]
+    fn hybrid_preserves_agreement_between_reserved_lexical_and_semantic_top_policy() {
+        let obsolete = "- approval";
+        let current = "- A production restart needs explicit approval for this particular action, even during maintenance.";
+        for ring in [0, 1] {
+            let dir = brain(&[
+                ("knowledge/a-old.md", &format!("---\nring: 4\n---\n{obsolete}\n")),
+                ("knowledge/z-current.md", &format!("---\nring: {ring}\n---\n{current}\n")),
+                // Keep IDF positive so the short obsolete block wins raw BM25.
+                ("knowledge/fill.md", "- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n"),
+            ]);
+            let state = tempfile::tempdir().unwrap();
+            let mut conn = open(state.path()).unwrap();
+            scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
+            let spec = test_spec(2);
+            insert_vector(&conn, &content_hash(current), &spec, &[1.0, 0.0]).unwrap();
+            insert_vector(&conn, &content_hash(obsolete), &spec, &[0.8, 0.6]).unwrap();
+            let query = "approval";
+            let vector = [1.0, 0.0];
+
+            let raw_first: String = conn.query_row(
+                &ranked_match_sql("d.path", 0),
+                rusqlite::params_from_iter(ranked_params(&fts_query(query), 20, &[])),
+                |row| row.get(0),
+            ).unwrap();
+            assert_eq!(raw_first, "knowledge/a-old.md", "fixture must exercise the reservation");
+            let lexical = recall(&conn, query, 10).unwrap();
+            let semantic = semantic_recall(&conn, &spec, &vector, 10, &[]).unwrap();
+            assert_eq!(lexical[0].path, "knowledge/z-current.md");
+            assert_eq!(semantic[0].path, "knowledge/z-current.md");
+
+            let lexical_ids = bm25_block_ids(&conn, query, 20, &[]).unwrap();
+            let fusion_input = hits_for_block_ids(&conn, &lexical_ids).unwrap();
+            assert_eq!(
+                fusion_input.iter().map(|hit| &hit.path).collect::<Vec<_>>(),
+                lexical.iter().map(|hit| &hit.path).collect::<Vec<_>>(),
+                "hybrid must receive the same reserved lexical order"
+            );
+            let hybrid = hybrid_recall(&conn, &spec, query, &vector, 10, 2.0, &[]).unwrap();
+            assert_eq!(hybrid[0].path, "knowledge/z-current.md", "both ranking inputs agree on current policy");
+            assert_eq!(hybrid[1].path, "knowledge/a-old.md");
+        }
     }
 
     #[test]

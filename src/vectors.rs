@@ -1101,6 +1101,52 @@ mod tests {
         assert_eq!(hydrate(&conn, &store).unwrap(), 0, "a second hydrate imports nothing");
     }
 
+    #[test]
+    fn legacy_normalized_record_cannot_hydrate_an_exact_body_key() {
+        use sha2::Digest as _;
+
+        let brain = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
+        std::fs::write(brain.path().join("knowledge/a.md"), "- us\n").unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let mut conn = index::open(state.path()).unwrap();
+        index::scan(&mut conn, brain.path(), None, &crate::config::RingRules::default()).unwrap();
+
+        let s = spec(2, Precision::F16);
+        // The legacy key for "- US" was SHA256("- us"), even though the
+        // model saw the uppercase body. Plain SHA256(body) would reuse it.
+        let legacy_hash = crate::hashing::hex_lower(sha2::Sha256::digest(b"- us"));
+        let current_hash = index::content_hash("- us");
+        let mut store = VectorStore::open(brain.path(), &s).unwrap();
+        {
+            let mut writer = store.begin_write().unwrap();
+            writer.put(&legacy_hash, &[1.0, 0.0]).unwrap();
+            writer.flush().unwrap();
+        }
+        let legacy_record = store.get_blob(&legacy_hash).unwrap().unwrap();
+        assert_eq!(hydrate(&conn, &store).unwrap(), 0);
+        assert_eq!(index::vector_coverage(&conn, &s).unwrap(), (0, 1));
+        assert_eq!(
+            index::hashes_without_vectors(&conn, &s, 10).unwrap(),
+            vec![(current_hash.clone(), "- us".to_string())]
+        );
+        {
+            let mut writer = store.begin_write().unwrap();
+            writer.put(&current_hash, &[0.0, 1.0]).unwrap();
+            writer.flush().unwrap();
+        }
+        let reopened = VectorStore::open(brain.path(), &s).unwrap();
+        assert_eq!(hydrate(&conn, &reopened).unwrap(), 1);
+        assert_eq!(index::vector_coverage(&conn, &s).unwrap(), (1, 1));
+        assert_eq!(reopened.len(), 2, "legacy artifacts remain in the append-only store");
+        assert_eq!(reopened.get_blob(&legacy_hash).unwrap().unwrap(), legacy_record);
+        let cached: Vec<u8> = conn
+            .query_row("SELECT embedding FROM vectors", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(cached, reopened.get_blob(&current_hash).unwrap().unwrap());
+        assert_ne!(cached, legacy_record);
+    }
+
     // ---- document prefix as artifact identity
 
     fn spec_pfx(dim: usize, prefix: &str) -> VectorSpec {

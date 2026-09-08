@@ -164,6 +164,23 @@ runner provenance remain the hardware-attestation boundary.
 
 ## Shared-store behavior
 
+Statement identity hashes the exact segmented Markdown body: SHA-256 over
+`cfetch-statement-body-v1\0` followed by the body's UTF-8 bytes (`\0` is one
+NUL byte). Case, spacing, indentation, and internal line breaks remain part of
+the input. Segmentation retains its existing line-ending handling; enclosing
+headings and table headers are separate retrieval context. Document embedding
+prepends the profile's fixed document prefix to that same body. The citation
+uses a prefix of the full statement hash, and identical bodies across files or
+rings share one vector.
+
+Schema 8 rebuilds older disposable catalogs from Markdown into this identity
+scheme; read-only query and diagnostic opens reject stale schemas. Existing
+citations must be refreshed after upgrading. The hash domain prevents reuse of
+legacy normalized-body keys, which could name vectors produced from different
+case or whitespace variants. Old shared records remain untouched in the
+append-only store, but cannot satisfy new-body coverage. This changes statement
+identity without changing model inputs, the semantic profile, or vector encoding.
+
 cfetch stores one canonical record per profile and content hash. The first
 record derived by an admitted backend is retained and distributed; another
 producer does not silently overwrite it. This is the derive-once storage rule,
