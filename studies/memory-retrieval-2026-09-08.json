@@ -1,0 +1,3028 @@
+{
+  "corpus_sha256": "7ff7b05ea6a2296d23932e918efbf82da4176a5e73150a9eecd5b35ac7cea5ea",
+  "date": "2026-09-08",
+  "production_admission": false,
+  "purpose": "Synthetic memory-retrieval candidate measurements; not backend admission",
+  "relevance_judgments": "32 authored synthetic queries; not held out or representative of a real brain",
+  "representations": [
+    {
+      "case_count": 8,
+      "cases": [
+        {
+          "blocks": 105,
+          "bundle_sha256": "a04980cad263861f8f215eabdf72642e73225bfb6cbca6b9da0c34d4a00562c4",
+          "case": "queries-first_documents-first",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch",
+                "policy-restart-window"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 3
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch",
+                "policy-restart-window"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 3
+            }
+          },
+          "document_vectors_available": 84,
+          "inputs": 116,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6365823412698414,
+              "ndcg_at_10": 0.7257690048879211,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.90625
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.7400173611111112,
+              "ndcg_at_10": 0.7942349301174525,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.8125
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.27549603174603177,
+              "ndcg_at_10": 0.44624492356952333,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.625
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.21006944444444445,
+              "ndcg_at_10": 0.36147484368408134,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.25
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "0c5397f1f3d12602cabeb1dfe88ade8945da3199d2f612fc887bb01424e2b8fb",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "dab4a94e462e66c767419f492c5107a7c94bfe5bc2a03ff7aa750017a80c6da8",
+          "case": "queries-first_documents-second",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            }
+          },
+          "document_vectors_available": 84,
+          "inputs": 116,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6474330357142857,
+              "ndcg_at_10": 0.7336619853247596,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.90625
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.7566344246031746,
+              "ndcg_at_10": 0.8067778546205118,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.8125
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.2772321428571428,
+              "ndcg_at_10": 0.4480492837097418,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.625
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.2140376984126984,
+              "ndcg_at_10": 0.36551276089275037,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.25
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6944444444444445,
+              "ndcg_at_10": 0.7718216255952429,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "99640200457affb5eacd9a35846dab32b1332b67db56eef3f4c1b8e22c7fb90f",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "15dd470861a50ace61e04936e4063a10b82517e4d49e79b6dce999583bbd945d",
+          "case": "queries-first_documents-alternating",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            }
+          },
+          "document_vectors_available": 84,
+          "inputs": 116,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6516493055555557,
+              "ndcg_at_10": 0.7367440608217004,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.90625
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.755890376984127,
+              "ndcg_at_10": 0.8060630466900527,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.8125
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.27326388888888886,
+              "ndcg_at_10": 0.44401136650107276,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.625
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.2110615079365079,
+              "ndcg_at_10": 0.36265352917091426,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.25
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "8eea0acc22b15642aaf397d163cb5aecf170494b36039f0b7be60413f0f60d08",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "c46dca88a1971806eafb031be6274e48db5a02f2122e57c0907bfd5f1e69b5e5",
+          "case": "queries-first_documents-complement",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            }
+          },
+          "document_vectors_available": 84,
+          "inputs": 116,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6318080357142858,
+              "ndcg_at_10": 0.7221285401238676,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.90625
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.751984126984127,
+              "ndcg_at_10": 0.8032446890885163,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.8125
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.2772321428571428,
+              "ndcg_at_10": 0.4480492837097418,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.625
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.19543650793650794,
+              "ndcg_at_10": 0.3513800987647687,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.25
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.5416666666666666,
+              "ndcg_at_10": 0.6577324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6944444444444445,
+              "ndcg_at_10": 0.7718216255952429,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "e6d82fbc6d87ccb8b6042bd129cd7b76ef8eb0e81a4e6b3d17e024e62c30c451",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "bbe0b0053e33683df6e675d88ebac9c468c9b6e55937b86ea54aa2006aad5401",
+          "case": "queries-second_documents-first",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch",
+                "policy-restart-window"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 3
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch",
+                "policy-restart-window"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 3
+            }
+          },
+          "document_vectors_available": 84,
+          "inputs": 116,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6375744047619049,
+              "ndcg_at_10": 0.7267784841900884,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.90625
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.7335069444444444,
+              "ndcg_at_10": 0.7892502149557097,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.8125
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.2794642857142857,
+              "ndcg_at_10": 0.45028284077819236,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.625
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.1840277777777778,
+              "ndcg_at_10": 0.34153598303710997,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.25
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "8407de4ce18ef15180143ce620acd6a8e1a46b964521c00b4244eab56feb5cec",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "6470bb4e0253854d84a1d972e462a0cab0721cd7f972016ce60fc487019e5d7e",
+          "case": "queries-second_documents-second",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch",
+                "policy-restart-window"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 3
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch",
+                "policy-restart-window"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 3
+            }
+          },
+          "document_vectors_available": 84,
+          "inputs": 116,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6375744047619049,
+              "ndcg_at_10": 0.7267784841900884,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.90625
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.7344990079365079,
+              "ndcg_at_10": 0.7902596942578769,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.8125
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.2794642857142857,
+              "ndcg_at_10": 0.45028284077819236,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.625
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.18799603174603174,
+              "ndcg_at_10": 0.345573900245779,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.25
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "beadce374d8de8aa46a761a71fdc97c5346247c28f55156abaae81aa40eaa72c",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "e0778384ff506cb3954cef792bddbc1aefbb646cd6c63ffb184e5c829e4d1c5c",
+          "case": "queries-second_documents-alternating",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            }
+          },
+          "document_vectors_available": 84,
+          "inputs": 116,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6518601190476192,
+              "ndcg_at_10": 0.7369285385467477,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.90625
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.7478174603174603,
+              "ndcg_at_10": 0.7997088393145957,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.8125
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.2741071428571429,
+              "ndcg_at_10": 0.44474927740126163,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.625
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.17876984126984127,
+              "ndcg_at_10": 0.3372366996690865,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.25
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "c71837848d7b021e04b7f50f3043ba87539f333dee5c644193a982f8a8df53f8",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "1374389eb48361f9680b519c0798d3bd15556b8c2c1bb59ca0d61217973606c1",
+          "case": "queries-second_documents-complement",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch",
+                "policy-restart-window"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 3
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch",
+                "policy-restart-window"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 3
+            }
+          },
+          "document_vectors_available": 84,
+          "inputs": 116,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6193452380952382,
+              "ndcg_at_10": 0.7130786814289899,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.90625
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.7352678571428571,
+              "ndcg_at_10": 0.7906225244151,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.8125
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.26904761904761904,
+              "ndcg_at_10": 0.4416174105373665,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.625
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.19107142857142856,
+              "ndcg_at_10": 0.34702522087467097,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.25
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.5416666666666666,
+              "ndcg_at_10": 0.6577324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "ca3c8377325014a4e8b1831d140c1b2a4e76f1530bb1ac58629bdc7812bba01d",
+          "vector_measurement": "measured"
+        }
+      ],
+      "cfetch_executable_sha256": "b391c055fc58f31c62e216cd91231c7ecc3e386ef33baee8671914bd060251bd",
+      "comparison_summary_sha256": "d96427879a46a7f6b7affc6020fed5fa226215e132aad71d528a1e41b85421db",
+      "manifest_sha256": "44a313dbdb950a3bfde4fa5cb6c8b4e0f637a8a769aed358c1c16a92fbade00d",
+      "representation": "body",
+      "sources": {
+        "first": {
+          "bundle_sha256": "8b7df989cd92a1ec69e25fb09b96bb309193498735a4f4efda60e2c253e060cd",
+          "provenance": {
+            "artifact": "fp32",
+            "bucket_policy": "smallest per input; no truncation",
+            "execution_batch_size": 1,
+            "files": {
+              "config.json": "6e1f06404b7163e0325ed2ea3e6781cde50f4a50b31780a95ad0d30e8404d77b",
+              "onnx/model.onnx": "ea91fd315a7c152d427d231746f0f811a1ac93beaba656abfdf2b24e091265e4",
+              "onnx/model.onnx_data": "ef835ae565d8695236652475903078e8ed794c7c35faf1164d78ec3238e8a88d",
+              "tokenizer.json": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47"
+            },
+            "graph_optimization": "ORT_ENABLE_ALL",
+            "inter_op_threads": 1,
+            "intra_op_threads": 4,
+            "model_repository": "onnx-community/embeddinggemma-300m-ONNX",
+            "ort_build": "ORT Build Info: git-branch=HEAD, git-commit-id=45de2a8b06, fp8-kv-cache=1, build type=Release",
+            "packages": {
+              "numpy": "2.5.2",
+              "onnxruntime": "1.28.0",
+              "tokenizers": "0.22.2"
+            },
+            "pause_seconds_after_each_inference": 0.15,
+            "platform": "Linux-7.1.6-cachyos-lto-x86_64-with-glibc2.36",
+            "provider": "CPUExecutionProvider",
+            "purpose": "CPU candidate memory retrieval; not admission or canonical-source lineage proof",
+            "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+            "runner_sha256": "2eeb41131bc5a8ee4f245a6237e32a78cc70142e332a33674bcfaaf8de400c48"
+          }
+        },
+        "second": {
+          "bundle_sha256": "53b4dcb63a41bfa0df4ba0cea9b63c9e8d90fce45d8c1b6a0e53e1223b908649",
+          "provenance": {
+            "artifact": "q4",
+            "bucket_policy": "smallest per input; no truncation",
+            "execution_batch_size": 1,
+            "files": {
+              "config.json": "6e1f06404b7163e0325ed2ea3e6781cde50f4a50b31780a95ad0d30e8404d77b",
+              "onnx/model_q4.onnx": "ad1dfee81a70f7944b9b9d1cc6e48075b832881cf33fab2f2b248be78f3f0043",
+              "onnx/model_q4.onnx_data": "599962c3143b040de2dd05e5975be3e9091dd067cacc6a8f7186e3203bab9e02",
+              "tokenizer.json": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47"
+            },
+            "graph_optimization": "ORT_ENABLE_ALL",
+            "inter_op_threads": 1,
+            "intra_op_threads": 4,
+            "model_repository": "onnx-community/embeddinggemma-300m-ONNX",
+            "ort_build": "ORT Build Info: git-branch=HEAD, git-commit-id=45de2a8b06, fp8-kv-cache=1, build type=Release",
+            "packages": {
+              "numpy": "2.5.2",
+              "onnxruntime": "1.28.0",
+              "tokenizers": "0.22.2"
+            },
+            "pause_seconds_after_each_inference": 0.15,
+            "platform": "Linux-7.1.6-cachyos-lto-x86_64-with-glibc2.36",
+            "provider": "CPUExecutionProvider",
+            "purpose": "CPU candidate memory retrieval; not admission or canonical-source lineage proof",
+            "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+            "runner_sha256": "2eeb41131bc5a8ee4f245a6237e32a78cc70142e332a33674bcfaaf8de400c48"
+          }
+        }
+      }
+    },
+    {
+      "case_count": 8,
+      "cases": [
+        {
+          "blocks": 105,
+          "bundle_sha256": "c162ac355967511b98ea48223f7397152ad99cacf5b8ee278da6df7accab4663",
+          "case": "queries-first_documents-first",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            }
+          },
+          "document_vectors_available": 105,
+          "inputs": 137,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7968749999999999,
+              "ndcg_at_10": 0.8485827739955403,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.953125,
+              "ndcg_at_10": 0.9653996643973242,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7916666666666666,
+              "ndcg_at_10": 0.8452324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "fca55c57eaff3e609f8124c1e28355f5eddbb0fd08e6769cae82bca60afc4887",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "08bc6d19bb0f24f82407435523c30a8f0f44385f0c9070c999af6bcdd52b9e51",
+          "case": "queries-first_documents-second",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-delete-current",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-delete-current",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            }
+          },
+          "document_vectors_available": 105,
+          "inputs": 137,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7656249999999999,
+              "ndcg_at_10": 0.8245335040760193,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.90625,
+              "ndcg_at_10": 0.9307993287946483,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7291666666666667,
+              "ndcg_at_10": 0.7951691395183482,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.8125,
+              "ndcg_at_10": 0.8615986575892967,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "8dedcda559305678d0a355332ad606d714f8fff73930cf6566adcda0ee53ec7b",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "0083d134adf82cfc4f782f5f41add0b55b046d664dd0099277705c510a5c82c4",
+          "case": "queries-first_documents-alternating",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            }
+          },
+          "document_vectors_available": 105,
+          "inputs": 137,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7604166666666665,
+              "ndcg_at_10": 0.8214243287946483,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.921875,
+              "ndcg_at_10": 0.9423327739955403,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7708333333333334,
+              "ndcg_at_10": 0.8288662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.875,
+              "ndcg_at_10": 0.9077324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.5416666666666666,
+              "ndcg_at_10": 0.6577324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "6d8bd24a71cec0632fc71c70392d54079b6b7eb5a33567584fabda7564554131",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "820b9af850e66380715aabd2c21303af76f0716ea01a3c6b6093305003795083",
+          "case": "queries-first_documents-complement",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-delete-current",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-delete-current",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            }
+          },
+          "document_vectors_available": 105,
+          "inputs": 137,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7760416666666665,
+              "ndcg_at_10": 0.8329577739955403,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.921875,
+              "ndcg_at_10": 0.9423327739955403,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7708333333333334,
+              "ndcg_at_10": 0.8288662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.875,
+              "ndcg_at_10": 0.9077324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "b9ea3d2b05fb007cb4a320ff65d5f741ce1e44fa24e6a0dd6f54de9b970b27ee",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "fc3b8a28b1992709d7a5664dc6b720bf617c04fc9350ad82aef808ee28afd01f",
+          "case": "queries-second_documents-first",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            }
+          },
+          "document_vectors_available": 105,
+          "inputs": 137,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7864583333333333,
+              "ndcg_at_10": 0.8411408835937564,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.953125,
+              "ndcg_at_10": 0.9653996643973242,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8125,
+              "ndcg_at_10": 0.8615986575892967,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.5416666666666666,
+              "ndcg_at_10": 0.6577324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "044e2da5cdd41af0fc774231097c31359a4432e67241831fb3db4d2152b0b33a",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "72f5b3a44d05f8f449128d1fd573ef4125b8ae9531fc65ad07daaac2f480de0b",
+          "case": "queries-second_documents-second",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            }
+          },
+          "document_vectors_available": 105,
+          "inputs": 137,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8020833333333333,
+              "ndcg_at_10": 0.8526743287946483,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.953125,
+              "ndcg_at_10": 0.9653996643973242,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8125,
+              "ndcg_at_10": 0.8615986575892967,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.6041666666666665,
+              "ndcg_at_10": 0.7038662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "9f7da9ab385afcf4e2aab5b2749c0c67268514f2dda3c92bbd6581ee8a1cf079",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "5b1235e08d837afbf15d135d71c89c6f3fe63ce2d4d7f69ce0e0d88ffd197ade",
+          "case": "queries-second_documents-alternating",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 5
+            }
+          },
+          "document_vectors_available": 105,
+          "inputs": 137,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7812499999999999,
+              "ndcg_at_10": 0.8370493287946483,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.953125,
+              "ndcg_at_10": 0.9653996643973242,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7916666666666667,
+              "ndcg_at_10": 0.8452324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.875,
+              "ndcg_at_10": 0.9077324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.5416666666666666,
+              "ndcg_at_10": 0.6577324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.9166666666666666,
+              "ndcg_at_10": 0.9384882922619097,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "c454898e12f1dada81e62823fef9d46806ea518851b7a578a30eb5f8f59f4d1f",
+          "vector_measurement": "measured"
+        },
+        {
+          "blocks": 105,
+          "bundle_sha256": "4a072c8d0e46b698e9d7948a7be5a129b481a574f976b34720725c651abe07f8",
+          "case": "queries-second_documents-complement",
+          "critical_first_hit": {
+            "bm25": {
+              "failed_query_ids": [],
+              "queries": 6,
+              "relevant_at_rank_one": 6
+            },
+            "hybrid": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            },
+            "vector": {
+              "failed_query_ids": [
+                "policy-export-prior-permission",
+                "policy-delete-next-batch"
+              ],
+              "queries": 6,
+              "relevant_at_rank_one": 4
+            }
+          },
+          "document_vectors_available": 105,
+          "inputs": 137,
+          "metrics": [
+            {
+              "category": "all",
+              "mode": "bm25",
+              "mrr_at_10": 0.4139632936507936,
+              "ndcg_at_10": 0.5082339934822314,
+              "queries_evaluated": 32,
+              "recall_at_5": 0.65625
+            },
+            {
+              "category": "all",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7656249999999999,
+              "ndcg_at_10": 0.8255158835937564,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "all",
+              "mode": "vector",
+              "mrr_at_10": 0.921875,
+              "ndcg_at_10": 0.9423327739955403,
+              "queries_evaluated": 32,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "bm25",
+              "mrr_at_10": 0.3419642857142857,
+              "ndcg_at_10": 0.500989380782554,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.75
+            },
+            {
+              "category": "context",
+              "mode": "hybrid",
+              "mrr_at_10": 0.7916666666666666,
+              "ndcg_at_10": 0.8452324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "context",
+              "mode": "vector",
+              "mrr_at_10": 0.875,
+              "ndcg_at_10": 0.9077324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "bm25",
+              "mrr_at_10": 0.75,
+              "ndcg_at_10": 0.8154648767857289,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "hybrid",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "exact",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 4,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "bm25",
+              "mrr_at_10": 0.05138888888888889,
+              "ndcg_at_10": 0.12211845365205133,
+              "queries_evaluated": 8,
+              "recall_at_5": 0.125
+            },
+            {
+              "category": "multilingual",
+              "mode": "hybrid",
+              "mrr_at_10": 0.5416666666666666,
+              "ndcg_at_10": 0.6577324383928644,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "multilingual",
+              "mode": "vector",
+              "mrr_at_10": 0.9375,
+              "ndcg_at_10": 0.9538662191964322,
+              "queries_evaluated": 8,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "bm25",
+              "mrr_at_10": 0.18333333333333335,
+              "ndcg_at_10": 0.3361276014686079,
+              "queries_evaluated": 6,
+              "recall_at_5": 0.6666666666666666
+            },
+            {
+              "category": "paraphrase",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8055555555555557,
+              "ndcg_at_10": 0.8551549589285763,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "paraphrase",
+              "mode": "vector",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "bm25",
+              "mrr_at_10": 1.0,
+              "ndcg_at_10": 1.0,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "hybrid",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            },
+            {
+              "category": "policy",
+              "mode": "vector",
+              "mrr_at_10": 0.8333333333333334,
+              "ndcg_at_10": 0.8769765845238192,
+              "queries_evaluated": 6,
+              "recall_at_5": 1.0
+            }
+          ],
+          "queries": 32,
+          "refused_inputs": 0,
+          "report_sha256": "0b6e7cc9c4b9a86acb7315a29694f6a20b76302aaf60a8973ac543db9fc9426b",
+          "vector_measurement": "measured"
+        }
+      ],
+      "cfetch_executable_sha256": "b391c055fc58f31c62e216cd91231c7ecc3e386ef33baee8671914bd060251bd",
+      "comparison_summary_sha256": "b823eb546fca5dcee395465d3083a8ccfb62e25c46300c5c3fd4ebc80e22a135",
+      "manifest_sha256": "0b0c176c1bb3402eb2dc8de3029d5ca2e1f58eb9be799140914868aa25bcad10",
+      "representation": "heading_context",
+      "sources": {
+        "first": {
+          "bundle_sha256": "8899a9a8538892d613dfcb4ced1045c5f54097749bd2b9c46dfdd2f16d3bc4ed",
+          "provenance": {
+            "artifact": "fp32",
+            "bucket_policy": "smallest per input; no truncation",
+            "execution_batch_size": 1,
+            "files": {
+              "config.json": "6e1f06404b7163e0325ed2ea3e6781cde50f4a50b31780a95ad0d30e8404d77b",
+              "onnx/model.onnx": "ea91fd315a7c152d427d231746f0f811a1ac93beaba656abfdf2b24e091265e4",
+              "onnx/model.onnx_data": "ef835ae565d8695236652475903078e8ed794c7c35faf1164d78ec3238e8a88d",
+              "tokenizer.json": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47"
+            },
+            "graph_optimization": "ORT_ENABLE_ALL",
+            "inter_op_threads": 1,
+            "intra_op_threads": 4,
+            "model_repository": "onnx-community/embeddinggemma-300m-ONNX",
+            "ort_build": "ORT Build Info: git-branch=HEAD, git-commit-id=45de2a8b06, fp8-kv-cache=1, build type=Release",
+            "packages": {
+              "numpy": "2.5.2",
+              "onnxruntime": "1.28.0",
+              "tokenizers": "0.22.2"
+            },
+            "pause_seconds_after_each_inference": 0.15,
+            "platform": "Linux-7.1.6-cachyos-lto-x86_64-with-glibc2.36",
+            "provider": "CPUExecutionProvider",
+            "purpose": "CPU candidate memory retrieval; not admission or canonical-source lineage proof",
+            "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+            "runner_sha256": "2eeb41131bc5a8ee4f245a6237e32a78cc70142e332a33674bcfaaf8de400c48"
+          }
+        },
+        "second": {
+          "bundle_sha256": "8dfd6b900c47f396dc0ce61b263e33fdb6a7dcd6ece703830ccf72165e2ccf87",
+          "provenance": {
+            "artifact": "q4",
+            "bucket_policy": "smallest per input; no truncation",
+            "execution_batch_size": 1,
+            "files": {
+              "config.json": "6e1f06404b7163e0325ed2ea3e6781cde50f4a50b31780a95ad0d30e8404d77b",
+              "onnx/model_q4.onnx": "ad1dfee81a70f7944b9b9d1cc6e48075b832881cf33fab2f2b248be78f3f0043",
+              "onnx/model_q4.onnx_data": "599962c3143b040de2dd05e5975be3e9091dd067cacc6a8f7186e3203bab9e02",
+              "tokenizer.json": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47"
+            },
+            "graph_optimization": "ORT_ENABLE_ALL",
+            "inter_op_threads": 1,
+            "intra_op_threads": 4,
+            "model_repository": "onnx-community/embeddinggemma-300m-ONNX",
+            "ort_build": "ORT Build Info: git-branch=HEAD, git-commit-id=45de2a8b06, fp8-kv-cache=1, build type=Release",
+            "packages": {
+              "numpy": "2.5.2",
+              "onnxruntime": "1.28.0",
+              "tokenizers": "0.22.2"
+            },
+            "pause_seconds_after_each_inference": 0.15,
+            "platform": "Linux-7.1.6-cachyos-lto-x86_64-with-glibc2.36",
+            "provider": "CPUExecutionProvider",
+            "purpose": "CPU candidate memory retrieval; not admission or canonical-source lineage proof",
+            "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+            "runner_sha256": "2eeb41131bc5a8ee4f245a6237e32a78cc70142e332a33674bcfaaf8de400c48"
+          }
+        }
+      }
+    }
+  ],
+  "schema_version": 1
+}

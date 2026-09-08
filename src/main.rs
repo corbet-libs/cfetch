@@ -67,6 +67,7 @@ mod maintenance;
 mod maintenance_inbox;
 mod maintenance_model;
 mod maintenance_worker;
+mod memory_eval;
 mod mcp;
 mod migrate;
 mod net;
@@ -272,6 +273,20 @@ enum Command {
         /// Exit nonzero unless this capability passes (repeatable)
         #[arg(long, value_enum, value_delimiter = ',')]
         require: Vec<retrieval_fixture::Requirement>,
+    },
+    /// Evaluate labeled Markdown and imported candidate vectors in isolated temporary storage
+    RetrievalEval {
+        #[arg(long)]
+        corpus: std::path::PathBuf,
+        /// Experimental input policy; does not change the production profile
+        #[arg(long, value_enum, default_value = "body")]
+        representation: memory_eval::Representation,
+        /// Create an exact input manifest (refuses to overwrite an existing file)
+        #[arg(long)]
+        export: Option<std::path::PathBuf>,
+        /// Evaluate a candidate vector bundle bound to that exact manifest
+        #[arg(long)]
+        vectors: Option<std::path::PathBuf>,
     },
     /// Show this host's network identity (created on first use)
     Identity {
@@ -3315,6 +3330,12 @@ fn main() {
         } => {
             if let Err(error) = retrieval_fixture::run(json, show_vectors, &require) {
                 eprintln!("cfetch retrieval-fixture: {error:#}");
+                std::process::exit(1);
+            }
+        }
+        Command::RetrievalEval { corpus, representation, export, vectors } => {
+            if let Err(error) = memory_eval::run(&corpus, representation, export.as_deref(), vectors.as_deref()) {
+                eprintln!("cfetch retrieval-eval: {error:#}");
                 std::process::exit(1);
             }
         }

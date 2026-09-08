@@ -5,6 +5,23 @@ listed here is a fix or an internal change with no effect on behavior.
 
 ## Unreleased
 
+- **Exact statement identity and vector invalidation.** Case, spacing, and
+  line-break changes now produce distinct body hashes. The disposable catalog
+  rebuilds at schema 8; citations change, and legacy normalized-body vector
+  keys cannot hydrate the new exact-body keys. Markdown and retained vector
+  records are preserved.
+- **Hybrid recall keeps lexical trust reservation.** The lexical input to
+  fusion now applies the same single top-trust slot as standalone recall,
+  preventing fusion from silently using a different lexical ordering.
+- **Replayable memory-retrieval measurements.** `retrieval-eval` exports exact
+  inputs and evaluates labeled synthetic Markdown with the real rankers and
+  INT8 codec in an isolated catalog. Experimental heading context and imported
+  candidate vectors do not activate or change production embedding semantics.
+- **Resumable signed adapter exports and bounded child cleanup.** Opt-in
+  export checkpoints authenticate completed transactions on resume while
+  keeping independent repeatability trials separate. Package-local adapter
+  cleanup has a deadline and refuses further launch after unconfirmed cleanup
+  or exhaustion of the single crash restart.
 - **Explicit, read-only FastEmbed model diagnostics.** `embed-model --model`
   passes the selected catalogue variant to the loader, including distinct
   quantized variants. `list` uses the linked library's actual catalogue.

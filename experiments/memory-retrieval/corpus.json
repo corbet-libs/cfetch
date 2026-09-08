@@ -1,0 +1,360 @@
+{
+  "schema_version": 1,
+  "description": "Synthetic public Markdown memory retrieval fixture. All organizations, procedures, identifiers, and events are invented. Relevance labels are qualitative hypotheses for reviewing statement, heading, table, trust, and multilingual retrieval; they are not benchmark results or admission thresholds. Conflicting historical policy notes remain recallable as deliberate decoys. Queries request current policy unless they explicitly ask for history.",
+  "documents": [
+    {
+      "path": "knowledge/delivery-notices.md",
+      "text": "# Parcel delivery notices\n\nIf nobody answers the door, the courier leaves the parcel at the staffed collection counter and puts a claim ticket in the recipient's mailbox.\n\n- The collection counter closes at 18:00.\n"
+    },
+    {
+      "path": "knowledge/shift-handover.md",
+      "text": "# Counter shift handover\n\nStaff who leave before their replacement arrives put the counter keys in the supervisor's mailbox. The handover ticket records the shift, not a parcel delivery.\n"
+    },
+    {
+      "path": "knowledge/search-recovery.md",
+      "text": "# Search catalogue recovery\n\nA damaged catalogue can be discarded and reconstructed from the original notes. The notes remain authoritative; losing the catalogue does not erase any remembered facts.\n\n- Recovery reads every note before serving a fresh answer.\n"
+    },
+    {
+      "path": "knowledge/photo-catalogue.md",
+      "text": "# Photography catalogue recovery\n\nThe photography catalogue contains the only captions for the original negatives. Discarding it erases those captions even when the pictures remain intact.\n"
+    },
+    {
+      "path": "knowledge/release-corrections.md",
+      "text": "# Published package corrections\n\nA published package is immutable. Correct a defect by issuing a new patch version; existing downloads must continue to identify the original bytes.\n\n- Use the identifier PKG-314 when tracing the example release.\n"
+    },
+    {
+      "path": "knowledge/flyer-corrections.md",
+      "text": "# Event flyer corrections\n\nA published event flyer may be replaced at its existing download address. Correct the date in place so visitors always receive the current version.\n"
+    },
+    {
+      "path": "knowledge/single-booking.md",
+      "text": "# One-time room reservations\n\nWithdrawing a reservation frees the room immediately and returns the deposit to the original payment method within five working days.\n"
+    },
+    {
+      "path": "knowledge/recurring-booking.md",
+      "text": "# Recurring room reservations\n\nSkipping one weekly meeting frees that occurrence but leaves the series active. Its deposit stays attached to the series until the final reservation ends.\n"
+    },
+    {
+      "path": "knowledge/decision-records.md",
+      "text": "# Decision records\n\nRecord the chosen option, the reason it was selected, and the condition that would justify reconsidering it. A transcript of the discussion is insufficient.\n"
+    },
+    {
+      "path": "knowledge/activity-records.md",
+      "text": "# Workshop activity records\n\nRecord the discussion as a transcript, preserving each speaker's words in order. The workshop log need not state a chosen option or a reconsideration condition.\n"
+    },
+    {
+      "path": "knowledge/orchard-rooms.md",
+      "text": "# Orchard storage\n\n## Cooling schedule\n\n| Period | Target temperature in Celsius |\n| --- | --- |\n| Morning | 8 |\n| Evening | 6 |\n"
+    },
+    {
+      "path": "knowledge/bakery-rooms.md",
+      "text": "# Bakery workspace\n\n## Cooling schedule\n\n| Period | Target temperature in Celsius |\n| --- | --- |\n| Morning | 18 |\n| Evening | 16 |\n"
+    },
+    {
+      "path": "knowledge/blue-line-alerts.md",
+      "text": "# Blue assembly line\n\n## Fault alerts\n\nSend the notification to the evening coordinator by email.\n\n## Routine reports\n\nPrint one copy at the end of the shift.\n"
+    },
+    {
+      "path": "knowledge/green-line-alerts.md",
+      "text": "# Green assembly line\n\n## Fault alerts\n\nSend the notification to the evening coordinator by text message.\n\n## Routine reports\n\nPrint one copy at the end of the shift.\n"
+    },
+    {
+      "path": "knowledge/north-workspace.md",
+      "text": "# North workspace\n\n## Guests arriving after reception closes\n\nUse the side entrance and call the evening coordinator.\n\n## Deliveries arriving after reception closes\n\nLeave the items in the covered loading bay.\n"
+    },
+    {
+      "path": "knowledge/south-workspace.md",
+      "text": "# South workspace\n\n## Guests arriving after reception closes\n\nUse the main entrance and call the evening coordinator.\n\n## Deliveries arriving after reception closes\n\nLeave the items in the covered loading bay.\n"
+    },
+    {
+      "path": "knowledge/retention-periods.md",
+      "text": "# Retention periods\n\n## API request traces\n\n| Class | Days retained |\n| --- | --- |\n| Successful | 7 |\n| Failed | 30 |\n\n## Audit records\n\n| Class | Days retained |\n| --- | --- |\n| Successful | 90 |\n| Failed | 180 |\n"
+    },
+    {
+      "path": "knowledge/retention-counts.md",
+      "text": "# Retention review sample\n\n## API request traces\n\n| Class | Records inspected |\n| --- | --- |\n| Successful | 7 |\n| Failed | 30 |\n\n## Audit records\n\n| Class | Records inspected |\n| --- | --- |\n| Successful | 90 |\n| Failed | 180 |\n"
+    },
+    {
+      "path": "knowledge/export-policy.md",
+      "text": "---\nring: 0\n---\n# Current customer export policy\n\n- Obtain the account owner's explicit authorization before sending a customer export to an external recipient. A previous export does not authorize another one.\n"
+    },
+    {
+      "path": "knowledge/export-policy-old.md",
+      "text": "---\nring: 4\n---\n# Superseded customer export procedure\n\n- Send customer exports to an external recipient without asking again if the account owner approved any previous export.\n"
+    },
+    {
+      "path": "knowledge/deletion-policy.md",
+      "text": "---\nring: 0\n---\n# Current document deletion policy\n\n- Before deleting documents, show the exact selected files and obtain approval for that selection. Approval for a preview or a previous batch does not authorize deletion of a new batch.\n"
+    },
+    {
+      "path": "knowledge/deletion-policy-old.md",
+      "text": "---\nring: 4\n---\n# Superseded document deletion procedure\n\n- Delete each new batch of documents automatically after the first batch is approved. A successful preview is enough to authorize the deletion.\n"
+    },
+    {
+      "path": "knowledge/restart-policy.md",
+      "text": "---\nring: 0\n---\n# Current production restart policy\n\n- A production service restart requires explicit approval for that particular restart, even inside an agreed maintenance window.\n"
+    },
+    {
+      "path": "knowledge/restart-policy-old.md",
+      "text": "---\nring: 4\n---\n# Superseded production restart procedure\n\n- Restart production services freely inside an agreed maintenance window; no separate restart approval is needed.\n"
+    },
+    {
+      "path": "knowledge/library-returns.md",
+      "text": "# Library returns\n\nBooks may be placed in the return slot when the library is closed. Items deposited overnight are recorded as returned on the preceding opening day.\n"
+    },
+    {
+      "path": "knowledge/bicycle-collection.md",
+      "text": "# Bicycle repair collection\n\nNach der Reparatur wird das Fahrrad bis Freitag kostenlos aufbewahrt. Zur Abholung genügt der Abholschein; eine andere Person darf ihn vorzeigen.\n"
+    },
+    {
+      "path": "knowledge/parcel-locker.md",
+      "text": "# Parcel locker collection\n\nLe colis reste dans le casier pendant trois jours. Après ce délai, il est renvoyé à l'expéditeur. Le code de retrait ne prolonge pas la durée de garde.\n"
+    },
+    {
+      "path": "knowledge/equipment-loans.md",
+      "text": "# Community equipment loans\n\nBorrowers pay a refundable deposit for the projector. The full amount is returned after staff confirm that the projector and its cables are present and undamaged.\n"
+    },
+    {
+      "path": "knowledge/meeting-recording.md",
+      "text": "# Meeting recording consent\n\nEine Besprechung wird nur aufgezeichnet, wenn alle Teilnehmenden vorher zustimmen. Schweigen gilt nicht als Zustimmung.\n"
+    },
+    {
+      "path": "knowledge/garden-tools.md",
+      "text": "# Shared garden tools\n\nAprès utilisation, nettoyez les outils et remettez-les dans l'armoire commune. Signalez immédiatement tout outil cassé au responsable du jardin.\n"
+    },
+    {
+      "path": "knowledge/bicycle-rentals.md",
+      "text": "# Bicycle rental collection\n\nEin Leihfahrrad muss von der Person abgeholt werden, die den Mietvertrag unterschrieben hat. Der Reparatur-Abholschein gilt nicht für Leihfahrräder.\n"
+    },
+    {
+      "path": "knowledge/library-reservations.md",
+      "text": "# Library reservations\n\nReserved books wait at the lending desk for three opening days. The return slot cannot be used to collect a reservation after the library closes.\n"
+    }
+  ],
+  "queries": [
+    {
+      "id": "paraphrase-missed-delivery",
+      "category": "paraphrase",
+      "text": "Where does a shipment end up if the addressee is out?",
+      "relevant": [{"path": "knowledge/delivery-notices.md", "text": "If nobody answers the door, the courier leaves the parcel at the staffed collection counter and puts a claim ticket in the recipient's mailbox.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "paraphrase-disposable-index",
+      "category": "paraphrase",
+      "text": "Will remembered information survive corruption of the search index?",
+      "relevant": [{"path": "knowledge/search-recovery.md", "text": "A damaged catalogue can be discarded and reconstructed from the original notes. The notes remain authoritative; losing the catalogue does not erase any remembered facts.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "paraphrase-published-artifact",
+      "category": "paraphrase",
+      "text": "How should we repair software that users have already downloaded?",
+      "relevant": [{"path": "knowledge/release-corrections.md", "text": "A published package is immutable. Correct a defect by issuing a new patch version; existing downloads must continue to identify the original bytes.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "paraphrase-reservation-refund",
+      "category": "paraphrase",
+      "text": "I cancelled my one-off room booking. When will I get my money back?",
+      "relevant": [{"path": "knowledge/single-booking.md", "text": "Withdrawing a reservation frees the room immediately and returns the deposit to the original payment method within five working days.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "paraphrase-decision-rationale",
+      "category": "paraphrase",
+      "text": "What must a note preserve so a future reader understands why we picked an approach and when to revisit it?",
+      "relevant": [{"path": "knowledge/decision-records.md", "text": "Record the chosen option, the reason it was selected, and the condition that would justify reconsidering it. A transcript of the discussion is insufficient.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "context-orchard-evening",
+      "category": "context",
+      "text": "What temperature should the orchard storage use in the evening?",
+      "relevant": [{"path": "knowledge/orchard-rooms.md", "text": "| Evening | 6 |", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "context-bakery-morning",
+      "category": "context",
+      "text": "What is the bakery workspace's morning cooling target in Celsius?",
+      "relevant": [{"path": "knowledge/bakery-rooms.md", "text": "| Morning | 18 |", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "context-blue-alert",
+      "category": "context",
+      "text": "How should a fault on the Blue assembly line reach the evening coordinator?",
+      "relevant": [{"path": "knowledge/blue-line-alerts.md", "text": "Send the notification to the evening coordinator by email.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "context-green-report",
+      "category": "context",
+      "text": "What do we do with a routine report from the Green assembly line?",
+      "relevant": [{"path": "knowledge/green-line-alerts.md", "text": "Print one copy at the end of the shift.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "context-north-guest",
+      "category": "context",
+      "text": "Where should a North workspace visitor enter after reception has closed?",
+      "relevant": [{"path": "knowledge/north-workspace.md", "text": "Use the side entrance and call the evening coordinator.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "context-south-delivery",
+      "category": "context",
+      "text": "Where do deliveries go at the South workspace after reception closes?",
+      "relevant": [{"path": "knowledge/south-workspace.md", "text": "Leave the items in the covered loading bay.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "context-trace-retention",
+      "category": "context",
+      "text": "For how many days are failed API request traces retained?",
+      "relevant": [{"path": "knowledge/retention-periods.md", "text": "| Failed | 30 |", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "context-audit-sample-count",
+      "category": "context",
+      "text": "How many successful audit records were inspected in the retention review sample?",
+      "relevant": [{"path": "knowledge/retention-counts.md", "text": "| Successful | 90 |", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "policy-export-current",
+      "category": "policy",
+      "text": "What approval is required before sending a customer export to an external recipient?",
+      "relevant": [{"path": "knowledge/export-policy.md", "text": "- Obtain the account owner's explicit authorization before sending a customer export to an external recipient. A previous export does not authorize another one.", "grade": 3}],
+      "critical": true
+    },
+    {
+      "id": "policy-export-prior-permission",
+      "category": "policy",
+      "text": "The owner approved a customer data export last week. Can I send another copy to someone outside the account now?",
+      "relevant": [{"path": "knowledge/export-policy.md", "text": "- Obtain the account owner's explicit authorization before sending a customer export to an external recipient. A previous export does not authorize another one.", "grade": 3}],
+      "critical": true
+    },
+    {
+      "id": "policy-delete-current",
+      "category": "policy",
+      "text": "What must happen before deleting a selected batch of documents?",
+      "relevant": [{"path": "knowledge/deletion-policy.md", "text": "- Before deleting documents, show the exact selected files and obtain approval for that selection. Approval for a preview or a previous batch does not authorize deletion of a new batch.", "grade": 3}],
+      "critical": true
+    },
+    {
+      "id": "policy-delete-next-batch",
+      "category": "policy",
+      "text": "The first document cleanup batch was approved and its preview succeeded. May the next batch be removed automatically?",
+      "relevant": [{"path": "knowledge/deletion-policy.md", "text": "- Before deleting documents, show the exact selected files and obtain approval for that selection. Approval for a preview or a previous batch does not authorize deletion of a new batch.", "grade": 3}],
+      "critical": true
+    },
+    {
+      "id": "policy-restart-current",
+      "category": "policy",
+      "text": "Does a production service restart need explicit approval?",
+      "relevant": [{"path": "knowledge/restart-policy.md", "text": "- A production service restart requires explicit approval for that particular restart, even inside an agreed maintenance window.", "grade": 3}],
+      "critical": true
+    },
+    {
+      "id": "policy-restart-window",
+      "category": "policy",
+      "text": "An operator agreed to tonight's maintenance window. Is that enough permission to restart the production service?",
+      "relevant": [{"path": "knowledge/restart-policy.md", "text": "- A production service restart requires explicit approval for that particular restart, even inside an agreed maintenance window.", "grade": 3}],
+      "critical": true
+    },
+    {
+      "id": "multilingual-library-de-en",
+      "category": "multilingual",
+      "text": "Kann ich Bücher zurückgeben, wenn die Bibliothek geschlossen ist?",
+      "relevant": [{"path": "knowledge/library-returns.md", "text": "Books may be placed in the return slot when the library is closed. Items deposited overnight are recorded as returned on the preceding opening day.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "multilingual-bicycle-en-de",
+      "category": "multilingual",
+      "text": "Can a friend collect my repaired bicycle using my claim ticket?",
+      "relevant": [{"path": "knowledge/bicycle-collection.md", "text": "Nach der Reparatur wird das Fahrrad bis Freitag kostenlos aufbewahrt. Zur Abholung genügt der Abholschein; eine andere Person darf ihn vorzeigen.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "multilingual-parcel-en-fr",
+      "category": "multilingual",
+      "text": "What happens if I leave a parcel in its collection locker for more than three days?",
+      "relevant": [{"path": "knowledge/parcel-locker.md", "text": "Le colis reste dans le casier pendant trois jours. Après ce délai, il est renvoyé à l'expéditeur. Le code de retrait ne prolonge pas la durée de garde.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "multilingual-projector-fr-en",
+      "category": "multilingual",
+      "text": "À quelles conditions la caution du vidéoprojecteur emprunté est-elle remboursée?",
+      "relevant": [{"path": "knowledge/equipment-loans.md", "text": "Borrowers pay a refundable deposit for the projector. The full amount is returned after staff confirm that the projector and its cables are present and undamaged.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "multilingual-recording-en-de",
+      "category": "multilingual",
+      "text": "May a meeting be recorded when some participants have not answered the consent request?",
+      "relevant": [{"path": "knowledge/meeting-recording.md", "text": "Eine Besprechung wird nur aufgezeichnet, wenn alle Teilnehmenden vorher zustimmen. Schweigen gilt nicht als Zustimmung.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "multilingual-tools-de-fr",
+      "category": "multilingual",
+      "text": "Was soll ich tun, wenn ich ein kaputtes Werkzeug im Gemeinschaftsgarten bemerke?",
+      "relevant": [{"path": "knowledge/garden-tools.md", "text": "Après utilisation, nettoyez les outils et remettez-les dans l'armoire commune. Signalez immédiatement tout outil cassé au responsable du jardin.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "multilingual-bicycle-fr-de",
+      "category": "multilingual",
+      "text": "Jusqu'à quand le vélo réparé est-il conservé sans frais?",
+      "relevant": [{"path": "knowledge/bicycle-collection.md", "text": "Nach der Reparatur wird das Fahrrad bis Freitag kostenlos aufbewahrt. Zur Abholung genügt der Abholschein; eine andere Person darf ihn vorzeigen.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "multilingual-parcel-de-fr",
+      "category": "multilingual",
+      "text": "Verlängert der Abholcode die Aufbewahrungsfrist eines Pakets im Schließfach?",
+      "relevant": [{"path": "knowledge/parcel-locker.md", "text": "Le colis reste dans le casier pendant trois jours. Après ce délai, il est renvoyé à l'expéditeur. Le code de retrait ne prolonge pas la durée de garde.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "exact-package-identifier",
+      "category": "exact",
+      "text": "PKG-314",
+      "relevant": [{"path": "knowledge/release-corrections.md", "text": "- Use the identifier PKG-314 when tracing the example release.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "exact-counter-closing",
+      "category": "exact",
+      "text": "collection counter closes",
+      "relevant": [{"path": "knowledge/delivery-notices.md", "text": "- The collection counter closes at 18:00.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "exact-recovery-read",
+      "category": "exact",
+      "text": "Recovery reads every note before serving a fresh answer",
+      "relevant": [{"path": "knowledge/search-recovery.md", "text": "- Recovery reads every note before serving a fresh answer.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "exact-recurring-deposit",
+      "category": "exact",
+      "text": "deposit stays attached to the series",
+      "relevant": [{"path": "knowledge/recurring-booking.md", "text": "Skipping one weekly meeting frees that occurrence but leaves the series active. Its deposit stays attached to the series until the final reservation ends.", "grade": 3}],
+      "critical": false
+    },
+    {
+      "id": "paraphrase-reconstruct-search",
+      "category": "paraphrase",
+      "text": "Which source lets us rebuild the lookup catalogue after it breaks?",
+      "relevant": [{"path": "knowledge/search-recovery.md", "text": "A damaged catalogue can be discarded and reconstructed from the original notes. The notes remain authoritative; losing the catalogue does not erase any remembered facts.", "grade": 3}],
+      "critical": false
+    }
+  ]
+}

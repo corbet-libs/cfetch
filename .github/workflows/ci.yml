@@ -28,6 +28,8 @@ jobs:
           echo "matrix=$(bash scripts/variant-matrix.sh)" >> "$GITHUB_OUTPUT"
       - name: Test exact local payload staging
         run: python -m unittest -v scripts.test_stage_local_inference
+      - name: Test admitted release matrix
+        run: python -m unittest -v scripts.test_variant_matrix
 
   variant-build:
     name: Variant build (${{ matrix.id }})
@@ -97,6 +99,8 @@ jobs:
           test_admission_transaction.py
       - name: Test dependency-light OpenVINO package contracts
         run: python -m unittest discover -s packages/openvino/tests -v
+      - name: Test isolated memory measurement checkpoints
+        run: python -m unittest discover -s experiments/memory-retrieval -v
       - name: Test dependency-light activation promotion
         run: python -m unittest scripts/test_apply_admission_activation.py -v
       - name: Verify the pinned SciFact dataset contract
