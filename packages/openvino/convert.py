@@ -107,6 +107,10 @@ EXPECTED_DENSE_3 = {
 }
 EXPECTED_SENTENCE_BERT = {"max_seq_length": 2048, "do_lower_case": False}
 EXPECTED_SLIDING_WINDOW = 512
+# Gemma3TextConfig converts the serialized full bidirectional window into an
+# exclusive radius: (512 // 2) + 1. Passing the serialized value to SDPA would
+# double the neighborhood and change long-input embeddings.
+EXPECTED_EFFECTIVE_SLIDING_WINDOW = EXPECTED_SLIDING_WINDOW // 2 + 1
 
 
 class ConversionError(ValueError):
@@ -240,7 +244,7 @@ def _ensure_nonempty_attention_rows(allowed: Any, diagonal: Any) -> Any:
 
 
 def safe_bidirectional_attention_masks(
-    attention_mask: Any, sliding_window: int = EXPECTED_SLIDING_WINDOW
+    attention_mask: Any, sliding_window: int = EXPECTED_EFFECTIVE_SLIDING_WINDOW
 ) -> dict[str, Any]:
     """Build Gemma3's exact full/local masks without empty query rows.
 
@@ -262,7 +266,7 @@ def safe_bidirectional_attention_masks(
 
     # Materialize the query axis while retaining broadcast over the frozen
     # batch dimension.  The pinned full-attention layers admit every real key;
-    # the sliding layers admit real keys at exclusive distance < 512.
+    # the sliding layers admit real keys at exclusive distance < 257.
     full_attention = torch.ones_like(local_window) & real_keys
     sliding_attention = local_window & real_keys
     return {
@@ -289,6 +293,13 @@ def build_torch_pipeline(source_dir: Path):
         # of allowing dependency or host capability to select another graph.
         attn_implementation="sdpa",
     )
+    if (
+        backbone.config.use_bidirectional_attention is not True
+        or backbone.config.sliding_window != EXPECTED_EFFECTIVE_SLIDING_WINDOW
+    ):
+        raise ConversionError(
+            "loaded Gemma3 config does not have the frozen bidirectional radius 257"
+        )
     dense_2 = _load_dense_weight(
         source_dir / "2_Dense/model.safetensors", (3072, 768)
     ).to(dtype=torch.float32)
@@ -354,10 +365,13 @@ def export_torch_pipeline(pipeline: Any, example_ids: Any, example_mask: Any) ->
     )
 
 
+# Exact rotary nodes from requirements-build.lock: torch 2.13.0+cpu,
+# transformers 5.10.1, and OpenVINO 2026.2.1. Names and structural checks
+# jointly select the two inspected outer products; shape alone is insufficient.
 DEGENERATE_OUTER_PRODUCT_NODES = frozenset(
     {
-        "bmm_22/aten.bmm.default/MatMul",
-        "bmm_23/aten.bmm.default/MatMul",
+        "bmm/aten.bmm.default/MatMul",
+        "bmm_1/aten.bmm.default/MatMul",
     }
 )
 

@@ -84,6 +84,7 @@ HOST_FILE_PREFIXES = (
     PurePosixPath("/lib64"),
     PurePosixPath("/opt/intel"),
 )
+GOVERNOR_POLICY_PATH = PurePosixPath("/var/lib/cfetch/inference/policy.json")
 
 
 class ManifestError(ValueError):
@@ -265,7 +266,8 @@ def _host_binding(value: Any, label: str) -> HostBinding:
             not pure.is_absolute()
             or str(pure) != text
             or any(part in ("", ".", "..") for part in pure.parts)
-            or not any(pure.is_relative_to(prefix) for prefix in HOST_FILE_PREFIXES)
+            or (pure != GOVERNOR_POLICY_PATH
+                and not any(pure.is_relative_to(prefix) for prefix in HOST_FILE_PREFIXES))
         ):
             raise ManifestError(
                 f"{file_label}.path must be a normalized absolute file under an "

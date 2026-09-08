@@ -63,10 +63,12 @@ and an exact glibc 2.35 build floor. It:
    the canonical SHA-256 allowlist without sending credentials;
 3. fetches, extracts, and hash-checks the pinned official Gemma Terms and
    Prohibited Use Policy;
-4. converts the exact graph and runs a real CPU PyTorch-to-OpenVINO parity
-   smoke at the 32, 128, and 2,048 static buckets; conversion replaces exactly
-   the two rotary-position MatMuls whose reduction dimension is one with the
-   algebraically identical broadcast multiplication, refusing any graph drift;
+4. converts the exact graph and runs CPU parity against an independent
+   upstream PyTorch reference: short inputs, the maximum static shape, and
+   prepared-token probes with 258 and 1,946 real tokens; conversion replaces
+   exactly the two rotary-position MatMuls whose reduction dimension is one
+   with the algebraically identical broadcast multiplication, refusing graph
+   drift;
 5. freezes the runtime, executes its integrity launcher and CPU plugin
    self-check, and emits regular-file-only content-addressed archives.
 
@@ -100,6 +102,38 @@ hashes before loading weights and proves that all seven required static shapes
 can be formed before serialization. The unit-reduction rewrite avoids a GPU
 shape-lowering defect without changing the model function: one multiplication
 and no accumulation is exactly the original K=1 matrix product.
+
+### Attention semantics and independent parity
+
+The pinned source `config.json` contains `sliding_window: 512` and
+`use_bidirectional_attention: true`. Locked Transformers 5.10.1 interprets
+that serialized width in `Gemma3TextConfig` as `(512 // 2) + 1 = 257`. The
+effective local mask therefore admits keys at exclusive distance `< 257`.
+The converter verifies the raw value 512 and the loaded value 257 separately.
+Using the serialized width directly as the effective radius changes long-input
+embeddings. This attention parameter is independent of the profile's separate
+257-token execution bucket.
+
+`reference.py` loads a fresh upstream `AutoModel` with SDPA and an ordinary 2D
+attention mask, then independently implements mean pooling, both verified
+Dense projections and L2 normalization. It does not reuse the converter's
+attention or pooling helpers. `smoke_parity.py` uses that reference and requires
+finite 768-dimensional outputs, L2 norm error at most 0.005, and cosine at least
+0.999. Its long probes contain 258 real tokens in bucket 512 and 1,946 in bucket
+2,048, including BOS/EOS; their prepared-token and output digests are
+recorded. A short input padded to a large shape does not exercise these long
+attention neighborhoods. These structural probes are separate from retrieval
+relevance labels and hardware admission.
+
+The optional [native audit](../../experiments/memory-retrieval/audit_native.py)
+also compares the actual pinned upstream mask factories with the converter
+across every frozen bucket and boundary token count, before model
+initialization. Real query rows must agree exactly and exclude padding keys;
+only diagonal repairs to otherwise empty padded query rows may differ. It
+then compares independent upstream, patched PyTorch and native OpenVINO CPU
+outputs on selected evaluation-manifest inputs, with separate semantic and
+export-parity results. Tokenizer equivalence is checked on the manifest's exact
+prefixed inputs, including explicit canonical BOS/EOS handling.
 
 ## Gemma redistribution boundary
 
@@ -160,6 +194,105 @@ OpenVINO IR is shipped instead of a compiled blob because compiled blobs are
 not stable across OpenVINO/device versions. The exact runtime compiles the IR
 on the admitted host; any generated cache is disposable.
 
+## Host governor provisioning and deadlines
+
+Serving and physical preflight require an externally provisioned Linux governor
+at the fixed path `/var/lib/cfetch/inference`. Every participating adapter
+process, user and container namespace must reach the same host-local directory
+and lock inode there, with the same host boot identity and monotonic clock.
+There is no per-user, per-package or per-device fallback
+namespace. `serve` and `host-preflight` inspect this state before native imports;
+the build-only `runtime-check` does not require a host governor installation.
+
+Provision all four fixed files before starting adapters:
+
+| File | Contract |
+| --- | --- |
+| `policy.json` | Exact pinned policy bytes; writable only by the installation owner. |
+| `operation.lock` | Stable inode used for exclusive cross-process `flock`. |
+| `state.json` | Valid state bound to the exact policy digest, explicit epoch and current Linux boot ID. |
+| `intent.json` | Empty at initial provisioning; carries durable pending native work. |
+
+The directory and every ancestor up to `/` must be root-owned, must not be
+symlinks, and must not be group/world writable. All four files must be
+root-owned regular files with exactly one link, the directory's group, no
+world-write permission, and size at most 16 KiB. The policy must also reject
+group writes. The other three files may grant group read/write access to a
+dedicated trusted adapter group; that group also needs directory read/search
+access. Participants cannot replace the lock inode through directory writes.
+Authorized group members can modify mutable state, so this is cooperation
+between trusted adapters, not isolation from a malicious member of that group.
+
+No policy values are supplied or installed by these tools. The exact policy
+schema requires `schema_version: 1`, `namespace: "cfetch-host-inference-v1"`,
+`state_directory: "/var/lib/cfetch/inference"`, an explicit `epoch_id`, positive
+`lock_wait_ns`, and `operations` containing exactly `compile` and `inference`.
+The epoch is 1–128 ASCII letters, digits, dots, underscores or hyphens. Each
+operation kind requires all six fields:
+
+| Field | Meaning |
+| --- | --- |
+| `max_operations` | Finite number of actual calls permitted in this epoch. |
+| `max_charged_buckets` | Finite sum of final padded bucket lengths charged in this epoch. |
+| `max_duration_ns` | Lease duration from the durable intent's monotonic start time. |
+| `minimum_cooldown_ns` | Minimum delay after a successfully completed call. |
+| `cooldown_numerator` | Nonnegative elapsed-time cooldown multiplier numerator. |
+| `cooldown_denominator` | Positive denominator for that multiplier. |
+
+Numeric fields are integers bounded by `2^63 - 1`; operation limits are
+positive except that the numerator may be zero. Derived duration/cooldown sums
+must also fit. The next eligible start is completion time plus
+`minimum_cooldown_ns + ceil(elapsed_ns * cooldown_numerator / cooldown_denominator)`.
+Lock acquisition and any remaining cooldown share the bounded `lock_wait_ns`
+wait. Compile and inference have separate counters, with one shared lock and
+persisted cooldown across participating scopes. These schema constraints do
+not establish safe numerical limits for a device.
+
+`initial_state(policy_sha256, epoch_id, boot_id, monotonic_ns)` returns data for
+privileged provisioning or explicit recovery. It does not create files or
+authorize a new budget. Before each actual native call the governor fsyncs a
+pending intent and charged state while holding the lock. After a successful
+call it fsyncs completion and cooldown before clearing the intent. A native
+exception, deadline failure or process death leaves the intent pending even
+after the kernel releases `flock`. Subsequent operations refuse that state.
+Malformed/torn records, changed boots, backward clocks and exhausted epoch
+budgets also fail closed. Restart, midnight and reboot never renew a budget or
+clear pending work. Recovery is an external privileged operation after the
+failed worker and device state have been assessed; adapters never reset state,
+remove intent, or create an alternative directory to resume.
+
+Each scope must include `/var/lib/cfetch/inference/policy.json` and its exact
+SHA-256 in `required_host.files`, alongside the driver and runtime libraries.
+`host-preflight` automatically includes this file, and engine initialization
+requires its digest to equal the installed governor policy. The existing
+host-file evidence therefore binds the policy without another wire field.
+Changing the policy requires new host bindings and qualification; changing only
+an epoch also changes the policy bytes and their digest.
+
+The adapter obtains a separate lease for every actual `compile_model` and
+every `compiled_model(inputs)` call after final padding. Compiling a missing
+bucket finishes its own lease before inference starts. A wire batch pays for
+each native input call; a cached compiled bucket incurs no new compile call.
+Physical preflight's bucket compilations use the same governor.
+
+Inside each lease, `NativeDeadline(lease.deadline_ns)` arms `ITIMER_REAL` with
+the kernel's default `SIGALRM` termination action. It requires the main thread,
+an unblocked default-disposition alarm and no existing timer; conflicting
+handlers, nested timers and expired deadlines are refused. It checks the
+monotonic deadline after arming and again after return, cancelling the timer
+on ordinary exit. A native call holding the GIL cannot defer default kernel
+termination through Python handler dispatch. The timer is relative: setup,
+timer resolution and scheduling can delay termination, so it provides no
+nanosecond-precise absolute guarantee. Its scope is the actual compile or
+inference call; other runtime phases require their own qualification.
+
+The governor's pending intent survives alarm termination for the supervising
+parent and external recovery process to assess. Killing an adapter cannot
+recover a wedged device or SoC. Governor provisioning and call deadlines alone
+do not lift device quarantine, admit a backend, or establish safe fallback and
+endurance behavior. Existing supervised physical-test prerequisites remain in
+force.
+
 ## Probe package assembly
 
 A scope configuration contains the top-level state, exact frozen runtime
@@ -205,7 +338,8 @@ this shape; angle-bracket values are intentionally not usable evidence:
         "files": [
           {"path": "/usr/lib/<exact-resolved-libstdc++-file>", "sha256": "<sha256>"},
           {"path": "/usr/lib/<exact-resolved-libgcc_s-file>", "sha256": "<sha256>"},
-          {"path": "/usr/lib/<exact-driver-library>", "sha256": "<sha256>"}
+          {"path": "/usr/lib/<exact-driver-library>", "sha256": "<sha256>"},
+          {"path": "/var/lib/cfetch/inference/policy.json", "sha256": "<exact-policy-sha256>"}
         ]
       },
       "placement_evidence_sha256": null,
@@ -230,7 +364,8 @@ the exact normalized, regular, non-symlink resolutions of `libstdc++.so.6` and
 `libgcc_s.so.1` for every scope, plus operator-selected libraries that OpenVINO
 does not expose as supported device properties. They do not prove that the
 selected files were driver-loaded. All three classes and a distinct Ed25519
-key per scope are mandatory.
+key per scope are mandatory. The governor policy binding described above is
+also required for each scope, including physical probes.
 
 Create correctly encoded, distinct package keys without using the unrelated
 raw-binary admission receipt key command:
@@ -268,14 +403,17 @@ Repeat separately for GPU and CPU. The externally obtained runtime digest is
 required; the runtime cannot vouch for its own manifest identity. The command
 verifies that pinned raw runtime and the artifact before and after use, queries
 the exact typed allowlisted properties on the stable physical device returned
-by `EXECUTION_DEVICES`, hashes one through sixteen explicit operator-selected
-normalized host files before and after compilation, compiles all seven static
-buckets, and requires one stable physical `EXECUTION_DEVICES` value. It emits
+by `EXECUTION_DEVICES`, hashes the selected normalized host files plus the
+automatically included governor policy before and after compilation, compiles
+all seven static buckets, and requires one stable physical `EXECUTION_DEVICES`
+value. It emits
 one bounded canonical JSON line containing the runtime/artifact digests,
 dependency versions, compile config, properties, host binding, and bucket
 results. Copy only the named scope-configuration fields into the matching
 physical-probe entry. This output is configuration provenance, not admission
-evidence; it does not discover relevant driver files. Do not substitute system
+evidence; it does not discover relevant driver files. The total host-file limit
+is sixteen, including the governor policy; leave room for its automatic addition
+when selecting driver/library paths. Do not substitute system
 OpenVINO, guessed paths, or marketing names.
 
 Assemble and self-check the final directory with:

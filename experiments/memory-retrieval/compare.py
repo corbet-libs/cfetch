@@ -238,5 +238,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for option in ("cfetch", "corpus", "manifest", "first", "second", "output-directory"):
         parser.add_argument("--" + option, type=Path, required=True)
-    parser.add_argument("--representation", choices=("body", "heading-context"), required=True)
+    parser.add_argument("--representation", choices=("body", "heading-context", "context-payload"), required=True)
     run(parser.parse_args())

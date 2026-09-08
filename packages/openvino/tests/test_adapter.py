@@ -5,10 +5,13 @@ import http.client
 import io
 import json
 import os
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 import tempfile
 import threading
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -142,6 +145,20 @@ def package(selected_scope: Scope) -> PackageManifest:
 
 class AdapterContractTests(unittest.TestCase):
     def setUp(self) -> None:
+        class TestGovernor:
+            policy_sha256 = "1" * 64
+            @contextmanager
+            def operation(self, kind, bucket):
+                yield SimpleNamespace(deadline_ns=time.monotonic_ns() + 5_000_000_000)
+
+        governor_patch = patch.object(adapter, "from_installation", return_value=TestGovernor())
+        governor_patch.start()
+        self.addCleanup(governor_patch.stop)
+        hash_host_file = adapter._host_file_sha256
+        file_patch = patch.object(adapter, "_host_file_sha256", side_effect=lambda path:
+            "1" * 64 if path == Path(adapter.GOVERNOR_POLICY_PATH) else hash_host_file(path))
+        file_patch.start()
+        self.addCleanup(file_patch.stop)
         self.scope = scope()
         self.engine = FakeEngine()
         self.package = package(self.scope)
@@ -584,11 +601,13 @@ class AdapterContractTests(unittest.TestCase):
                     "system": "Linux",
                     "machine": "x86_64",
                     "kernel_release": "test-kernel",
-                    "files": [{"path": str(host_file), "sha256": "1" * 64}],
+                    "files": [{"path": str(host_file), "sha256": "1" * 64},
+                              {"path": str(adapter.GOVERNOR_POLICY_PATH), "sha256": "1" * 64}],
                 }
                 host_after = {
                     **host_before,
-                    "files": [{"path": str(host_file), "sha256": "2" * 64}],
+                    "files": [{"path": str(host_file), "sha256": "2" * 64},
+                              {"path": str(adapter.GOVERNOR_POLICY_PATH), "sha256": "1" * 64}],
                 }
                 with patch.object(
                     adapter,

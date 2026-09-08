@@ -21,6 +21,8 @@ import threading
 from typing import Any, BinaryIO, Callable, Mapping, Protocol, Sequence
 
 if __package__:
+    from .inference_governor import from_installation
+    from .native_deadline import NativeDeadline
     from .manifest import (
         ADMISSION_POLICY_SHA256,
         DIMENSIONS,
@@ -32,6 +34,7 @@ if __package__:
         PROFILE_MANIFEST_SHA256,
         DEVICE_FOR_CLASS,
         HOST_FILE_PREFIXES,
+        GOVERNOR_POLICY_PATH,
         REQUIRED_OPENVINO_PROPERTY_TYPES,
         SEQUENCE_BUCKETS,
         Artifact,
@@ -54,6 +57,8 @@ if __package__:
         verify_bound as verify_package_inventory,
     )
 else:  # Direct execution is the shipped sibling-executable form.
+    from inference_governor import from_installation  # type: ignore[no-redef]
+    from native_deadline import NativeDeadline  # type: ignore[no-redef]
     from manifest import (  # type: ignore[no-redef]
         ADMISSION_POLICY_SHA256,
         DIMENSIONS,
@@ -65,6 +70,7 @@ else:  # Direct execution is the shipped sibling-executable form.
         PROFILE_MANIFEST_SHA256,
         DEVICE_FOR_CLASS,
         HOST_FILE_PREFIXES,
+        GOVERNOR_POLICY_PATH,
         REQUIRED_OPENVINO_PROPERTY_TYPES,
         SEQUENCE_BUCKETS,
         Artifact,
@@ -427,6 +433,13 @@ class HuggingFaceTokenizer:
 
 class OpenVinoEngine:
     def __init__(self, package: PackageManifest, scope: Scope) -> None:
+        # Refuse an unprovisioned or faulted host before loading native code.
+        self._governor = from_installation()
+        if not any(
+            file.path == Path(GOVERNOR_POLICY_PATH) and file.sha256 == self._governor.policy_sha256
+            for file in scope.required_host.files
+        ):
+            raise RuntimeError("admitted scope does not bind the installed inference governor policy")
         import numpy as np
         import openvino as ov
 
@@ -467,11 +480,12 @@ class OpenVinoEngine:
         )
         # Every compiled request shape is static.  Device selection remains
         # the exact manifest value; AUTO/MULTI/HETERO never enter this call.
-        compiled = self._core.compile_model(
-            bucket_model,
-            self._scope.openvino_device,
-            dict(self._scope.openvino_compile_config),
-        )
+        with self._governor.operation("compile", bucket) as lease, NativeDeadline(lease.deadline_ns):
+            compiled = self._core.compile_model(
+                bucket_model,
+                self._scope.openvino_device,
+                dict(self._scope.openvino_compile_config),
+            )
         try:
             execution_devices = _normalize_execution_devices(
                 compiled.get_property("EXECUTION_DEVICES")
@@ -494,16 +508,14 @@ class OpenVinoEngine:
         if len(input_ids) != bucket or len(attention_mask) != bucket:
             raise RuntimeError("OpenVINO input does not match its static sequence bucket")
         compiled = self._compiled_bucket(bucket)
-        result = compiled(
-            {
-                self._artifact.input_ids_name: self._np.asarray(
-                    [input_ids], dtype=self._np.int64
-                ),
-                self._artifact.attention_mask_name: self._np.asarray(
-                    [attention_mask], dtype=self._np.int64
-                ),
-            }
-        )
+        inputs = {
+            self._artifact.input_ids_name: self._np.asarray([input_ids], dtype=self._np.int64),
+            self._artifact.attention_mask_name: self._np.asarray([attention_mask], dtype=self._np.int64),
+        }
+        # One lease per actual invocation, after final padding. A wire batch
+        # never pays for only one of its native calls.
+        with self._governor.operation("inference", bucket) as lease, NativeDeadline(lease.deadline_ns):
+            result = compiled(inputs)
         output = result[compiled.output(self._artifact.output_name)]
         array = self._np.asarray(output)
         if array.shape != (1, DIMENSIONS):
@@ -668,7 +680,8 @@ def _preflight_host_binding(host_files: Sequence[Path]) -> dict[str, Any]:
             or str(pure) != text
             or len(text) > 512
             or any(part in ("", ".", "..") for part in pure.parts)
-            or not any(pure.is_relative_to(prefix) for prefix in HOST_FILE_PREFIXES)
+            or (pure != GOVERNOR_POLICY_PATH
+                and not any(pure.is_relative_to(prefix) for prefix in HOST_FILE_PREFIXES))
         ):
             raise RuntimeError(
                 "host-preflight host files must be normalized absolute paths under "
@@ -766,8 +779,16 @@ def collect_host_preflight(
         raise RuntimeError(
             "host-preflight artifact and frozen runtime use different OpenVINO versions"
         )
+    governor = from_installation()
+    # Existing host-file evidence binds the exact safety policy alongside
+    # driver/runtime files. No separate producer receipt or wire field.
     selected_host_files = tuple(host_files)
+    if Path(GOVERNOR_POLICY_PATH) not in selected_host_files:
+        selected_host_files += (Path(GOVERNOR_POLICY_PATH),)
     host_before = _preflight_host_binding(selected_host_files)
+    if not any(file["path"] == str(GOVERNOR_POLICY_PATH) and file["sha256"] == governor.policy_sha256
+               for file in host_before["files"]):
+        raise RuntimeError("host-preflight inference governor policy changed")
     if core is None:
         import openvino as ov
 
@@ -802,11 +823,12 @@ def collect_host_preflight(
                     artifact.attention_mask_name: [1, bucket],
                 }
             )
-            compiled = core.compile_model(
-                bucket_model,
-                openvino_device,
-                dict(compile_config),
-            )
+            with governor.operation("compile", bucket) as lease, NativeDeadline(lease.deadline_ns):
+                compiled = core.compile_model(
+                    bucket_model,
+                    openvino_device,
+                    dict(compile_config),
+                )
             execution_devices = _normalize_execution_devices(
                 compiled.get_property("EXECUTION_DEVICES")
             )
@@ -1297,6 +1319,14 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    # `runtime-check` is the build-only dependency/inventory check. Serving
+    # and physical preflight inspect host safety state before native imports.
+    if args.command in {"serve", "host-preflight"}:
+        try:
+            from_installation()
+        except (RuntimeError, OSError) as error:
+            print(f"cfetch OpenVINO host governor refused startup: {error}", file=sys.stderr)
+            return 1
     has_package_inventory = os.environ.get("CFETCH_PACKAGE_INVENTORY_SHA256") is not None
     raw_runtime: dict[str, Any] | None = None
     if has_package_inventory:

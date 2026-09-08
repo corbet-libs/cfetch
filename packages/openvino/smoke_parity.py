@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test the converted IR against the exact PyTorch semantic pipeline."""
+"""Smoke-test converted IR against an independent, unmodified upstream model."""
 
 from __future__ import annotations
 
@@ -23,15 +23,15 @@ from admission_evidence import (  # noqa: E402
 )
 
 if __package__:
-    from .convert import ConversionError, build_torch_pipeline, verify_source_files
-    from .manifest import DIMENSIONS, load_artifact
+    from . import reference as upstream_reference
+    from .convert import ConversionError
+    from .manifest import DIMENSIONS, MODEL, MODEL_REVISION, PINNED_SOURCE_FILE_SHA256, load_artifact
 else:
-    from convert import (  # type: ignore[no-redef]
-        ConversionError,
-        build_torch_pipeline,
-        verify_source_files,
+    import reference as upstream_reference  # type: ignore[no-redef]
+    from convert import ConversionError  # type: ignore[no-redef]
+    from manifest import (  # type: ignore[no-redef]
+        DIMENSIONS, MODEL, MODEL_REVISION, PINNED_SOURCE_FILE_SHA256, load_artifact,
     )
-    from manifest import DIMENSIONS, load_artifact  # type: ignore[no-redef]
 
 
 CASES = (
@@ -51,6 +51,16 @@ CASES = (
         2048,
         "task: search result | query: exercise the maximum static sequence bucket",
     ),
+)
+LONG_TOKEN_CASES = (
+    ("window-boundary-258", 512, 258),
+    ("long-document-1946", 2048, 1946),
+)
+LONG_TOKEN_SEEDS = (
+    "Production changes require current approval and a tested recovery plan.",
+    "A violin melody follows the rhythm while musicians listen to the harmony.",
+    "Distributed databases retain snapshots and reconcile independently written records.",
+    "Mountain paths cross forests and streams before reaching the summit.",
 )
 MINIMUM_COSINE = 0.999
 MAXIMUM_NORM_ERROR = 0.005
@@ -111,6 +121,29 @@ def _token_ids(tokenizer: Any, text: str) -> list[int]:
     return [2, *pieces, 1]
 
 
+def long_token_fixtures(tokenizer: Any) -> list[tuple[str, int, list[int]]]:
+    """Build exact-length prepared-token probes; never truncate input text.
+
+    Topic changes every 97 tokens exercise local attention across different
+    neighborhoods. All interior IDs come from the pinned tokenizer's prose,
+    with explicit BOS=2/EOS=1; these are structural parity probes, not qrels.
+    """
+    banks = [tokenizer.encode(text, add_special_tokens=False).ids for text in LONG_TOKEN_SEEDS]
+    if any(
+        not bank or any(type(token) is not int or token <= 2 or tokenizer.id_to_token(token) is None for token in bank)
+        for bank in banks
+    ):
+        raise ParityError("long parity fixture requires valid non-special prose token IDs")
+    results = []
+    for label, bucket, token_count in LONG_TOKEN_CASES:
+        interior = []
+        for position in range(token_count - 2):
+            bank = banks[(position // 97) % len(banks)]
+            interior.append(bank[position % len(bank)])
+        results.append((label, bucket, [2, *interior, 1]))
+    return results
+
+
 def validate_sequence_semantic_fixture(tokenizer: Any) -> list[dict[str, Any]]:
     """Prove the policy's three texts reach every exact static bucket."""
 
@@ -133,11 +166,11 @@ def run(source_dir: Path, artifact_dir: Path) -> dict[str, Any]:
     import numpy as np
     import openvino as ov
     import torch
+    import transformers
     from tokenizers import Tokenizer
 
     source_dir = source_dir.resolve()
     artifact_dir = artifact_dir.resolve()
-    verify_source_files(source_dir)
     manifest_path = artifact_dir / "artifact-manifest.json"
     manifest_raw = manifest_path.read_bytes()
     artifact = load_artifact(
@@ -149,18 +182,22 @@ def run(source_dir: Path, artifact_dir: Path) -> dict[str, Any]:
     tokenizer.no_truncation()
     tokenizer.no_padding()
     semantic_fixture = validate_sequence_semantic_fixture(tokenizer)
-    pipeline = build_torch_pipeline(source_dir)
+    pipeline = upstream_reference.build_upstream(source_dir)
     core = ov.Core()
     if "CPU" not in core.available_devices:
         raise ParityError("OpenVINO CPU plugin is unavailable for conversion smoke parity")
     graph = core.read_model(str(artifact.graph_xml), str(artifact.graph_bin))
     results: list[dict[str, Any]] = []
-    for label, bucket, text in CASES:
-        ids = _token_ids(tokenizer, text)
+    cases = [(label, bucket, _token_ids(tokenizer, text), "frozen-text") for label, bucket, text in CASES]
+    cases.extend((label, bucket, ids, "prepared-token-probe") for label, bucket, ids in long_token_fixtures(tokenizer))
+    for label, bucket, ids, input_kind in cases:
         if not 1 <= len(ids) <= bucket:
             raise ParityError(
                 f"frozen smoke text {label} produced {len(ids)} tokens for bucket {bucket}"
             )
+        input_ids_sha256 = hashlib.sha256(
+            np.asarray(ids, dtype="<i8").tobytes(order="C")
+        ).hexdigest()
         mask = [1] * len(ids) + [0] * (bucket - len(ids))
         ids += [0] * (bucket - len(ids))
         ids_array = np.asarray([ids], dtype=np.int64)
@@ -204,9 +241,14 @@ def run(source_dir: Path, artifact_dir: Path) -> dict[str, Any]:
                 "label": label,
                 "bucket": bucket,
                 "token_count": sum(mask),
+                "input_kind": input_kind,
+                "input_ids_sha256": input_ids_sha256,
                 "reference_l2": reference_norm,
                 "openvino_l2": candidate_norm,
                 "cosine": cosine,
+                "reference_f32_sha256": hashlib.sha256(
+                    reference_array.astype("<f4", copy=False).tobytes(order="C")
+                ).hexdigest(),
                 "openvino_f32_sha256": hashlib.sha256(
                     candidate_array.astype("<f4", copy=False).tobytes(order="C")
                 ).hexdigest(),
@@ -217,6 +259,17 @@ def run(source_dir: Path, artifact_dir: Path) -> dict[str, Any]:
         "purpose": "conversion-smoke-not-admission-evidence",
         "device": "CPU",
         "minimum_cosine": MINIMUM_COSINE,
+        "artifact_manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+        "smoke_recipe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "reference": {
+            "implementation": upstream_reference.DESCRIPTION,
+            "implementation_sha256": hashlib.sha256(Path(upstream_reference.__file__).read_bytes()).hexdigest(),
+            "model": MODEL,
+            "model_revision": MODEL_REVISION,
+            "source_files_sha256": dict(PINNED_SOURCE_FILE_SHA256),
+            "torch_version": torch.__version__,
+            "transformers_version": transformers.__version__,
+        },
         "sequence_semantic_fixture": semantic_fixture,
         "cases": results,
     }

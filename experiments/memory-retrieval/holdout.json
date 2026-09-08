@@ -1,0 +1,620 @@
+{
+  "schema_version": 1,
+  "description": "Independently authored synthetic diagnostic holdout with relevance labels fixed before measurement and without inspecting model outputs. All venues, policies, identifiers, procedures, and events are invented. This is not a representative real-user benchmark. Current ring-0 policies conflict with explicitly superseded ring-4 notes; two unrelated ring-0 policies provide additional trust-ranking decoys. Case, leading zeroes, hyphens, underscores, and the exact one versus two internal spaces in identifier blocks are intentional. Four long paragraphs contain artificial repeated packing prose, with answer facts at the start, middle, or end; lengths were selected without tokenization or model feedback, and actual token counts, bucket selection, and refusals must be measured. Long paragraphs remain single atomic relevance targets. Relevance is path plus the complete exact segmented block body, including Markdown syntax; no quality thresholds or admission claims are implied.",
+  "documents": [
+    {
+      "path": "knowledge/tide-room-allocation.md",
+      "text": "# Tide workshop\n\n## Room allocation\n\n| Room | Seats available |\n| --- | --- |\n| Cedar | 18 |\n| Juniper | 10 |\n"
+    },
+    {
+      "path": "knowledge/tide-maintenance.md",
+      "text": "# Tide workshop\n\n## Inspection schedule\n\n| Room | Days between inspections |\n| --- | --- |\n| Cedar | 18 |\n| Juniper | 10 |\n"
+    },
+    {
+      "path": "knowledge/hill-room-allocation.md",
+      "text": "# Hill workshop\n\n## Room allocation\n\n| Room | Seats available |\n| --- | --- |\n| Cedar | 10 |\n| Juniper | 18 |\n"
+    },
+    {
+      "path": "knowledge/east-ferry.md",
+      "text": "# East ferry landing\n\n## Unclaimed bicycles\n\n- Move them to the covered rack after the final crossing.\n"
+    },
+    {
+      "path": "knowledge/west-ferry.md",
+      "text": "# West ferry landing\n\n## Unclaimed bicycles\n\n- Move them to the staffed booth after the final crossing.\n"
+    },
+    {
+      "path": "knowledge/north-weaving.md",
+      "text": "# North weaving studio\n\n## Requests for extra yarn\n\nAttach the sample card and send it to the material desk.\n"
+    },
+    {
+      "path": "knowledge/south-weaving.md",
+      "text": "# South weaving studio\n\n## Requests for extra yarn\n\nAttach the sample card and leave it with the shift tutor.\n"
+    },
+    {
+      "path": "knowledge/charter-gallery.md",
+      "text": "# Charter gallery\n\n## Permanent collection\n\n| Medium | Works owned |\n| --- | --- |\n| Prints | 42 |\n| Sculptures | 9 |\n\n## Temporary exhibition\n\n| Medium | Works borrowed |\n| --- | --- |\n| Prints | 9 |\n| Sculptures | 42 |\n"
+    },
+    {
+      "path": "knowledge/creator-credit-policy.md",
+      "text": "---\nring: 0\n---\n# Current creator credit policy\n\n- Public exhibit labels must reproduce the creator's chosen credit exactly, including accents. Limited space never permits shortening the credit without the creator's agreement.\n"
+    },
+    {
+      "path": "knowledge/creator-credit-old.md",
+      "text": "---\nring: 4\n---\n# Superseded creator credit procedure\n\n- Shorten a creator's credit whenever it will not fit a public exhibit label. Space constraints permit abbreviation without consulting the creator.\n"
+    },
+    {
+      "path": "knowledge/event-pass-policy.md",
+      "text": "---\nring: 0\n---\n# Current visitor entry policy\n\n- A visitor entry pass expires when its named event closes. A pass from an earlier event never grants entry on a later event date.\n"
+    },
+    {
+      "path": "knowledge/event-pass-old.md",
+      "text": "---\nring: 4\n---\n# Superseded visitor entry procedure\n\n- Reuse a visitor entry pass at any later event in the same season. The printed event date does not limit admission.\n"
+    },
+    {
+      "path": "knowledge/cancelled-workshop-policy.md",
+      "text": "---\nring: 0\n---\n# Current organizer cancellation policy\n\n- If the organizer cancels a workshop, return both the admission price and the booking fee to the original payer. Substitute store credit only when that payer requests it.\n"
+    },
+    {
+      "path": "knowledge/cancelled-workshop-old.md",
+      "text": "---\nring: 4\n---\n# Superseded organizer cancellation procedure\n\n- If the organizer cancels a workshop, retain the booking fee and issue store credit for the admission price. Store credit replaces a refund automatically.\n"
+    },
+    {
+      "path": "knowledge/paint-room-closing-policy.md",
+      "text": "---\nring: 0\n---\n# Paint room closing policy\n\n- At closing, fold the easels, rinse the brushes, and put caps on the paint jars. Leave the drying rack in the marked corner.\n"
+    },
+    {
+      "path": "knowledge/newsletter-style-policy.md",
+      "text": "---\nring: 0\n---\n# Membership newsletter style policy\n\n- Use sentence case for newsletter headings. Every edition must show the next membership meeting date on its front page.\n"
+    },
+    {
+      "path": "knowledge/public-schedule-route.md",
+      "text": "# Case-sensitive route for the public event schedule\n\n`Rill`\n"
+    },
+    {
+      "path": "knowledge/rehearsal-schedule-route.md",
+      "text": "# Case-sensitive route for the private rehearsal schedule\n\n`rill`\n"
+    },
+    {
+      "path": "knowledge/awaiting-badge-tag.md",
+      "text": "# Literal tag for an item awaiting a badge: one internal space\n\n`A B`\n"
+    },
+    {
+      "path": "knowledge/awaiting-box-tag.md",
+      "text": "# Literal tag for an item awaiting a box: two internal spaces\n\n`A  B`\n"
+    },
+    {
+      "path": "knowledge/cradle-ticket.md",
+      "text": "# Ticket codes\n\nTicket code `CR-82` reserves a storage cradle.\n"
+    },
+    {
+      "path": "knowledge/frame-ticket.md",
+      "text": "# Ticket codes\n\nTicket code `CR_82` reserves a display frame.\n"
+    },
+    {
+      "path": "knowledge/prop-repair-queue.md",
+      "text": "# Queue routing\n\nQueue code `Q-008` routes the request to prop repairs.\n"
+    },
+    {
+      "path": "knowledge/ticket-refund-queue.md",
+      "text": "# Queue routing\n\nQueue code `Q-08` routes the request to ticket refunds.\n"
+    },
+    {
+      "path": "knowledge/seed-exchange.md",
+      "text": "# Seed exchange contributions\n\nFür den Saatguttausch genügt ein beschrifteter Umschlag. Auf dem Umschlag müssen Pflanzenname und Erntejahr stehen; die Adresse der spendenden Person ist nicht erforderlich.\n"
+    },
+    {
+      "path": "knowledge/rehearsal-room-changes.md",
+      "text": "# Rehearsal room changes\n\nLorsqu'une répétition change de salle, prévenez tous les musiciens inscrits par un message individuel. Modifier seulement le calendrier public ne suffit pas.\n"
+    },
+    {
+      "path": "knowledge/fired-clay-collection.md",
+      "text": "# Finished clay collection\n\nA finished clay piece may be collected only after the firing coordinator marks it ready. The date on the firing schedule is an estimate and does not authorize collection.\n"
+    },
+    {
+      "path": "knowledge/exhibition-booth-setup.md",
+      "text": "# Exhibition booth setup\n\nDer Messestand wird am Vorabend aufgebaut. Leere Transportkisten gehören danach in den gemeinsamen Lagerraum und dürfen nicht hinter dem Stand bleiben.\n"
+    },
+    {
+      "path": "knowledge/clothing-exchange.md",
+      "text": "# Clothing exchange intake\n\nLes vêtements proposés à l'échange doivent être propres et secs. Une petite couture abîmée est acceptée si elle est signalée sur l'étiquette; les pièces humides sont refusées.\n"
+    },
+    {
+      "path": "knowledge/interview-transcripts.md",
+      "text": "# New interview transcripts\n\nA text transcript appears the day after each new audio interview. Corrections to the spoken names can be submitted through the transcript's correction form.\n"
+    },
+    {
+      "path": "knowledge/seed-storage.md",
+      "text": "# Seed storage envelopes\n\nZur Lagerung werden die Umschläge nach Pflanzenart sortiert und in trockene Kisten gelegt. Das Datum auf einer Lagerkiste bezeichnet den letzten Kontrolltag, nicht das Erntejahr.\n"
+    },
+    {
+      "path": "knowledge/interview-translations.md",
+      "text": "# Archived interview translations\n\nLes traductions des anciennes interviews paraissent dans le recueil annuel. Le formulaire du recueil sert à commander un exemplaire imprimé, pas à corriger les noms prononcés.\n"
+    },
+    {
+      "path": "knowledge/lantern-parade-packing.md",
+      "text": "# Lantern parade packing note\n\nThe lantern parade uses the amber kit. This paragraph is a synthetic packing note for that procession. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The return cart\nbelongs at the west store, where the packing crew checks it in. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. Only the violet strap identifies the sealed spare\nbattery crate for the lantern parade.\n"
+    },
+    {
+      "path": "knowledge/weekend-market-packing.md",
+      "text": "# Weekend market packing note\n\nThe weekend market uses the silver kit. This paragraph is a synthetic packing note for that market. The crew put a dry\nmat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find the\nright shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide path\nclear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space. The\ndesk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping the\nwork surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left the\nsame tools in the same place for the team that followed. The last person at the bench made sure the light was off and\nthe chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used one\nplain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The reserve\nreceipt book travels in the linen pouch, separate from the coin tray. The crew put a dry mat by each door and left a\nclear lane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by\nthe sink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area\nand the exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so\na new helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. Only the orange strap identifies the sealed spare battery crate for the weekend\nmarket.\n"
+    },
+    {
+      "path": "knowledge/courtyard-recital-packing.md",
+      "text": "# Courtyard recital packing note\n\nThe courtyard recital uses the green kit. This paragraph is a synthetic packing note for that recital. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The usher keeps the spare seating chart in a flat\npaper sleeve. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card\nso the next team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry.\nThe floor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty\ntray back in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth\nwas kept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The final\ncontainer to load for the courtyard recital is the folded banner case.\n"
+    },
+    {
+      "path": "knowledge/lantern-exhibition-packing.md",
+      "text": "# Indoor lantern exhibition packing note\n\nThe lantern exhibition uses the blue kit. This paragraph is a synthetic packing note for the indoor exhibition, which is\nseparate from the lantern parade. The crew put a dry mat by each door and left a clear lane for the next shift. Each\ncart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave the\nbench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the lids\nand set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The display labels stay in the tray beside the small hand cart. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. Only the grey strap identifies the sealed spare\nbattery crate for the indoor lantern exhibition.\n"
+    }
+  ],
+  "queries": [
+    {
+      "id": "context-tide-cedar-capacity",
+      "category": "context",
+      "text": "How many people can sit in the Cedar room at the Tide workshop?",
+      "relevant": [
+        {
+          "path": "knowledge/tide-room-allocation.md",
+          "text": "| Cedar | 18 |",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "context-tide-cedar-inspection",
+      "category": "context",
+      "text": "How many days separate inspections of the Tide workshop's Cedar room?",
+      "relevant": [
+        {
+          "path": "knowledge/tide-maintenance.md",
+          "text": "| Cedar | 18 |",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "context-hill-juniper-capacity",
+      "category": "context",
+      "text": "What is the seating capacity of Juniper at the Hill workshop?",
+      "relevant": [
+        {
+          "path": "knowledge/hill-room-allocation.md",
+          "text": "| Juniper | 18 |",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "context-east-unclaimed-bicycle",
+      "category": "context",
+      "text": "Where should a bicycle left behind at the East ferry landing be taken when service ends?",
+      "relevant": [
+        {
+          "path": "knowledge/east-ferry.md",
+          "text": "- Move them to the covered rack after the final crossing.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "context-west-unclaimed-bicycle",
+      "category": "context",
+      "text": "Where does an unclaimed bicycle go after the West ferry's last trip?",
+      "relevant": [
+        {
+          "path": "knowledge/west-ferry.md",
+          "text": "- Move them to the staffed booth after the final crossing.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "context-north-extra-yarn",
+      "category": "context",
+      "text": "Who receives a request for more yarn from the North weaving studio?",
+      "relevant": [
+        {
+          "path": "knowledge/north-weaving.md",
+          "text": "Attach the sample card and send it to the material desk.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "context-south-extra-yarn",
+      "category": "context",
+      "text": "Where should the South weaving studio leave a request for extra yarn?",
+      "relevant": [
+        {
+          "path": "knowledge/south-weaving.md",
+          "text": "Attach the sample card and leave it with the shift tutor.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "context-gallery-owned-sculptures",
+      "category": "context",
+      "text": "How many sculptures belong to the Charter gallery rather than being borrowed for its temporary show?",
+      "relevant": [
+        {
+          "path": "knowledge/charter-gallery.md",
+          "text": "| Sculptures | 9 |",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "policy-credit-space",
+      "category": "policy",
+      "text": "May a public exhibit shorten an artist's chosen credit just because the label is small?",
+      "relevant": [
+        {
+          "path": "knowledge/creator-credit-policy.md",
+          "text": "- Public exhibit labels must reproduce the creator's chosen credit exactly, including accents. Limited space never permits shortening the credit without the creator's agreement.",
+          "grade": 3
+        }
+      ],
+      "critical": true
+    },
+    {
+      "id": "policy-credit-accents",
+      "category": "policy",
+      "text": "What must be preserved when copying a creator's preferred attribution onto an exhibition label?",
+      "relevant": [
+        {
+          "path": "knowledge/creator-credit-policy.md",
+          "text": "- Public exhibit labels must reproduce the creator's chosen credit exactly, including accents. Limited space never permits shortening the credit without the creator's agreement.",
+          "grade": 3
+        }
+      ],
+      "critical": true
+    },
+    {
+      "id": "policy-pass-reuse",
+      "category": "policy",
+      "text": "Can a pass for last month's event get its holder into this month's event?",
+      "relevant": [
+        {
+          "path": "knowledge/event-pass-policy.md",
+          "text": "- A visitor entry pass expires when its named event closes. A pass from an earlier event never grants entry on a later event date.",
+          "grade": 3
+        }
+      ],
+      "critical": true
+    },
+    {
+      "id": "policy-pass-expiration",
+      "category": "policy",
+      "text": "When does a visitor entry pass stop granting admission?",
+      "relevant": [
+        {
+          "path": "knowledge/event-pass-policy.md",
+          "text": "- A visitor entry pass expires when its named event closes. A pass from an earlier event never grants entry on a later event date.",
+          "grade": 3
+        }
+      ],
+      "critical": true
+    },
+    {
+      "id": "policy-cancellation-fee",
+      "category": "policy",
+      "text": "The organizer called off the workshop. Is the booking charge returned as well as the ticket price?",
+      "relevant": [
+        {
+          "path": "knowledge/cancelled-workshop-policy.md",
+          "text": "- If the organizer cancels a workshop, return both the admission price and the booking fee to the original payer. Substitute store credit only when that payer requests it.",
+          "grade": 3
+        }
+      ],
+      "critical": true
+    },
+    {
+      "id": "policy-cancellation-store-credit",
+      "category": "policy",
+      "text": "Can an organizer automatically replace a cancelled workshop refund with store credit?",
+      "relevant": [
+        {
+          "path": "knowledge/cancelled-workshop-policy.md",
+          "text": "- If the organizer cancels a workshop, return both the admission price and the booking fee to the original payer. Substitute store credit only when that payer requests it.",
+          "grade": 3
+        }
+      ],
+      "critical": true
+    },
+    {
+      "id": "exact-upper-route",
+      "category": "exact",
+      "text": "Find the case-sensitive route `Rill`, with an uppercase initial R.",
+      "relevant": [
+        {
+          "path": "knowledge/public-schedule-route.md",
+          "text": "`Rill`",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "exact-lower-route",
+      "category": "exact",
+      "text": "Find the case-sensitive route `rill`, entirely lowercase.",
+      "relevant": [
+        {
+          "path": "knowledge/rehearsal-schedule-route.md",
+          "text": "`rill`",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "exact-one-space-tag",
+      "category": "exact",
+      "text": "Find the literal tag `A B`, with exactly one internal space.",
+      "relevant": [
+        {
+          "path": "knowledge/awaiting-badge-tag.md",
+          "text": "`A B`",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "exact-two-space-tag",
+      "category": "exact",
+      "text": "Find the literal tag `A  B`, with exactly two internal spaces.",
+      "relevant": [
+        {
+          "path": "knowledge/awaiting-box-tag.md",
+          "text": "`A  B`",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "exact-hyphen-ticket",
+      "category": "exact",
+      "text": "What does ticket CR-82 reserve? The separator is a hyphen.",
+      "relevant": [
+        {
+          "path": "knowledge/cradle-ticket.md",
+          "text": "Ticket code `CR-82` reserves a storage cradle.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "exact-underscore-ticket",
+      "category": "exact",
+      "text": "What does ticket CR_82 reserve? The separator is an underscore.",
+      "relevant": [
+        {
+          "path": "knowledge/frame-ticket.md",
+          "text": "Ticket code `CR_82` reserves a display frame.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "exact-leading-zero-queue",
+      "category": "exact",
+      "text": "Where does queue Q-008 send a request? Keep both leading zeroes.",
+      "relevant": [
+        {
+          "path": "knowledge/prop-repair-queue.md",
+          "text": "Queue code `Q-008` routes the request to prop repairs.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "exact-short-queue",
+      "category": "exact",
+      "text": "Where does queue Q-08 send a request? There is one leading zero.",
+      "relevant": [
+        {
+          "path": "knowledge/ticket-refund-queue.md",
+          "text": "Queue code `Q-08` routes the request to ticket refunds.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "multilingual-seed-en-de",
+      "category": "multilingual",
+      "text": "Which details must be written on an envelope contributed to the seed swap?",
+      "relevant": [
+        {
+          "path": "knowledge/seed-exchange.md",
+          "text": "Für den Saatguttausch genügt ein beschrifteter Umschlag. Auf dem Umschlag müssen Pflanzenname und Erntejahr stehen; die Adresse der spendenden Person ist nicht erforderlich.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "multilingual-rehearsal-de-fr",
+      "category": "multilingual",
+      "text": "Reicht es bei einem Raumwechsel für die Probe, nur den öffentlichen Kalender anzupassen?",
+      "relevant": [
+        {
+          "path": "knowledge/rehearsal-room-changes.md",
+          "text": "Lorsqu'une répétition change de salle, prévenez tous les musiciens inscrits par un message individuel. Modifier seulement le calendrier public ne suffit pas.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "multilingual-clay-fr-en",
+      "category": "multilingual",
+      "text": "Puis-je récupérer ma pièce en argile dès la date annoncée pour la cuisson?",
+      "relevant": [
+        {
+          "path": "knowledge/fired-clay-collection.md",
+          "text": "A finished clay piece may be collected only after the firing coordinator marks it ready. The date on the firing schedule is an estimate and does not authorize collection.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "multilingual-booth-fr-de",
+      "category": "multilingual",
+      "text": "Où faut-il mettre les caisses de transport vides une fois le stand monté?",
+      "relevant": [
+        {
+          "path": "knowledge/exhibition-booth-setup.md",
+          "text": "Der Messestand wird am Vorabend aufgebaut. Leere Transportkisten gehören danach in den gemeinsamen Lagerraum und dürfen nicht hinter dem Stand bleiben.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "multilingual-clothing-en-fr",
+      "category": "multilingual",
+      "text": "Will the clothing swap accept a clean dry garment with a small torn seam?",
+      "relevant": [
+        {
+          "path": "knowledge/clothing-exchange.md",
+          "text": "Les vêtements proposés à l'échange doivent être propres et secs. Une petite couture abîmée est acceptée si elle est signalée sur l'étiquette; les pièces humides sont refusées.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "multilingual-transcript-de-en",
+      "category": "multilingual",
+      "text": "Wie kann ich einen falsch wiedergegebenen Namen im Text eines neuen Audiointerviews berichtigen?",
+      "relevant": [
+        {
+          "path": "knowledge/interview-transcripts.md",
+          "text": "A text transcript appears the day after each new audio interview. Corrections to the spoken names can be submitted through the transcript's correction form.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "multilingual-seed-fr-de",
+      "category": "multilingual",
+      "text": "Faut-il inscrire l'adresse de la personne qui donne les graines sur l'enveloppe?",
+      "relevant": [
+        {
+          "path": "knowledge/seed-exchange.md",
+          "text": "Für den Saatguttausch genügt ein beschrifteter Umschlag. Auf dem Umschlag müssen Pflanzenname und Erntejahr stehen; die Adresse der spendenden Person ist nicht erforderlich.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "multilingual-clothing-de-fr",
+      "category": "multilingual",
+      "text": "Darf ich noch feuchte Kleidung zur Tauschaktion bringen?",
+      "relevant": [
+        {
+          "path": "knowledge/clothing-exchange.md",
+          "text": "Les vêtements proposés à l'échange doivent être propres et secs. Une petite couture abîmée est acceptée si elle est signalée sur l'étiquette; les pièces humides sont refusées.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "long-parade-start",
+      "category": "long_context",
+      "text": "Which kit is assigned to the lantern parade?",
+      "relevant": [
+        {
+          "path": "knowledge/lantern-parade-packing.md",
+          "text": "The lantern parade uses the amber kit. This paragraph is a synthetic packing note for that procession. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The return cart\nbelongs at the west store, where the packing crew checks it in. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. Only the violet strap identifies the sealed spare\nbattery crate for the lantern parade.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "long-parade-end",
+      "category": "long_context",
+      "text": "What color strap marks the sealed spare battery crate for the lantern parade?",
+      "relevant": [
+        {
+          "path": "knowledge/lantern-parade-packing.md",
+          "text": "The lantern parade uses the amber kit. This paragraph is a synthetic packing note for that procession. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The return cart\nbelongs at the west store, where the packing crew checks it in. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. Only the violet strap identifies the sealed spare\nbattery crate for the lantern parade.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "long-market-middle",
+      "category": "long_context",
+      "text": "What holds the weekend market's reserve receipt book?",
+      "relevant": [
+        {
+          "path": "knowledge/weekend-market-packing.md",
+          "text": "The weekend market uses the silver kit. This paragraph is a synthetic packing note for that market. The crew put a dry\nmat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find the\nright shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide path\nclear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space. The\ndesk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping the\nwork surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left the\nsame tools in the same place for the team that followed. The last person at the bench made sure the light was off and\nthe chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used one\nplain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The reserve\nreceipt book travels in the linen pouch, separate from the coin tray. The crew put a dry mat by each door and left a\nclear lane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by\nthe sink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area\nand the exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so\na new helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. Only the orange strap identifies the sealed spare battery crate for the weekend\nmarket.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "long-market-end",
+      "category": "long_context",
+      "text": "What color strap marks the weekend market's sealed spare battery crate?",
+      "relevant": [
+        {
+          "path": "knowledge/weekend-market-packing.md",
+          "text": "The weekend market uses the silver kit. This paragraph is a synthetic packing note for that market. The crew put a dry\nmat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find the\nright shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide path\nclear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space. The\ndesk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping the\nwork surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left the\nsame tools in the same place for the team that followed. The last person at the bench made sure the light was off and\nthe chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used one\nplain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The reserve\nreceipt book travels in the linen pouch, separate from the coin tray. The crew put a dry mat by each door and left a\nclear lane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by\nthe sink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area\nand the exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so\na new helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. Only the orange strap identifies the sealed spare battery crate for the weekend\nmarket.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "long-courtyard-end",
+      "category": "long_context",
+      "text": "Which container is loaded last for the courtyard recital?",
+      "relevant": [
+        {
+          "path": "knowledge/courtyard-recital-packing.md",
+          "text": "The courtyard recital uses the green kit. This paragraph is a synthetic packing note for that recital. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The usher keeps the spare seating chart in a flat\npaper sleeve. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card\nso the next team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry.\nThe floor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty\ntray back in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth\nwas kept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The final\ncontainer to load for the courtyard recital is the folded banner case.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    },
+    {
+      "id": "long-exhibition-end",
+      "category": "long_context",
+      "text": "Which strap marks the spare battery crate for the indoor lantern exhibition?",
+      "relevant": [
+        {
+          "path": "knowledge/lantern-exhibition-packing.md",
+          "text": "The lantern exhibition uses the blue kit. This paragraph is a synthetic packing note for the indoor exhibition, which is\nseparate from the lantern parade. The crew put a dry mat by each door and left a clear lane for the next shift. Each\ncart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave the\nbench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the lids\nand set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The display labels stay in the tray beside the small hand cart. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. The crew put a dry mat by each door and left a clear\nlane for the next shift. Each cart had a plain card so the next team could find the right shelf. A small note by the\nsink asked the crew to leave the bench clean and dry. The floor plan kept the wide path clear between the work area and\nthe exit. Staff checked the lids and set each empty tray back in its marked space. The desk copy used plain words so a\nnew helper could follow the handover. A spare cloth was kept in each tray for wiping the work surface at the end. The\nteam counted the carts and checked that none stood in front of a door. Each shift left the same tools in the same place\nfor the team that followed. The last person at the bench made sure the light was off and the chair was tucked in. A\nshort check at the start of the day kept small faults from being missed. The record used one plain line for each step\nand left enough room for a brief note. The crew put a dry mat by each door and left a clear lane for the next shift.\nEach cart had a plain card so the next team could find the right shelf. A small note by the sink asked the crew to leave\nthe bench clean and dry. The floor plan kept the wide path clear between the work area and the exit. Staff checked the\nlids and set each empty tray back in its marked space. The desk copy used plain words so a new helper could follow the\nhandover. A spare cloth was kept in each tray for wiping the work surface at the end. The team counted the carts and\nchecked that none stood in front of a door. Each shift left the same tools in the same place for the team that followed.\nThe last person at the bench made sure the light was off and the chair was tucked in. A short check at the start of the\nday kept small faults from being missed. The record used one plain line for each step and left enough room for a brief\nnote. The crew put a dry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the\nnext team could find the right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The\nfloor plan kept the wide path clear between the work area and the exit. Staff checked the lids and set each empty tray\nback in its marked space. The desk copy used plain words so a new helper could follow the handover. A spare cloth was\nkept in each tray for wiping the work surface at the end. The team counted the carts and checked that none stood in\nfront of a door. Each shift left the same tools in the same place for the team that followed. The last person at the\nbench made sure the light was off and the chair was tucked in. A short check at the start of the day kept small faults\nfrom being missed. The record used one plain line for each step and left enough room for a brief note. The crew put a\ndry mat by each door and left a clear lane for the next shift. Each cart had a plain card so the next team could find\nthe right shelf. A small note by the sink asked the crew to leave the bench clean and dry. The floor plan kept the wide\npath clear between the work area and the exit. Staff checked the lids and set each empty tray back in its marked space.\nThe desk copy used plain words so a new helper could follow the handover. A spare cloth was kept in each tray for wiping\nthe work surface at the end. The team counted the carts and checked that none stood in front of a door. Each shift left\nthe same tools in the same place for the team that followed. The last person at the bench made sure the light was off\nand the chair was tucked in. A short check at the start of the day kept small faults from being missed. The record used\none plain line for each step and left enough room for a brief note. Only the grey strap identifies the sealed spare\nbattery crate for the indoor lantern exhibition.",
+          "grade": 3
+        }
+      ],
+      "critical": false
+    }
+  ]
+}

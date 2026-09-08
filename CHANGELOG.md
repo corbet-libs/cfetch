@@ -5,6 +5,15 @@ listed here is a fix or an internal change with no effect on behavior.
 
 ## Unreleased
 
+- **Canonical long-input OpenVINO attention.** Conversion now uses the pinned
+  model's effective bidirectional window. Independent upstream parity includes
+  actual 258- and 1,946-token probes, detecting defects hidden by padded short
+  inputs. The corrected CPU candidate is measured; backend admission is open.
+- **Host-wide native operation budgets.** Operational OpenVINO startup requires
+  an explicitly provisioned, evidence-bound governor policy. Every compilation
+  and inference has a durable lease, finite budget, cooldown and kernel alarm.
+  Interrupted operations refuse further work until external recovery; no
+  device safety limits or activation are supplied automatically.
 - **Exact statement identity and vector invalidation.** Case, spacing, and
   line-break changes produce distinct body hashes. Schema 9 separates those
   citation hashes from vector payload hashes: documents include enclosing

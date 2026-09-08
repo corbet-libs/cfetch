@@ -75,6 +75,7 @@ class ConversionContractTests(unittest.TestCase):
 
     def test_backbone_attention_backend_is_frozen_to_sdpa(self) -> None:
         calls = []
+        loaded_config = SimpleNamespace(use_bidirectional_attention=True, sliding_window=257)
 
         class FakeModule:
             def register_buffer(self, name, value):
@@ -94,7 +95,7 @@ class ConversionContractTests(unittest.TestCase):
             @staticmethod
             def from_pretrained(*args, **kwargs):
                 calls.append((args, kwargs))
-                return object()
+                return SimpleNamespace(config=loaded_config)
 
         fake_torch = ModuleType("torch")
         fake_torch.float32 = "float32"
@@ -118,8 +119,14 @@ class ConversionContractTests(unittest.TestCase):
             mock.patch.object(convert, "_load_dense_weight", return_value=FakeWeight()),
         ):
             convert.build_torch_pipeline(Path("unused-source"))
+            self.assertEqual(len(calls), 1)
+            # The serialized 512-token width must be converted once by the
+            # upstream config. Accepting it here doubled the local radius.
+            for invalid in (512, 129):
+                loaded_config.sliding_window = invalid
+                with self.assertRaisesRegex(convert.ConversionError, "radius 257"):
+                    convert.build_torch_pipeline(Path("unused-source"))
 
-        self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1]["attn_implementation"], "sdpa")
 
     def test_masked_mean_selects_real_tokens_before_reduction(self) -> None:
@@ -351,8 +358,14 @@ class ConversionContractTests(unittest.TestCase):
             def validate_nodes_and_infer_types(self):
                 self.validated = True
 
-        nodes = [FakeNode(name) for name in convert.DEGENERATE_OUTER_PRODUCT_NODES]
-        model = FakeModel(nodes)
+        current_names = {
+            "bmm/aten.bmm.default/MatMul",
+            "bmm_1/aten.bmm.default/MatMul",
+        }
+        self.assertEqual(convert.DEGENERATE_OUTER_PRODUCT_NODES, current_names)
+        nodes = [FakeNode(name) for name in sorted(current_names)]
+        similar_node = FakeNode("unrelated/aten.bmm.default/MatMul")
+        model = FakeModel([*nodes, similar_node])
         fake_openvino = ModuleType("openvino")
         fake_openvino.__path__ = []
         fake_ops = ModuleType("openvino.opset13")
@@ -365,6 +378,7 @@ class ConversionContractTests(unittest.TestCase):
 
         self.assertTrue(model.validated)
         self.assertTrue(all(node.result.replacement is not None for node in nodes))
+        self.assertIsNone(similar_node.result.replacement)
         missing = FakeModel(nodes[:1])
         with (
             mock.patch.dict(
@@ -374,6 +388,23 @@ class ConversionContractTests(unittest.TestCase):
             self.assertRaisesRegex(convert.ConversionError, "lacks the two frozen"),
         ):
             convert.rewrite_unit_reduction_matmuls(missing)
+
+        stale_nodes = [
+            FakeNode("bmm_22/aten.bmm.default/MatMul"),
+            FakeNode("bmm_23/aten.bmm.default/MatMul"),
+        ]
+        stale = FakeModel(stale_nodes)
+        with (
+            self.subTest("stale rotary names are never accepted as a fallback"),
+            mock.patch.dict(
+                "sys.modules",
+                {"openvino": fake_openvino, "openvino.opset13": fake_ops},
+            ),
+            self.assertRaisesRegex(convert.ConversionError, "lacks the two frozen"),
+        ):
+            convert.rewrite_unit_reduction_matmuls(stale)
+        self.assertFalse(stale.validated)
+        self.assertTrue(all(node.result.replacement is None for node in stale_nodes))
 
     def test_cli_keeps_failure_diagnostic_out_of_result_stdout(self) -> None:
         stdout = io.StringIO()

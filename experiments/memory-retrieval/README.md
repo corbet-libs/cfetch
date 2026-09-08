@@ -21,6 +21,8 @@ cfetch retrieval-eval --corpus experiments/memory-retrieval/corpus.json \
   --representation body --export body-manifest.json > body-lexical.json
 cfetch retrieval-eval --corpus experiments/memory-retrieval/corpus.json \
   --representation heading-context --export context-manifest.json > context-lexical.json
+cfetch retrieval-eval --corpus experiments/memory-retrieval/holdout.json \
+  --representation context-payload --export payload-manifest.json > payload-lexical.json
 ```
 
 `body` uses the candidate's existing fixed document prefix and exact statement
@@ -30,6 +32,16 @@ every full prefixed input, original citation, body identity, context, token
 buckets, and the production RRF setting. Context changes affect experimental
 vector identity while preserving the original citation. Production profile
 semantics and citations are not changed by selecting this diagnostic mode.
+
+`context-payload` uses the production document renderer: full heading/table
+context, two newlines, then the exact statement body, under the unchanged
+`title: none | text: ` prefix. The renderer has its own payload-hash domain;
+the encoder profile and body citations keep their separate identities.
+Table context uses the full source header, including text beyond the preview.
+`holdout.json` adds 36 queries authored before measurement, including long
+atomic paragraphs, exact identifiers, and unrelated ring-0 decoys. Paragraphs
+are soft-wrapped to remain prose under the production generated-line limit.
+These synthetic labels are not representative real-user judgments.
 
 Labels must identify exactly one segmented block. Path aliases and duplicate
 labels for one mirror class are rejected. Corpus size, document count, query
@@ -93,8 +105,30 @@ mixed-document admission gate.
 The community ONNX artifacts have not established lineage to cfetch's canonical
 source checkpoint. Their CPU output is candidate evidence only. No result from
 this fixture admits a backend, activates a profile, validates NPU/GPU placement,
-or certifies cross-backend repeatability. Changing production representation
-requires an explicit semantic-profile decision and complete admission again.
+or certifies cross-backend repeatability. The context-payload renderer preserves
+the frozen encoder function and versions its document input independently.
+Backend activation still requires complete admission.
+
+`audit_native.py` checks the canonical tokenizer, upstream attention masks at
+all seven buckets, and independently assembled upstream embeddings against
+the converted OpenVINO CPU artifact. `embed_native.py` then produces compatible
+resumable vector bundles from verified canonical source/artifact bytes, using
+the OpenVINO build lock. Both require an isolated Linux Python 3.12 environment
+and existing local files; neither downloads models or activates a backend.
+
+```sh
+python experiments/memory-retrieval/audit_native.py \
+  --manifest payload-manifest.json --source-dir /path/to/canonical-source \
+  --community-model-root /path/to/community-model --artifact-dir /path/to/native-artifact \
+  --sample-count 6 --output native-audit.json
+python experiments/memory-retrieval/embed_native.py \
+  --manifest payload-manifest.json --source-dir /path/to/canonical-source \
+  --artifact-dir /path/to/native-artifact --checkpoints native-work \
+  --output native-vectors.json
+```
+
+See the [native vector contract study](../../studies/vector-contract-2026-09-09.md)
+for the independently detected sliding-window defect and corrected results.
 
 The frozen SciFact all-pairs, adversarial mixture, sequence, package, and
 physical evidence gates remain separate and unchanged. This fixture also omits
