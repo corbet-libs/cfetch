@@ -5,6 +5,11 @@ listed here is a fix or an internal change with no effect on behavior.
 
 ## Unreleased
 
+- **Resumable physical qualification.** Optional journals reserve nonces before
+  requests and persist authenticated responses. Resume revalidates complete
+  trials and preserves interrupted evidence; partial trials restart with fresh
+  warmups. Final snapshots are durable and refuse overwrite. The admission
+  implementation and policy identities include the new checkpoint code.
 - **Canonical long-input OpenVINO attention.** Conversion now uses the pinned
   model's effective bidirectional window. Independent upstream parity includes
   actual 258- and 1,946-token probes, detecting defects hidden by padded short

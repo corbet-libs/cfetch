@@ -113,8 +113,30 @@ SciFact revision and selection named in `WIRE_BATCH_INPUT_SELECTION`:
       --package-manifest-sha256 "$PROBE_PACKAGE_MANIFEST_SHA256" \
       --scope-id intel-lunar-lake-npu \
       --wire-inputs results/wire-probe-inputs.json \
+      --checkpoint-directory results/intel-lunar-lake-npu-checkpoint \
       --energy-not-measured-reason "No device-scoped physical meter was available" \
       --output-directory results/intel-lunar-lake-npu
+
+Physical checkpoints are optional, exclusive working journals. Their identity
+binds the exact package, dispatcher, runtime, scope and host policy, input plan,
+collector implementation and measurement settings. Each request nonce is
+reserved durably before HTTP; each authenticated transaction is persisted
+before collection continues. Resume revalidates all retained signed responses
+and live evidence before starting a dispatcher. Corrupt or mismatched history
+is refused. Completed bucket trials and complete wire groupings are reused only
+after regenerating and comparing their summaries. An interrupted bucket starts
+a fresh process, warmups and samples; its previous transactions and nonces remain
+in the journal. Old warmups are never combined with new cold-process samples.
+Reuse recovers the same trial and cannot count as an independent repeat.
+
+The checkpoint and final output directories must be separate. After failure,
+resume with the same checkpoint and an unused output path; successful output
+publication also refuses overwrite. The journal is retained on success and
+failure. A governor's unfinished native operation still requires explicit
+external recovery; resuming the collector does not clear safety state or lift
+a device quarantine. The 64 wire groupings involve 4,096 actual input
+inferences with this singleton native engine, so budget actual calls rather
+than HTTP requests. See the [OpenVINO governor contract](../../packages/openvino/README.md).
 
 The output directory contains the exact sequence, placement, and performance
 JSON summaries plus only their referenced content-addressed raw signed wire

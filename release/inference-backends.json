@@ -95,8 +95,8 @@
   },
   "admission": {
     "policy_version": 1,
-    "policy_manifest_sha256": "36375d4e6fb5f6a48e5ecb7036ccc141c2314c2f2609c37063a6f79aa367fcc2",
-    "implementation_bundle_sha256": "7a8bca24dc89ab1f23d00632de9653f4f045cae8aa8f876a936c4d6e9ab7e8bd",
+    "policy_manifest_sha256": "e58b10f7d5e1ea9d86ca83c8454a466545208a584c0e1f4d3d4339424b7489f7",
+    "implementation_bundle_sha256": "daceaf58ccf0aea12f1c26a39ee0577f748d6757c00933189553a526f8aa3b59",
     "dataset": "mteb/scifact",
     "dataset_revision": "cf10ab6856b15b0e670ef8ae5dae4e266c12d035",
     "sequence_semantic_fixture": {

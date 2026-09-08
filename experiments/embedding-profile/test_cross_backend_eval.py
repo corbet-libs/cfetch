@@ -833,7 +833,11 @@ class AllPairsGateTests(unittest.TestCase):
             IMPLEMENTATION_BUNDLE_FILES,
             tuple(sorted(IMPLEMENTATION_BUNDLE_FILES)),
         )
-        self.assertEqual(len(IMPLEMENTATION_BUNDLE_FILES), 12)
+        self.assertEqual(len(IMPLEMENTATION_BUNDLE_FILES), 13)
+        self.assertIn(
+            "experiments/embedding-profile/physical_checkpoint.py",
+            IMPLEMENTATION_BUNDLE_FILES,
+        )
         self.assertIn(
             "packages/openvino/package_inventory.py", IMPLEMENTATION_BUNDLE_FILES
         )

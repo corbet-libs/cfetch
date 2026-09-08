@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import base64
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -61,6 +62,7 @@ from export_adapter_cache import (
     PROFILE_MANIFEST_SHA256,
 )
 from scifact_contract import DATASET, DATASET_REVISION
+from physical_checkpoint import Attempt, Checkpoint, CheckpointError, MAX_FILES, rename_new
 
 
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
@@ -931,12 +933,76 @@ class OpenVinoLiveEvidenceValidator:
                 raise EvidenceError("live OpenVINO device properties changed from the scope")
 
 
+def _request_body(scope: ScopeContract, texts: Sequence[str]) -> bytes:
+    return json.dumps(
+        {"model": MODEL, "dimensions": DIMENSIONS, "input": list(texts),
+         "cfetch_requested_scope_id": scope.scope_id},
+        ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _positive_measurement(value: object, label: str) -> int:
+    if type(value) is not int or not 0 < value <= (1 << 63) - 1:
+        raise EvidenceError(f"checkpoint {label} must be a positive bounded integer")
+    return value
+
+
+def _restore_transaction(
+    scope: ScopeContract, raw: dict, texts: Sequence[str], *, measure_rss: bool,
+) -> SignedTransaction:
+    """Reverify original signed bytes; no live dispatcher or new measurement."""
+    fields = {"nonce_hex", "signature_hex", "request_body_base64", "response_body_base64",
+              "request_body_sha256", "response_body_sha256", "elapsed_ns",
+              "peak_rss_bytes", "rss_sample_count"}
+    if not isinstance(raw, dict) or set(raw) != fields:
+        raise EvidenceError("checkpoint signed transaction schema changed")
+    nonce = bytes.fromhex(_digest(raw["nonce_hex"], "checkpoint nonce"))
+    bodies = []
+    for field in ("request_body", "response_body"):
+        encoded = raw[f"{field}_base64"]
+        if not isinstance(encoded, str):
+            raise EvidenceError("checkpoint body must be canonical base64")
+        try:
+            body = base64.b64decode(encoded, validate=True)
+        except (ValueError, UnicodeError) as error:
+            raise EvidenceError("checkpoint body must be canonical base64") from error
+        if not 1 <= len(body) <= MAX_RESPONSE_BYTES or (
+                base64.b64encode(body).decode("ascii") != encoded
+                or hashlib.sha256(body).hexdigest() != raw[f"{field}_sha256"]):
+            raise EvidenceError("checkpoint body digest or size differs")
+        bodies.append(body)
+    request_body, response_body = bodies
+    if request_body != _request_body(scope, texts):
+        raise EvidenceError("checkpoint request input order or identity changed")
+    if not isinstance(raw["signature_hex"], str):
+        raise EvidenceError("checkpoint signature must be hexadecimal")
+    # Use precisely the live client's signature and response validators without
+    # constructing its network/process session.
+    verifier = object.__new__(SignedAdapterClient)
+    verifier.scope = scope
+    verifier._live_validator = OpenVinoLiveEvidenceValidator(scope)
+    verifier._verify_signature(nonce, request_body, response_body, raw["signature_hex"])
+    rows, runtime = verifier._validate_response(
+        parse_evidence_json(response_body, "checkpoint signed response"), len(texts)
+    )
+    elapsed = _positive_measurement(raw["elapsed_ns"], "elapsed_ns")
+    if measure_rss:
+        _positive_measurement(raw["peak_rss_bytes"], "peak_rss_bytes")
+        _positive_measurement(raw["rss_sample_count"], "rss_sample_count")
+    elif raw["peak_rss_bytes"] is not None or type(raw["rss_sample_count"]) is not int or raw["rss_sample_count"] != 0:
+        raise EvidenceError("wire checkpoint unexpectedly claims RSS measurements")
+    return SignedTransaction(nonce.hex(), raw["signature_hex"], request_body,
+                             response_body, elapsed, raw["peak_rss_bytes"],
+                             raw["rss_sample_count"], tuple(rows), runtime)
+
+
 class SignedAdapterClient:
     def __init__(
         self,
         session: DispatcherSession,
         timeout_seconds: float,
         nonce_registry: set[bytes] | None = None,
+        checkpoint_attempt: Attempt | None = None,
     ) -> None:
         if session.process is None or session.endpoint is None or session.bearer is None:
             raise EvidenceError("signed adapter client needs a running dispatcher")
@@ -945,6 +1011,7 @@ class SignedAdapterClient:
         self.timeout_seconds = timeout_seconds
         self._nonces = nonce_registry if nonce_registry is not None else set()
         self._live_validator = OpenVinoLiveEvidenceValidator(self.scope)
+        self._checkpoint_attempt = checkpoint_attempt
 
     def _verify_signature(
         self,
@@ -981,20 +1048,13 @@ class SignedAdapterClient:
             raise EvidenceError("adapter request must contain 1..64 inputs")
         if any(not isinstance(text, str) or not text for text in texts):
             raise EvidenceError("adapter request inputs must be nonempty strings")
-        body = json.dumps(
-            {
-                "model": MODEL,
-                "dimensions": DIMENSIONS,
-                "input": list(texts),
-                "cfetch_requested_scope_id": self.scope.scope_id,
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        body = _request_body(self.scope, texts)
         nonce = secrets.token_bytes(32)
         if len(nonce) != 32 or nonce in self._nonces:
             raise EvidenceError("attestation nonce source repeated or returned a wrong size")
         self._nonces.add(nonce)
+        if self._checkpoint_attempt is not None:
+            self._checkpoint_attempt.reserve(nonce, body)
         parsed = urllib.parse.urlsplit(self.session.endpoint)
         assert parsed.port is not None
         sampler: RssSampler | None = None
@@ -1058,7 +1118,7 @@ class SignedAdapterClient:
         self._verify_signature(nonce, body, response_body, signature_hex)
         payload = parse_evidence_json(response_body, "signed adapter response")
         rows, runtime_evidence = self._validate_response(payload, len(texts))
-        return SignedTransaction(
+        transaction = SignedTransaction(
             nonce_hex=nonce.hex(),
             signature_hex=signature_hex,
             request_body=body,
@@ -1069,6 +1129,9 @@ class SignedAdapterClient:
             rows=tuple(rows),
             runtime_evidence=runtime_evidence,
         )
+        if self._checkpoint_attempt is not None:
+            self._checkpoint_attempt.save(transaction)
+        return transaction
 
     def _validate_response(
         self, payload: dict[str, Any], expected_items: int
@@ -1193,14 +1256,28 @@ def _store_raw(raw_root: Path, document: Mapping[str, Any]) -> str:
         if destination.read_bytes() != raw:
             raise EvidenceError(f"raw evidence digest collision at {destination}")
     else:
-        destination.write_bytes(raw)
+        with destination.open("xb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
     return digest
 
 
 def _write_summary(path: Path, document: Mapping[str, Any]) -> str:
     raw = _canonical_json(document) + b"\n"
-    path.write_bytes(raw)
+    with path.open("xb") as stream:
+        stream.write(raw)
+        stream.flush()
+        os.fsync(stream.fileno())
     return hashlib.sha256(raw).hexdigest()
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _latency_percentile_ns(values: Sequence[int], percentile: float) -> int:
@@ -1209,6 +1286,34 @@ def _latency_percentile_ns(values: Sequence[int], percentile: float) -> int:
     ordered = sorted(values)
     rank = max(1, math.ceil(percentile * len(ordered)))
     return ordered[rank - 1]
+
+
+def _check_bucket_semantics(bucket: int, first: SignedTransaction, repeat: SignedTransaction):
+    if any(row.token_count != bucket for row in (*first.rows, *repeat.rows)):
+        raise EvidenceError(f"semantic probe inputs did not tokenize to exact bucket {bucket}")
+    first_outputs = [row.canonical for row in first.rows]
+    if first_outputs != [row.canonical for row in repeat.rows]:
+        raise EvidenceError(f"bucket {bucket} canonical output is not repeatable")
+    if not exact_i8_relevant_precedes(*first_outputs):
+        raise EvidenceError(f"bucket {bucket} semantic probe did not rank relevant before irrelevant")
+    return first_outputs
+
+
+def _restore_attempt(attempt: Attempt, scope: ScopeContract, requests: Sequence[Sequence[str]],
+                     *, measure_rss: bool) -> list[SignedTransaction]:
+    if len(attempt.reservations) > len(requests) or (attempt.completion is not None and
+            len(attempt.transactions) != len(requests)):
+        raise EvidenceError("checkpoint attempt has the wrong request count")
+    for reservation, texts in zip(attempt.reservations, requests):
+        if reservation["request_body_sha256"] != hashlib.sha256(_request_body(scope, texts)).hexdigest():
+            raise EvidenceError("checkpoint reserved request order changed")
+    return [_restore_transaction(scope, raw, texts, measure_rss=measure_rss)
+            for raw, texts in zip(attempt.transactions, requests)]
+
+
+def _bucket_requests(bucket: int, warmup_count: int, sample_count: int):
+    texts = sequence_semantic_probe_inputs(bucket)
+    return [texts, texts] + [[texts[0]]] * (warmup_count + sample_count)
 
 
 def _run_bucket(
@@ -1223,35 +1328,62 @@ def _run_bucket(
     bucket: int,
     raw_root: Path,
     nonce_registry: set[bytes],
+    checkpoint: Checkpoint | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], Mapping[str, Any]]:
-    with DispatcherSession(
-        dispatcher,
-        dispatcher_sha256,
-        package,
-        startup_timeout_seconds,
-    ) as session:
-        client = SignedAdapterClient(
-            session, request_timeout_seconds, nonce_registry
-        )
-        texts = sequence_semantic_probe_inputs(bucket)
-        first = client.request(texts)
-        repeat = client.request(texts)
-        if any(row.token_count != bucket for row in (*first.rows, *repeat.rows)):
-            raise EvidenceError(
-                f"semantic probe inputs did not tokenize to exact bucket {bucket}"
-            )
-        first_outputs = [row.canonical for row in first.rows]
-        repeat_outputs = [row.canonical for row in repeat.rows]
-        if first_outputs != repeat_outputs:
-            raise EvidenceError(f"bucket {bucket} canonical output is not repeatable")
-        if not exact_i8_relevant_precedes(*first_outputs):
-            raise EvidenceError(
-                f"bucket {bucket} semantic probe did not rank relevant before irrelevant"
-            )
-        warmups = [client.request([texts[0]]) for _ in range(warmup_count)]
-        samples = [client.request([texts[0]]) for _ in range(sample_count)]
+    attempt = checkpoint.completed(f"bucket-{bucket}") if checkpoint else None
+    if attempt is not None:
+        transactions = _restore_attempt(attempt, package.scope,
+                                        _bucket_requests(bucket, warmup_count, sample_count),
+                                        measure_rss=True)
+        metadata = attempt.completion["metadata"]
+    else:
+        attempt = checkpoint.start(f"bucket-{bucket}") if checkpoint else None
+        with DispatcherSession(dispatcher, dispatcher_sha256, package,
+                               startup_timeout_seconds) as session:
+            client = SignedAdapterClient(session, request_timeout_seconds, nonce_registry,
+                                         checkpoint_attempt=attempt)
+            texts = sequence_semantic_probe_inputs(bucket)
+            first, repeat = client.request(texts), client.request(texts)
+            _check_bucket_semantics(bucket, first, repeat)
+            warmups = [client.request([texts[0]]) for _ in range(warmup_count)]
+            samples = [client.request([texts[0]]) for _ in range(sample_count)]
+            transactions = [first, repeat, *warmups, *samples]
+        metadata = {
+            "collected_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "startup_peak_rss_bytes": session.startup_peak_rss_bytes,
+            "startup_rss_sample_count": session.startup_rss_sample_count,
+        }
+    result = _summarize_bucket(dispatcher_sha256, package, warmup_count, sample_count,
+                               energy_not_measured_reason, bucket, raw_root, transactions, metadata)
+    if attempt is not None:
+        if attempt.completion is None:
+            attempt.complete(metadata, list(result))
+        elif not _same_json_value(attempt.completion["summary"], list(result)):
+            raise EvidenceError("checkpoint bucket summary differs from revalidated transactions")
+    return result
 
-    collected_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def _summarize_bucket(dispatcher_sha256, package, warmup_count, sample_count,
+                      energy_not_measured_reason, bucket, raw_root, transactions, metadata):
+    if not isinstance(metadata, dict) or set(metadata) != {
+            "collected_at_utc", "startup_peak_rss_bytes", "startup_rss_sample_count"}:
+        raise EvidenceError("checkpoint bucket metadata schema changed")
+    _positive_measurement(metadata["startup_peak_rss_bytes"], "startup_peak_rss_bytes")
+    _positive_measurement(metadata["startup_rss_sample_count"], "startup_rss_sample_count")
+    collected_at = metadata["collected_at_utc"]
+    if not isinstance(collected_at, str) or not collected_at.endswith("Z"):
+        raise EvidenceError("checkpoint collection timestamp must be UTC")
+    try:
+        datetime.fromisoformat(collected_at.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise EvidenceError("checkpoint collection timestamp is invalid") from error
+    if len(transactions) != 2 + warmup_count + sample_count:
+        raise EvidenceError("checkpoint performance attempt is incomplete")
+    first, repeat = transactions[:2]
+    warmups = transactions[2:2 + warmup_count]
+    samples = transactions[2 + warmup_count:]
+    texts = sequence_semantic_probe_inputs(bucket)
+    first_outputs = _check_bucket_semantics(bucket, first, repeat)
     placement_raw = {
         "schema_version": 1,
         "kind": "cfetch-openvino-live-placement-v1",
@@ -1277,8 +1409,8 @@ def _run_bucket(
         "latency_clock": "time.perf_counter_ns",
         "latency_boundary": "signed-loopback-http-request-response",
         "peak_memory_method": "2ms-sampled-linux-proc-process-tree-vmrss",
-        "startup_peak_rss_bytes": session.startup_peak_rss_bytes,
-        "startup_rss_sample_count": session.startup_rss_sample_count,
+        "startup_peak_rss_bytes": metadata["startup_peak_rss_bytes"],
+        "startup_rss_sample_count": metadata["startup_rss_sample_count"],
         "warmup_count": warmup_count,
         "sample_count": sample_count,
         "warmups": [transaction.raw_document() for transaction in warmups],
@@ -1286,7 +1418,7 @@ def _run_bucket(
         "initialization_peak_rss_bytes": max(
             value
             for value in (
-                session.startup_peak_rss_bytes,
+                metadata["startup_peak_rss_bytes"],
                 first.peak_rss_bytes,
                 repeat.peak_rss_bytes,
             )
@@ -1302,8 +1434,8 @@ def _run_bucket(
         for transaction in (first, repeat, *warmups, *samples)
         if transaction.peak_rss_bytes is not None
     ]
-    if session.startup_peak_rss_bytes is not None:
-        rss_values.append(session.startup_peak_rss_bytes)
+    if metadata["startup_peak_rss_bytes"] is not None:
+        rss_values.append(metadata["startup_peak_rss_bytes"])
     if not rss_values:
         raise EvidenceError(f"bucket {bucket} has no honest RSS measurement")
     sequence_row = {
@@ -1385,6 +1517,35 @@ def _run_bucket(
     return sequence_row, placement_row, performance_row, first.runtime_evidence
 
 
+def _wire_requests(inputs: Sequence[str], batch_size: int):
+    return [inputs[start:start + batch_size] for start in range(0, len(inputs), batch_size)]
+
+
+def _summarize_wire(package, inputs, batch_size, raw_root, transactions):
+    input_digest = ordered_input_json_sha256(inputs)
+    complete = b"".join(row.canonical for transaction in transactions for row in transaction.rows)
+    response_count = sum(len(transaction.rows) for transaction in transactions)
+    if len(transactions) != math.ceil(len(inputs) / batch_size) or response_count != len(inputs):
+        raise EvidenceError("wire checkpoint has incomplete request or response coverage")
+    signed_transactions_digest = _store_raw(raw_root, {
+        "schema_version": 1,
+        "kind": "wire-grouping-signed-transactions",
+        "scope_id": package.scope.scope_id,
+        "batch_size": batch_size,
+        "ordered_input_json_sha256": input_digest,
+        "transactions": [transaction.raw_document() for transaction in transactions],
+    })
+    return {
+        "batch_size": batch_size,
+        "input_count": SUPPORTED_MAX_BATCH_SIZE,
+        "request_count": len(transactions),
+        "response_row_count": response_count,
+        "ordered_input_json_sha256": input_digest,
+        "canonical_output_bytes_sha256": hashlib.sha256(complete).hexdigest(),
+        "signed_transactions_sha256": signed_transactions_digest,
+    }, complete
+
+
 def _wire_grouping_results(
     dispatcher: Path,
     dispatcher_sha256: str,
@@ -1394,65 +1555,96 @@ def _wire_grouping_results(
     inputs: Sequence[str],
     raw_root: Path,
     nonce_registry: set[bytes],
+    checkpoint: Checkpoint | None = None,
 ) -> list[dict[str, Any]]:
-    input_digest = ordered_input_json_sha256(inputs)
     results: list[dict[str, Any]] = []
     baseline: bytes | None = None
-    with DispatcherSession(
-        dispatcher,
-        dispatcher_sha256,
-        package,
-        startup_timeout_seconds,
-    ) as session:
-        client = SignedAdapterClient(
-            session, request_timeout_seconds, nonce_registry
-        )
+    with ExitStack() as stack:
+        session = None
         for batch_size in range(1, SUPPORTED_MAX_BATCH_SIZE + 1):
-            output = bytearray()
-            signed_transactions: list[dict[str, Any]] = []
-            request_count = 0
-            response_count = 0
-            for start in range(0, len(inputs), batch_size):
-                transaction = client.request(
-                    inputs[start : start + batch_size], measure_rss=False
-                )
-                signed_transactions.append(transaction.raw_document())
-                request_count += 1
-                response_count += len(transaction.rows)
-                for row in transaction.rows:
-                    output.extend(row.canonical)
-            complete = bytes(output)
+            attempt = checkpoint.completed(f"wire-{batch_size}") if checkpoint else None
+            requests = _wire_requests(inputs, batch_size)
+            if attempt is not None:
+                transactions = _restore_attempt(attempt, package.scope, requests, measure_rss=False)
+            else:
+                attempt = checkpoint.start(f"wire-{batch_size}") if checkpoint else None
+                if session is None:
+                    session = stack.enter_context(DispatcherSession(
+                        dispatcher, dispatcher_sha256, package, startup_timeout_seconds))
+                client = SignedAdapterClient(session, request_timeout_seconds, nonce_registry,
+                                             checkpoint_attempt=attempt)
+                transactions = [client.request(texts, measure_rss=False) for texts in requests]
+            result, complete = _summarize_wire(package, inputs, batch_size, raw_root, transactions)
             if baseline is None:
                 baseline = complete
             elif complete != baseline:
-                raise EvidenceError(
-                    f"wire grouping size {batch_size} changed canonical output bytes"
-                )
-            signed_transactions_digest = _store_raw(
-                raw_root,
-                {
-                    "schema_version": 1,
-                    "kind": "wire-grouping-signed-transactions",
-                    "scope_id": package.scope.scope_id,
-                    "batch_size": batch_size,
-                    "ordered_input_json_sha256": input_digest,
-                    "transactions": signed_transactions,
-                },
-            )
-            results.append(
-                {
-                    "batch_size": batch_size,
-                    "input_count": SUPPORTED_MAX_BATCH_SIZE,
-                    "request_count": request_count,
-                    "response_row_count": response_count,
-                    "ordered_input_json_sha256": input_digest,
-                    "canonical_output_bytes_sha256": hashlib.sha256(
-                        complete
-                    ).hexdigest(),
-                    "signed_transactions_sha256": signed_transactions_digest,
-                }
-            )
+                raise EvidenceError(f"wire grouping size {batch_size} changed canonical output bytes")
+            if attempt is not None:
+                if attempt.completion is None:
+                    attempt.complete({}, result)
+                elif attempt.completion["metadata"] != {} or not _same_json_value(
+                        attempt.completion["summary"], result):
+                    raise EvidenceError("checkpoint wire summary differs from revalidated transactions")
+            results.append(result)
     return results
+
+
+def _checkpoint_identity(dispatcher, package, wire_inputs_path, wire_inputs,
+                         startup_timeout_seconds, request_timeout_seconds,
+                         warmup_count, sample_count, energy_not_measured_reason):
+    directory = Path(__file__).resolve().parent
+    implementations = ("physical_evidence.py", "physical_checkpoint.py", "admission_evidence.py",
+                       "export_adapter_cache.py", "scifact_contract.py", "profile_identity.py",
+                       "requirements-lock.txt")
+    return {
+        "schema_version": 1,
+        "kind": "cfetch-physical-evidence-checkpoint-v1",
+        "dispatcher_sha256": _file_sha256(dispatcher),
+        "probe_package_manifest_sha256": _file_sha256(package.manifest_path),
+        "runtime_manifest_sha256": package.runtime_manifest_sha256,
+        "scope": dict(package.scope.document),
+        "wire_inputs_file_sha256": _file_sha256(wire_inputs_path),
+        "wire_inputs_sha256": ordered_input_json_sha256(wire_inputs),
+        "sequence_inputs_sha256": {
+            str(bucket): ordered_input_json_sha256(sequence_semantic_probe_inputs(bucket))
+            for bucket in SEQUENCE_BUCKETS
+        },
+        "startup_timeout_seconds": startup_timeout_seconds,
+        "request_timeout_seconds": request_timeout_seconds,
+        "warmup_count": warmup_count,
+        "sample_count": sample_count,
+        "energy_not_measured_reason": energy_not_measured_reason,
+        "implementation_sha256": {
+            name: _file_sha256(_regular_file(directory / name, "collector implementation", MAX_MANIFEST_BYTES))
+            for name in implementations
+        },
+    }
+
+
+def _audit_checkpoint(checkpoint, package, wire_inputs, dispatcher_sha256,
+                      warmup_count, sample_count, energy_not_measured_reason, raw_root):
+    """Reject all corrupt history before launching any new dispatcher."""
+    for attempt in checkpoint.attempts.values():
+        kind, number = attempt.key.split("-")
+        number = int(number)
+        if attempt.key != f"{kind}-{number}" or (kind == "bucket" and number not in SEQUENCE_BUCKETS) or (
+                kind == "wire" and not 1 <= number <= SUPPORTED_MAX_BATCH_SIZE):
+            raise EvidenceError("checkpoint attempt is outside the frozen request plan")
+        requests = (_bucket_requests(number, warmup_count, sample_count) if kind == "bucket"
+                    else _wire_requests(wire_inputs, number))
+        transactions = _restore_attempt(attempt, package.scope, requests, measure_rss=kind == "bucket")
+        if attempt.completion is None:
+            continue
+        if kind == "bucket":
+            summary = list(_summarize_bucket(dispatcher_sha256, package, warmup_count, sample_count,
+                           energy_not_measured_reason, number, raw_root, transactions,
+                           attempt.completion["metadata"]))
+        else:
+            if attempt.completion["metadata"] != {}:
+                raise EvidenceError("checkpoint wire metadata schema changed")
+            summary, _ = _summarize_wire(package, wire_inputs, number, raw_root, transactions)
+        if not _same_json_value(attempt.completion["summary"], summary):
+            raise EvidenceError("checkpoint summary differs from revalidated transactions")
 
 
 def collect_physical_evidence(
@@ -1468,13 +1660,24 @@ def collect_physical_evidence(
     warmup_count: int,
     sample_count: int,
     energy_not_measured_reason: str,
+    checkpoint_directory: Path | None = None,
 ) -> dict[str, Any]:
-    if output_directory.exists():
+    if os.path.lexists(output_directory):
         raise EvidenceError("output directory must not already exist")
-    if warmup_count < 1:
+    if type(warmup_count) is not int or warmup_count < 1:
         raise EvidenceError("warmup count must be at least 1")
-    if sample_count < 20:
+    if type(sample_count) is not int or sample_count < 20:
         raise EvidenceError("sample count must be at least 20 for a meaningful p95")
+    if any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0
+           for value in (startup_timeout_seconds, request_timeout_seconds)):
+        raise EvidenceError("timeouts must be positive and finite")
+    if checkpoint_directory is not None:
+        if 2 * len(SEQUENCE_BUCKETS) * (warmup_count + sample_count + 2) > MAX_FILES - 1000:
+            raise EvidenceError("requested trial exceeds checkpoint record bound")
+        checkpoint_path = Path(os.path.abspath(checkpoint_directory))
+        output_path = Path(os.path.abspath(output_directory))
+        if checkpoint_path.is_relative_to(output_path) or output_path.is_relative_to(checkpoint_path):
+            raise EvidenceError("checkpoint and public output directories must be separate")
     if not energy_not_measured_reason.strip():
         raise EvidenceError("energy-not-measured reason must be nonempty")
     dispatcher = _regular_file(dispatcher, "candidate dispatcher")
@@ -1486,6 +1689,16 @@ def collect_physical_evidence(
     if _file_sha256(dispatcher) != _digest(dispatcher_sha256, "dispatcher digest"):
         raise EvidenceError("candidate dispatcher digest does not match")
     wire_inputs = load_wire_inputs(wire_inputs_path)
+    checkpoint_identity = (
+        _checkpoint_identity(dispatcher, package, wire_inputs_path, wire_inputs,
+                             startup_timeout_seconds, request_timeout_seconds,
+                             warmup_count, sample_count, energy_not_measured_reason)
+        if checkpoint_directory is not None else None
+    )
+    if checkpoint_identity is not None and (
+            checkpoint_identity["dispatcher_sha256"] != dispatcher_sha256 or
+            checkpoint_identity["probe_package_manifest_sha256"] != package.manifest_sha256):
+        raise EvidenceError("checkpoint candidate identity changed during validation")
     output_directory.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(
         tempfile.mkdtemp(
@@ -1493,107 +1706,123 @@ def collect_physical_evidence(
         )
     )
     try:
-        raw_root = temporary / "raw"
-        raw_root.mkdir()
-        sequence_rows: list[dict[str, Any]] = []
-        placement_rows: list[dict[str, Any]] = []
-        performance_rows: list[dict[str, Any]] = []
-        live_runtime_evidence: list[Mapping[str, Any]] = []
-        nonce_registry: set[bytes] = set()
-        for bucket in SEQUENCE_BUCKETS:
-            sequence, placement, performance, live_evidence = _run_bucket(
+        with (Checkpoint(checkpoint_directory, checkpoint_identity)
+              if checkpoint_directory is not None else nullcontext(None)) as checkpoint:
+            raw_root = temporary / "raw"
+            raw_root.mkdir()
+            sequence_rows: list[dict[str, Any]] = []
+            placement_rows: list[dict[str, Any]] = []
+            performance_rows: list[dict[str, Any]] = []
+            live_runtime_evidence: list[Mapping[str, Any]] = []
+            nonce_registry: set[bytes] = set(checkpoint.nonces) if checkpoint else set()
+            if checkpoint is not None:
+                _audit_checkpoint(checkpoint, package, wire_inputs, dispatcher_sha256,
+                                  warmup_count, sample_count, energy_not_measured_reason, raw_root)
+            for bucket in SEQUENCE_BUCKETS:
+                sequence, placement, performance, live_evidence = _run_bucket(
+                    dispatcher,
+                    dispatcher_sha256,
+                    package,
+                    startup_timeout_seconds,
+                    request_timeout_seconds,
+                    warmup_count,
+                    sample_count,
+                    energy_not_measured_reason,
+                    bucket,
+                    raw_root,
+                    nonce_registry,
+                    checkpoint,
+                )
+                sequence_rows.append(sequence)
+                placement_rows.append(placement)
+                performance_rows.append(performance)
+                live_runtime_evidence.append(live_evidence)
+            wire_results = _wire_grouping_results(
                 dispatcher,
                 dispatcher_sha256,
                 package,
                 startup_timeout_seconds,
                 request_timeout_seconds,
-                warmup_count,
-                sample_count,
-                energy_not_measured_reason,
-                bucket,
+                wire_inputs,
                 raw_root,
                 nonce_registry,
+                checkpoint,
             )
-            sequence_rows.append(sequence)
-            placement_rows.append(placement)
-            performance_rows.append(performance)
-            live_runtime_evidence.append(live_evidence)
-        wire_results = _wire_grouping_results(
-            dispatcher,
-            dispatcher_sha256,
-            package,
-            startup_timeout_seconds,
-            request_timeout_seconds,
-            wire_inputs,
-            raw_root,
-            nonce_registry,
-        )
-        identity = dict(package.scope.identity)
-        sequence_report = {
-            **identity,
-            "supported_max_tokens": MAX_TOKENS,
-            "supported_sequence_buckets": list(SEQUENCE_BUCKETS),
-            "supported_max_batch_size": SUPPORTED_MAX_BATCH_SIZE,
-            "wire_batch_results": wire_results,
-            "grouping_invariance": {
-                "batch_sizes": list(range(1, SUPPORTED_MAX_BATCH_SIZE + 1)),
-                "input_selection": WIRE_BATCH_INPUT_SELECTION,
-                "same_inputs_in_same_order": True,
-                "canonical_output_bytes_equal": True,
-            },
-            "bucket_results": sequence_rows,
-        }
-        placement_report = {
-            **identity,
-            "accelerated_placement": True,
-            "accelerator_execution_confirmed": True,
-            "fallback_disclosure_complete": True,
-            "unexpected_fallback_detected": False,
-            "provider_binding": {
+            identity = dict(package.scope.identity)
+            sequence_report = {
+                **identity,
+                "supported_max_tokens": MAX_TOKENS,
+                "supported_sequence_buckets": list(SEQUENCE_BUCKETS),
+                "supported_max_batch_size": SUPPORTED_MAX_BATCH_SIZE,
+                "wire_batch_results": wire_results,
+                "grouping_invariance": {
+                    "batch_sizes": list(range(1, SUPPORTED_MAX_BATCH_SIZE + 1)),
+                    "input_selection": WIRE_BATCH_INPUT_SELECTION,
+                    "same_inputs_in_same_order": True,
+                    "canonical_output_bytes_equal": True,
+                },
+                "bucket_results": sequence_rows,
+            }
+            placement_report = {
+                **identity,
+                "accelerated_placement": True,
+                "accelerator_execution_confirmed": True,
+                "fallback_disclosure_complete": True,
+                "unexpected_fallback_detected": False,
+                "provider_binding": {
+                    "schema_version": 1,
+                    "provider": "openvino",
+                    "dispatcher_sha256": dispatcher_sha256,
+                    "probe_package_manifest_sha256": package.manifest_sha256,
+                    "runtime_manifest_sha256": package.runtime_manifest_sha256,
+                    "openvino_compile_config": dict(
+                        package.scope.document["openvino_compile_config"]
+                    ),
+                    "expected_host": dict(package.scope.required_host),
+                    "actual_host": live_runtime_evidence[0]["host"],
+                    "host_source": live_runtime_evidence[0]["host_source"],
+                },
+                "bucket_results": placement_rows,
+            }
+            performance_report = {**identity, "bucket_results": performance_rows}
+            validate_evidence_reports(
+                package.scope.document,
+                sequence_report,
+                placement_report,
+                performance_report,
+            )
+            sequence_digest = _write_summary(
+                temporary / "sequence-capability.json", sequence_report
+            )
+            placement_digest = _write_summary(
+                temporary / "placement.json", placement_report
+            )
+            performance_digest = _write_summary(
+                temporary / "performance.json", performance_report
+            )
+            if checkpoint_identity is not None and not _same_json_value(
+                    checkpoint_identity,
+                    _checkpoint_identity(dispatcher, package, wire_inputs_path, wire_inputs,
+                                         startup_timeout_seconds, request_timeout_seconds,
+                                         warmup_count, sample_count, energy_not_measured_reason)):
+                raise EvidenceError("checkpoint experiment files changed during collection")
+            _fsync_directory(raw_root)
+            _fsync_directory(temporary)
+            rename_new(temporary, output_directory)
+            _fsync_directory(output_directory.parent)
+            return {
                 "schema_version": 1,
-                "provider": "openvino",
-                "dispatcher_sha256": dispatcher_sha256,
-                "probe_package_manifest_sha256": package.manifest_sha256,
-                "runtime_manifest_sha256": package.runtime_manifest_sha256,
-                "openvino_compile_config": dict(
-                    package.scope.document["openvino_compile_config"]
+                "scope_id": scope_id,
+                "sequence_capability_evidence": str(
+                    output_directory / "sequence-capability.json"
                 ),
-                "expected_host": dict(package.scope.required_host),
-                "actual_host": live_runtime_evidence[0]["host"],
-                "host_source": live_runtime_evidence[0]["host_source"],
-            },
-            "bucket_results": placement_rows,
-        }
-        performance_report = {**identity, "bucket_results": performance_rows}
-        validate_evidence_reports(
-            package.scope.document,
-            sequence_report,
-            placement_report,
-            performance_report,
-        )
-        sequence_digest = _write_summary(
-            temporary / "sequence-capability.json", sequence_report
-        )
-        placement_digest = _write_summary(
-            temporary / "placement.json", placement_report
-        )
-        performance_digest = _write_summary(
-            temporary / "performance.json", performance_report
-        )
-        os.replace(temporary, output_directory)
-        return {
-            "schema_version": 1,
-            "scope_id": scope_id,
-            "sequence_capability_evidence": str(
-                output_directory / "sequence-capability.json"
-            ),
-            "sequence_capability_evidence_sha256": sequence_digest,
-            "placement_evidence": str(output_directory / "placement.json"),
-            "placement_evidence_sha256": placement_digest,
-            "performance_evidence": str(output_directory / "performance.json"),
-            "performance_evidence_sha256": performance_digest,
-            "raw_measurements": str(output_directory / "raw"),
-        }
+                "sequence_capability_evidence_sha256": sequence_digest,
+                "placement_evidence": str(output_directory / "placement.json"),
+                "placement_evidence_sha256": placement_digest,
+                "performance_evidence": str(output_directory / "performance.json"),
+                "performance_evidence_sha256": performance_digest,
+                "raw_measurements": str(output_directory / "raw"),
+            }
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
@@ -1622,6 +1851,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--scope-id", required=True)
     result.add_argument("--wire-inputs", required=True, type=Path)
     result.add_argument("--output-directory", required=True, type=Path)
+    result.add_argument("--checkpoint-directory", type=Path,
+                        help="Linux working journal; parent must exist; resumes only complete verified trials")
     result.add_argument("--startup-timeout-seconds", type=_positive_float, default=30.0)
     result.add_argument("--request-timeout-seconds", type=_positive_float, default=180.0)
     result.add_argument("--warmup-count", type=_positive_integer, default=2)
@@ -1650,8 +1881,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.warmup_count,
             args.sample_count,
             args.energy_not_measured_reason,
+            args.checkpoint_directory,
         )
-    except (EvidenceError, OSError, RuntimeError) as error:
+    except (EvidenceError, CheckpointError, OSError, RuntimeError) as error:
         print(f"physical evidence collection refused: {error}", file=os.sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")))

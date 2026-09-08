@@ -20,9 +20,9 @@ pub const PROFILE_MANIFEST_SHA256: &str =
     "59210a333494f788eb8e607fe38cabb6af1a7aa7cdf604ddf52e3fa6004b5afb";
 pub const ADMISSION_POLICY_VERSION: u32 = 1;
 pub const ADMISSION_POLICY_SHA256: &str =
-    "36375d4e6fb5f6a48e5ecb7036ccc141c2314c2f2609c37063a6f79aa367fcc2";
+    "e58b10f7d5e1ea9d86ca83c8454a466545208a584c0e1f4d3d4339424b7489f7";
 pub const ADMISSION_IMPLEMENTATION_BUNDLE_SHA256: &str =
-    "7a8bca24dc89ab1f23d00632de9653f4f045cae8aa8f876a936c4d6e9ab7e8bd";
+    "daceaf58ccf0aea12f1c26a39ee0577f748d6757c00933189553a526f8aa3b59";
 
 /// Immutable semantic source for the candidate profile. Every native package
 /// records its actual lineage and artifact digest; direct derivation is never
@@ -614,7 +614,7 @@ mod tests {
     fn admission_implementation_bundle_is_exact_and_registry_bound() {
         use sha2::Digest as _;
 
-        let files: [(&str, &[u8]); 12] = [
+        let files: [(&str, &[u8]); 13] = [
             (
                 "experiments/embedding-profile/admission_evidence.py",
                 &include_bytes!("../experiments/embedding-profile/admission_evidence.py")[..],
@@ -638,6 +638,10 @@ mod tests {
             (
                 "experiments/embedding-profile/measurement_bundle.py",
                 &include_bytes!("../experiments/embedding-profile/measurement_bundle.py")[..],
+            ),
+            (
+                "experiments/embedding-profile/physical_checkpoint.py",
+                &include_bytes!("../experiments/embedding-profile/physical_checkpoint.py")[..],
             ),
             (
                 "experiments/embedding-profile/physical_evidence.py",

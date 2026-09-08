@@ -98,6 +98,7 @@ IMPLEMENTATION_BUNDLE_FILES = tuple(
             "experiments/embedding-profile/final_package_conformance.py",
             "experiments/embedding-profile/measurement_bundle.py",
             "experiments/embedding-profile/physical_evidence.py",
+            "experiments/embedding-profile/physical_checkpoint.py",
             "experiments/embedding-profile/scifact_contract.py",
             "experiments/embedding-profile/requirements-lock.txt",
             "experiments/embedding-profile/requirements-test.txt",
