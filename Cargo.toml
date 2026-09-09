@@ -52,7 +52,12 @@ notify = "8"
 # Zero external dependencies at runtime — models run inside the cfetch binary.
 # fastembed handles model download, tokenization, pooling, and caching.
 # Enable with: cargo build --features embedded-embeddings
-fastembed = { version = "6", optional = true }
+fastembed = {
+  version = "6",
+  optional = true,
+  default-features = false,
+  features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"]
+}
 ratatui = "0.30.2"
 # Exact-pinned official MCP SDK. cfetch owns its tools; rmcp owns JSON-RPC,
 # protocol negotiation, capability discovery, schemas, and stdio framing.
