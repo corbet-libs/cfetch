@@ -22,6 +22,10 @@ it on the worker and submit that revision as `CI_COMMIT_SHA`. The source step
 checks both the archive SHA-256 and Git's embedded commit ID before extraction.
 Choose `CHECKS=catalog`, `rust`, `variants`, `licenses`, `profile`, or `portable`
 (`catalog rust`). The inexpensive catalog check is the manual default.
+An optional `CARGO_TARGET_DIR` names a writable persistent project cache on
+the worker. Crow serializes users of that cache with a one-minute lock wait;
+checks have a 45-minute deadline and a 30-second forced-termination grace.
+Omit the cache variable to use the isolated workflow workspace.
 
 This path removes the source checkout's dependency on GitHub availability.
 Crow may still obtain workflow configuration through the configured forge;

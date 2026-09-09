@@ -3,12 +3,14 @@ when:
   - event: manual
 skip_clone: true
 variables:
-  - name: SOURCE_ARCHIVE
+  SOURCE_ARCHIVE:
     default: ""
-  - name: SOURCE_SHA256
+  SOURCE_SHA256:
     default: ""
-  - name: CHECKS
+  CHECKS:
     default: catalog
+  CARGO_TARGET_DIR:
+    default: ""
 steps:
   - name: verified-source
     image: bash
@@ -30,7 +32,12 @@ steps:
       - |
         set -eu
         case "$CHECKS" in
-          catalog|rust|variants|licenses|profile) bash scripts/ci-check.sh "$CHECKS" ;;
-          portable) bash scripts/ci-check.sh catalog rust ;;
+          catalog|rust|variants|licenses|profile) set -- "$CHECKS" ;;
+          portable) set -- catalog rust ;;
           *) echo 'Choose catalog, rust, variants, licenses, profile, or portable' >&2; exit 2 ;;
         esac
+        if [ -n "$CARGO_TARGET_DIR" ]; then
+          mkdir -p "$CARGO_TARGET_DIR"
+          exec flock --wait 60 "$CARGO_TARGET_DIR.ci.lock" timeout --kill-after=30s 45m bash scripts/ci-check.sh "$@"
+        fi
+        exec timeout --kill-after=30s 45m bash scripts/ci-check.sh "$@"
