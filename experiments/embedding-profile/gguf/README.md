@@ -1,4 +1,52 @@
-# Pinned GGUF SIMD CPU candidate
+# Pinned GGUF candidates
+
+## Canonical F32 conversion and Vulkan runtime
+
+`convert_canonical.py` converts the thirteen verified files from the canonical
+Google revision with the pinned llama.cpp converter. It explicitly enables
+`--sentence-transformers-dense-modules`; the upstream default omits the two
+projection heads. The wrapper verifies the source inventory, converter bytes,
+installed dependencies, F32 tensors, both projection shapes, pooling, special
+tokens and attention metadata, then records path-free conversion lineage.
+It requires a fresh output directory and preserves failed conversion evidence.
+
+Run conversion in an isolated CPU worker with the pinned converter's
+`requirements/requirements-convert_hf_to_gguf.txt` installed:
+
+```bash
+python3 experiments/embedding-profile/gguf/convert_canonical.py \
+  --source-dir "$canonical_source" \
+  --llama-source "$llama_source" \
+  --output-directory "$candidate_output" \
+  --timeout-seconds 600
+```
+
+The GGUF attention window must remain **512**. This runtime interprets it as
+the symmetric distance of at most 256 positions; the pinned Transformers
+reference expresses the same boundary as an exclusive radius of 257.
+The execution bucket named 257 is a separate property.
+
+`build-pinned-vulkan.sh SOURCE WORK OUTPUT` verifies the official b10516
+Ubuntu Vulkan archive and compiles only the missing upstream embedding client
+against its matching libraries. It requires Ubuntu 24.04 x86_64, glibc 2.39
+and a C++17 compiler. Its provenance distinguishes the prebuilt libraries'
+compiler from the client compiler and retains dynamic backends, dependencies
+and licenses. The manual **GGUF Vulkan candidate preparation** workflow runs
+this helper on a standard hosted CPU runner; it performs no model inference.
+
+`native_probe.cpp` supplies a narrow C ABI for bounded qualification. It
+separates initialization, explicit device selection, verified-descriptor model
+loading, context allocation, one decode and cleanup so a caller can govern
+each native operation. Outputs are 768 projected floats requiring caller L2
+normalization. Actual context capacity rounds up to a multiple of 256 while
+batch and microbatch capacities retain the requested bucket. Full GPU-layer
+offload is a request; placement needs execution evidence.
+
+Conversion lineage and a prepared runtime do not establish tokenizer parity,
+long-input numerical parity, physical reliability or backend admission. The
+community Q8 candidate below remains a separate historical diagnostic.
+
+## Community Q8 SIMD CPU diagnostic
 
 This directory reproduces one deliberately narrow result: the pinned standard
 EmbeddingGemma Q8 GGUF can execute the exact cfetch query and document prompts

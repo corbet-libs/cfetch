@@ -1,0 +1,61 @@
+# Build inputs only. GPU discovery, model conversion, and inference belong to
+# a separately authorized target-host trial; this workflow makes no admission.
+name: GGUF Vulkan candidate preparation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-vulkan-build:
+    name: Exact embedding client and official Vulkan runtime
+    # Matches the independently proved client toolchain/runtime floor.
+    # This standard public-repository runner is not a hosted GPU runner.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SOURCE_DATE_EPOCH: "0"
+      LC_ALL: C
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the client compiler and system Vulkan loader
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            g++ binutils git python3 curl libvulkan1
+
+      - name: Prepare the exact client and official runtime
+        run: |
+          bash experiments/embedding-profile/gguf/build-pinned-vulkan.sh \
+            "$RUNNER_TEMP/cfetch-gguf-vulkan/llama.cpp-b10516" \
+            "$RUNNER_TEMP/cfetch-gguf-vulkan/work" \
+            "$RUNNER_TEMP/cfetch-gguf-vulkan/runtime"
+
+      - name: Archive the runtime and recorded build provenance
+        run: |
+          mkdir -p "$RUNNER_TEMP/cfetch-gguf-vulkan-artifacts"
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            -czf "$RUNNER_TEMP/cfetch-gguf-vulkan-artifacts/llama-b10516-vulkan-linux-x86_64-glibc2.39.tar.gz" \
+            -C "$RUNNER_TEMP/cfetch-gguf-vulkan/runtime" .
+          cd "$RUNNER_TEMP/cfetch-gguf-vulkan-artifacts"
+          sha256sum -- *.tar.gz > SHA256SUMS
+
+      - name: Upload candidate runtime inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: gguf-vulkan-b10516-${{ github.run_id }}
+          path: ${{ runner.temp }}/cfetch-gguf-vulkan-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Preserve compiler diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gguf-vulkan-build-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/cfetch-gguf-vulkan/runtime/provenance/
+          if-no-files-found: ignore
+          retention-days: 7
