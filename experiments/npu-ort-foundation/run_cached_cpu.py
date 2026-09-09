@@ -12,6 +12,8 @@ import signal
 import subprocess
 import time
 
+from pinned_cache import prepare, verify
+
 
 def digest(path):
     with path.open("rb") as stream:
@@ -48,18 +50,27 @@ def main():
         elif path.stat().st_size != expected["bytes"] or digest(path) != expected["sha256"]:
             raise RuntimeError(f"bundle file changed: {name}")
     output.mkdir()
+    cache = bundle / "model-cache"
+    if model == "EmbeddingGemma300M":
+        cache_manifest = json.loads(Path(__file__).with_name("embeddinggemma-cache.json").read_text())
+        cache = output / "cache"
+        observed = prepare(bundle / "model-cache", cache, cache_manifest)
+        save(output / "model-identity.json", observed)
     # The independent timer also survives abrupt loss of this Python parent.
     command = ["timeout", "--signal=KILL", "300", str(bundle / "cfetch-npu-ort-foundation"), "--ort",
                str(bundle / "lib/libonnxruntime.so.1.24.1")]
     if model:
         command += ["--run-model", model, "--device", "CPU", "--cache",
-                    str(bundle / "model-cache"), "--output", str(output / "model")]
+                    str(cache), "--output", str(output / "model")]
     # Match the explicit cache selection; HF_HOME otherwise overrides FastEmbed.
     environment = dict(os.environ)
     environment.pop("HF_HOME", None)
     environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
     environment["RAYON_NUM_THREADS"] = "1"
     environment["OMP_NUM_THREADS"] = "1"
+    if model == "EmbeddingGemma300M":
+        # Cache misses must fail locally rather than fetching an unpinned main.
+        environment["HF_ENDPOINT"] = "http://[cfetch-offline"
     save(output / "intent.json", {"model": model or None, "device": "CPU",
          "bundle_manifest_sha256": evidence["bundle_manifest_sha256"],
          "deadline_seconds": 300, "maximum_embedding_calls": int(bool(model))})
@@ -87,6 +98,21 @@ def main():
                     os._exit(1)
         finally:
             result["worker_seconds_including_downloads"] = time.monotonic() - started
+            if model == "EmbeddingGemma300M":
+                try:
+                    repo = cache / ("models--" + observed["repository"].replace("/", "--"))
+                    if (repo / "refs/main").read_text() != observed["revision"]:
+                        raise RuntimeError("model cache revision changed during execution")
+                    snapshot = repo / "snapshots" / observed["revision"]
+                    for name, expected in observed["files"].items():
+                        path = snapshot / name
+                        if path.is_symlink() or not path.resolve(strict=True).is_relative_to(snapshot):
+                            raise RuntimeError("model cache containment changed during execution")
+                        verify(path, expected)
+                    result["model_identity_unchanged"] = True
+                except Exception as error:
+                    result["passed"] = False
+                    result["identity_error"] = repr(error)
             save(output / "result.json", result)
     print(json.dumps(result), flush=True)
     raise SystemExit(0 if result["passed"] else 1)

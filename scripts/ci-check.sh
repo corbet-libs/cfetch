@@ -48,6 +48,7 @@ for check in "$@"; do
       diff -u THIRD-PARTY-LICENSES.txt "$generated"
       ;;
     ort-foundation-cpu)
+      "$python_bin" -m unittest discover -s experiments/npu-ort-foundation -p test_pinned_cache.py -v
       "$python_bin" experiments/npu-ort-foundation/run_cached_cpu.py
       ;;
     governor)

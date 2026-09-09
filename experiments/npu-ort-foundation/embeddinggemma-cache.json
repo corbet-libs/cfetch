@@ -1,0 +1,12 @@
+{
+  "repository": "onnx-community/embeddinggemma-300m-ONNX",
+  "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+  "files": {
+    "onnx/model.onnx": {"bytes": 479932, "sha256": "ea91fd315a7c152d427d231746f0f811a1ac93beaba656abfdf2b24e091265e4"},
+    "onnx/model.onnx_data": {"bytes": 1234521088, "sha256": "ef835ae565d8695236652475903078e8ed794c7c35faf1164d78ec3238e8a88d"},
+    "config.json": {"bytes": 1765, "git_blob_sha1": "edb6342fb0d447a42960920034c773ddd6ed6d55"},
+    "special_tokens_map.json": {"bytes": 662, "git_blob_sha1": "1a6193244714d3d78be48666cb02cdbfac62ad86"},
+    "tokenizer.json": {"bytes": 20323312, "sha256": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47"},
+    "tokenizer_config.json": {"bytes": 1156830, "git_blob_sha1": "73b499ae604d0bcbeb2889639a42f46462e9d372"}
+  }
+}

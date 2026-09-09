@@ -74,3 +74,16 @@ OpenMP threads to one, and retains output/error/intent/result files. A separate
 300-second process timer bounds cold loading and downloads as well as the
 single model call. It never selects NPU or GPU. The recorded total duration
 includes downloads and is not an inference-latency measurement.
+
+EmbeddingGemma uses the six files at the exact Hugging Face revision recorded
+in `embeddinggemma-cache.json`. ORT 1.24.1 rejects the usual snapshot symlinks
+for external weights ([upstream report](https://github.com/qdrant/fastembed/issues/603)).
+The runner verifies existing content and creates a fresh hard-linked snapshot
+beside the result, so the external weights resolve inside the model directory.
+This retains the same bytes without another model download or a runtime change.
+Missing tokenizer/configuration files may be fetched at that exact revision;
+missing large weights and corrupted cached files stop the check. All six files
+are checked before starting the native worker. Its Hugging Face endpoint is
+invalid, so a cache miss cannot fetch a moving `main`.
+The result retains and rechecks the model/tokenizer identities. This candidate's
+long-input compatibility with the canonical source still requires measurement.
