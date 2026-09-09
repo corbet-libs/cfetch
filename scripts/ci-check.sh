@@ -5,6 +5,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
 export RUST_TEST_THREADS="${RUST_TEST_THREADS:-2}"
 python_bin="${CFETCH_POLICY_PYTHON:-python3}"
+if [[ -z ${RUSTC_WRAPPER:-} ]] && command -v sccache >/dev/null; then
+  RUSTC_WRAPPER=$(command -v sccache)
+  export RUSTC_WRAPPER
+  echo 'Using the existing sccache compiler cache.'
+fi
 
 if (($# == 0)); then
   set -- catalog rust

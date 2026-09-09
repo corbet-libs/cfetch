@@ -15,6 +15,8 @@ failure can be investigated and rerun without repeating successful work.
 `CFETCH_POLICY_PYTHON` may select an existing absolute Python executable. The
 check command never installs tools. Cargo jobs and Rust test threads default
 to two; the worker's resource limits remain the enclosing bound.
+When available, the existing `sccache` executable is used unless the caller
+already selected `RUSTC_WRAPPER`; cache availability never installs a tool.
 
 Crow's manual `verify` workflow requires `SOURCE_ARCHIVE` and `SOURCE_SHA256`.
 Create the archive from the exact committed revision with `git archive`; stage

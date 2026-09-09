@@ -11,6 +11,8 @@ variables:
     default: catalog
   CARGO_TARGET_DIR:
     default: ""
+  CFETCH_POLICY_PYTHON:
+    default: python3
 steps:
   - name: verified-source
     image: bash
@@ -40,4 +42,5 @@ steps:
           mkdir -p "$CARGO_TARGET_DIR"
           exec flock --wait 60 "$CARGO_TARGET_DIR.ci.lock" timeout --kill-after=30s 45m bash scripts/ci-check.sh "$@"
         fi
+        unset CARGO_TARGET_DIR
         exec timeout --kill-after=30s 45m bash scripts/ci-check.sh "$@"
