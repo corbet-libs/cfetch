@@ -4,6 +4,25 @@ This standalone probe starts with runtime loading, then runs one built-in
 FastEmbed model through an explicitly selected OpenVINO device. It does not
 change cfetch's model, vector store or admitted backends.
 
+The [CPU diagnostic evidence](cpu-diagnostic-evidence.json) and
+[actual vector](cpu-diagnostic-vector.json) record one successful built-in
+EmbeddingGemma call: 13 tokens, 768 finite components, 6.208 seconds to
+initialize and 0.119 seconds for the first embedding. These are single-call
+observations, not a warm-latency benchmark or semantic admission.
+OpenVINO executed 99 subgraphs, while ORT's CPU provider executed 24
+`MultiHeadAttention` and 48 `RotaryEmbedding` operations. Those are model
+computation, not shape bookkeeping. This exact graph/runtime pair therefore
+does not establish exclusive accelerator execution; the strict mode correctly
+refuses it. NPU/GPU execution and canonical long-input compatibility remain
+unqualified.
+
+For this CPU-only investigation, the new probe accepts
+`--cpu-fallback diagnostic`. The CPU wrapper requires an explicit
+`CFETCH_FOUNDATION_PROBE_DIR` build receipt and
+`CFETCH_FOUNDATION_CPU_DIAGNOSTIC=1`. NPU mode rejects that flag and retains
+strict fallback and provider checks. Vector, timing and placement files are
+synced before success; the supervisor rechecks model, probe and runtime bytes.
+
 The measured stack is FastEmbed 6.0.2, `ort` 2.0.0-rc.13 with **API 24 only**,
 and Intel's ONNX Runtime OpenVINO 1.24.1 package containing OpenVINO 2025.4.1.
 Enabling `ort`'s default features would raise the required API version.

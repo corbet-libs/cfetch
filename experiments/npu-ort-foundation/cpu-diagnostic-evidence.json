@@ -1,0 +1,88 @@
+{
+  "date": "2026-09-09",
+  "scope": "One CPU-only diagnostic call; no physical accelerator qualification",
+  "source_commit": "73d8dcb3e8b9e7ccaf4697327678026d9495c97d",
+  "model": {
+    "builtin": "EmbeddingGemma300M",
+    "repository": "onnx-community/embeddinggemma-300m-ONNX",
+    "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+    "file_manifest": "embeddinggemma-cache.json",
+    "changed_graph": false
+  },
+  "runtime": {
+    "fastembed": "6.0.2",
+    "ort_crate": "2.0.0-rc.13",
+    "ort_api": 24,
+    "ort": "1.24.1",
+    "openvino_c_api_build": "2025.4.1-0-test",
+    "probe_binary_sha256": "dda2181e2d781281a66200e6c53afd2bcb457af13a0ad396a8ddaec76a72b204",
+    "bundle_manifest_sha256": "190694307f32fecf2140c81f0a5eb7776e7b1f6c2a91f078b8cf88b8c0fed784",
+    "source_sha256": {
+      "Cargo.lock": "e6531dfcaa002e838ddbdf64578a70183b8bf2592c2bd0495274b5b65cd7d920",
+      "Cargo.toml": "4591325c5c96197aed2a11a45ae91a7f2048d23ac7f39a5163451ad7d5bbfcdd",
+      "fastembed-session.patch": "50114597b4e382bb76057f56b5e059b3c20f97e70e6a29462101f1ce5df6ea20",
+      "src/main.rs": "054f08c4d8a96ed34d53cd7e00c1e63ba12eb1f9e9354881ce31a8113ec661d4"
+    },
+    "vendor_tree_sha256": "aabf93ead950e92468a174e275b14737d668b23c4116cce1d2937d96e31a0cf3"
+  },
+  "compiler": {
+    "rustc": "1.97.1 (8bab26f4f)",
+    "cargo": "1.97.0 (c980f4866)",
+    "cc": "GCC 15.3.0",
+    "openssl": "3.6.3",
+    "target": "x86_64-unknown-linux-gnu",
+    "portable_to_other_hosts": false
+  },
+  "execution": {
+    "requested_device": "CPU",
+    "physical_cpu": "AMD Ryzen 9 5950X",
+    "maximum_calls": 1,
+    "calls": 1,
+    "tokens": 13,
+    "intra_threads": 1,
+    "inter_threads": 1,
+    "openvino_threads": 1,
+    "openvino_streams": 1,
+    "cpu_fallback": "explicit CPU-only diagnostic",
+    "hf_endpoint": "invalid; complete pinned cache required",
+    "model_initialization_seconds": 6.20804737,
+    "first_embedding_seconds": 0.118542265,
+    "warm_latency_measured": false
+  },
+  "placement": {
+    "openvino_subgraphs": 99,
+    "cpu_operations": {
+      "MultiHeadAttention": 24,
+      "RotaryEmbedding": 48
+    },
+    "cpu_operations_are_model_computation": true,
+    "exclusive_openvino": false
+  },
+  "vector": {
+    "file": "cpu-diagnostic-vector.json",
+    "sha256": "e808044621714e2fa7acd339d63354cdb0c298a11ace702e15cb1044718c1888",
+    "dimensions": 768,
+    "finite_nonzero": true,
+    "l2_norm": 1.0000001040582092
+  },
+  "profile_sha256": "50ab85e48f0e3c5e4ab7adf9e3c99b7dfa5ffd31e9e42dcef7d4c99d4b978c37",
+  "placement_sha256": "05549e84ad6ac60cdb38ab2fd83ada84449f35d143dcec94ef2645fe6c80c611",
+  "conclusions": {
+    "fastembed_ort_cpu_model_execution": true,
+    "exclusive_openvino_model_execution": false,
+    "npu_executed": false,
+    "intel_gpu_executed": false,
+    "amd_gpu_executed": false,
+    "canonical_vector_compatibility_evaluated": false,
+    "production_admitted": false
+  },
+  "failures_addressed": [
+    "ORT 1.24.1 external-weight cache containment",
+    "Explicit worker-native linker dependencies"
+  ],
+  "remaining": [
+    "Attention and rotary-position operators remain on ORT CPU EP in this runtime/model tuple",
+    "NPU canary requires the pending physical-readiness confirmation",
+    "Long-input semantic compatibility, device performance and real cfetch integration remain unqualified"
+  ]
+}
