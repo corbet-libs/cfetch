@@ -56,7 +56,11 @@ fastembed = {
   version = "6",
   optional = true,
   default-features = false,
-  features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"]
+  features = [
+    "hf-hub-rustls-tls",
+    "ort-download-binaries-rustls-tls",
+    "image-models"
+  ]
 }
 ratatui = "0.30.2"
 # Exact-pinned official MCP SDK. cfetch owns its tools; rmcp owns JSON-RPC,
