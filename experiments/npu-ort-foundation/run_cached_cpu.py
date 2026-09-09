@@ -102,12 +102,26 @@ def main():
     environment["OMP_NUM_THREADS"] = "1"
     # Preserve partition diagnostics even when initialization fails before a profile.
     environment["ORT_LOG"] = "verbose"
+    auxiliary_library_directories = []
+    if probe_directory and environment.get("NIX_LD_LIBRARY_PATH"):
+        # Nix-linked binaries bypass nix-ld, which supplied these dependencies
+        # for the original portable probe. Resolve its existing library view
+        # once so a system-profile update cannot change this call's selection.
+        auxiliary_library_directories = [
+            str(Path(directory).resolve(strict=True))
+            for directory in environment["NIX_LD_LIBRARY_PATH"].split(os.pathsep) if directory
+        ]
+        environment["LD_LIBRARY_PATH"] = os.pathsep.join([
+            str(bundle / "lib"), *auxiliary_library_directories,
+            *([environment["LD_LIBRARY_PATH"]] if environment.get("LD_LIBRARY_PATH") else []),
+        ])
     if model == "EmbeddingGemma300M":
         # Cache misses must fail locally rather than fetching an unpinned main.
         environment["HF_ENDPOINT"] = "http://[cfetch-offline"
     save(output / "intent.json", {"model": model or None, "device": "CPU",
          "bundle_manifest_sha256": evidence["bundle_manifest_sha256"],
          "cpu_fallback_diagnostic": bool(diagnostic), "binary_sha256": probe_sha256,
+         "auxiliary_library_directories": auxiliary_library_directories,
          "deadline_seconds": 300, "maximum_embedding_calls": int(bool(model))})
     result = {"model": model or None, "requested_device": "CPU", "passed": False,
               "cpu_fallback_diagnostic": bool(diagnostic), "accelerator_qualified": False}

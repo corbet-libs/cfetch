@@ -94,6 +94,10 @@ If the worker's default environment omits existing native build tools, supply
 together. The build records the selected tools and OpenSSL version. These
 inputs select provisioned files; they never install packages. A worker-native
 diagnostic binary is not evidence of portability to another machine.
+For a Nix-linked probe, the CPU runner resolves the worker's existing
+`NIX_LD_LIBRARY_PATH` into its own library search path and records those
+immutable directories. Nix-linked executables bypass the `nix-ld` shim that
+supplied dependencies for the original portable executable.
 
 For a diagnostic source change, `build_cached_probe.py` prepares a separate
 binary on the CPU build worker. Set `CFETCH_FOUNDATION_RETAINED_ROOT` to the
