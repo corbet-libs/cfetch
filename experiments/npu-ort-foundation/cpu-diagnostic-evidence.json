@@ -56,6 +56,10 @@
       "RotaryEmbedding": 48
     },
     "cpu_operations_are_model_computation": true,
+    "profiled_kernel_microseconds": {
+      "CPUExecutionProvider": 3418,
+      "OpenVINOExecutionProvider": 112528
+    },
     "exclusive_openvino": false
   },
   "vector": {

@@ -11,7 +11,11 @@ initialize and 0.119 seconds for the first embedding. These are single-call
 observations, not a warm-latency benchmark or semantic admission.
 OpenVINO executed 99 subgraphs, while ORT's CPU provider executed 24
 `MultiHeadAttention` and 48 `RotaryEmbedding` operations. Those are model
-computation, not shape bookkeeping. This exact graph/runtime pair therefore
+computation, not shape bookkeeping. On this short input their summed profile
+time was 3.418 ms, versus 112.528 ms for the OpenVINO kernels. Long-input cost
+and device handoff overhead remain unmeasured; this does not prove that an
+explicitly qualified mixed route is impractical. This exact graph/runtime pair
+therefore
 does not establish exclusive accelerator execution; the strict mode correctly
 refuses it. NPU/GPU execution and canonical long-input compatibility remain
 unqualified.
