@@ -8,8 +8,6 @@ variables:
   CI_TOOL_ARCHIVE: {default: ""}
   CI_TOOL_SHA256: {default: ""}
   CHECKS: {default: catalog}
-  ROUTE_ID: {default: ""}
-  EXPECTED_TOOLCHAIN: {default: ""}
   CFETCH_POLICY_PYTHON: {default: python3}
   CFETCH_FOUNDATION_BUNDLE: {default: ""}
   CFETCH_FOUNDATION_OUTPUT: {default: ""}
@@ -36,16 +34,6 @@ steps:
     commands:
       - |
         set -eu
-        if test -n "$ROUTE_ID"; then
-          test "$(uname -s)/$(uname -m)" = Linux/x86_64
-          case "$CHECKS" in
-            rust) actual_toolchain=$(rustc --version) ;;
-            catalog|governor) actual_toolchain=$("$CFETCH_POLICY_PYTHON" --version) ;;
-            *) echo 'Unsupported routed check' >&2; exit 2 ;;
-          esac
-          test -n "$EXPECTED_TOOLCHAIN"
-          test "$actual_toolchain" = "$EXPECTED_TOOLCHAIN"
-        fi
         printf '%s  %s\n' "$CI_TOOL_SHA256" "$CI_TOOL_ARCHIVE" | sha256sum --check --strict
         test "$(git get-tar-commit-id < "$CI_TOOL_ARCHIVE")" = "$CCID_REVISION"
         test -n "$CI_TOOL_BINARY"
