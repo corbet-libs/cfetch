@@ -1,0 +1,20 @@
+[package]
+name = "cfetch-npu-ort-foundation"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Isolated private build workspace; never inherit cfetch's dependency features.
+[workspace]
+
+[dependencies]
+fastembed = { version = "=6.0.2", default-features = false, features = ["hf-hub-native-tls", "ort-load-dynamic"] }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "load-dynamic", "openvino", "api-24"] }
+libloading = "=0.9.0"
+serde_json = "=1.0.151"
+
+# Private workspace only: verify the published 6.0.2 archive against SHA256
+# b5e6a29ef0fc303e63ce89f2b71d98bee9df51d79cbbedb78dd0d6ba9f3b172f,
+# extract to vendor/fastembed, then apply fastembed-session.patch there.
+[patch.crates-io]
+fastembed = { path = "vendor/fastembed" }

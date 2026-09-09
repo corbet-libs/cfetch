@@ -1,0 +1,48 @@
+diff --git a/src/text_embedding/impl.rs b/src/text_embedding/impl.rs
+--- a/src/text_embedding/impl.rs
++++ b/src/text_embedding/impl.rs
+@@ -31,6 +31,20 @@ impl TextEmbedding {
+     /// Uses the total number of CPUs available as the number of intra-threads
+     #[cfg(feature = "hf-hub")]
+     pub fn try_new(options: TextInitOptions) -> Result<Self> {
++        Self::try_new_with_session_builder(options, Ok)
++    }
++
++    /// Configure the built-in model session before committing its unchanged model.
++    #[cfg(feature = "hf-hub")]
++    pub fn try_new_with_session_builder(
++        options: TextInitOptions,
++        configure: impl FnOnce(
++            ort::session::builder::SessionBuilder,
++        ) -> std::result::Result<
++            ort::session::builder::SessionBuilder,
++            ort::Error<ort::session::builder::SessionBuilder>,
++        >,
++    ) -> Result<Self> {
+         let TextInitOptions {
+             max_length,
+             model_name,
+@@ -68,8 +82,9 @@ impl TextEmbedding {
+         // prioritise loading pooling config if available, if not (thanks qdrant!), look for it in hardcoded
+         let post_processing = TextEmbedding::get_default_pooling_method(&model_name);
+ 
+-        let session = init_session_builder(execution_providers, intra_threads)?
+-            .commit_from_file(model_file_reference)?;
++        let session = configure(init_session_builder(execution_providers, intra_threads)?)
++            .map_err(|error| Error::OrtBuilder(error.to_string()))?
++            .commit_from_file(model_file_reference)?;
+ 
+         let tokenizer = load_tokenizer_hf_hub(model_repo, max_length)?;
+         Ok(Self::new(
+@@ -81,6 +96,11 @@ impl TextEmbedding {
+         ))
+     }
+ 
++    /// Finalize the configured ORT profile without exposing model/session mutation.
++    pub fn end_profiling(&mut self) -> Result<String> {
++        Ok(self.session.end_profiling()?)
++    }
++
+     /// Create a TextEmbedding instance from model files provided by the user.
+     ///
+     /// This can be used for 'bring your own' embedding models

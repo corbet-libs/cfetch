@@ -1,0 +1,59 @@
+{
+  "date": "2026-09-09",
+  "scope": "runtime foundation; no physical NPU model execution or admission",
+  "fastembed": "6.0.2",
+  "ort_crate": "2.0.0-rc.13",
+  "ort_api": 24,
+  "ort_runtime": "1.24.1",
+  "ort_upstream_commit": "b5963e82c8",
+  "openvino_c_api_build": "2025.4.1-0-test",
+  "wheel_sha256": "d617fac2f59a6ab5ea59a788c3e1592240a129642519aaeaa774761dfe35150e",
+  "lockfile_sha256": "e6531dfcaa002e838ddbdf64578a70183b8bf2592c2bd0495274b5b65cd7d920",
+  "binary_sha256": "7898bdcb6571029ca55f22520359cccf8389e2d934c1abb1d088e15454c6a3a5",
+  "bundle_manifest_sha256": "190694307f32fecf2140c81f0a5eb7776e7b1f6c2a91f078b8cf88b8c0fed784",
+  "source_sha256": {
+    "Cargo.toml": "4591325c5c96197aed2a11a45ae91a7f2048d23ac7f39a5163451ad7d5bbfcdd",
+    "fastembed-session.patch": "50114597b4e382bb76057f56b5e059b3c20f97e70e6a29462101f1ce5df6ea20",
+    "src/main.rs": "faa959ad01741bd639f5f60d7538da994aec40e9a7a088feaf6ab6de01a25a8c"
+  },
+  "cpu_model_test": {
+    "model": "AllMiniLML6V2",
+    "repository_revision": "5f1b8cd78bc4fb444dd171e59b18f3a3af89a079",
+    "onnx_sha256": "bbd7b466f6d58e646fdc2bd5fd67b2f5e93c0b687011bd4548c420f7bd46f0c5",
+    "requested_device": "CPU",
+    "calls": 1,
+    "tokens": 7,
+    "vector_length": 384,
+    "finite_nonzero": true,
+    "cpu_fallback_disabled": true,
+    "profile_providers": ["OpenVINOExecutionProvider"],
+    "provider_events": 1,
+    "profile_sha256": "54388e48b574433a9c429da2becac63a35e126ef4db55608057f1790f07db1f2"
+  },
+  "target_loader_test": {
+    "exit_code": 0,
+    "model_executed": false,
+    "openvino_available": true,
+    "npu_power_state_after": "suspended"
+  },
+  "target_model_free_properties": {
+    "NPU_MAX_TILES": "6",
+    "NPU_TILES": "-1",
+    "NPU_TURBO": "NO",
+    "WORKLOAD_TYPE": "DEFAULT",
+    "query_statuses": "all successful",
+    "host_npu_compiler_loader_used": true
+  },
+  "proposed_npu_canary": {
+    "executed": false,
+    "calls": 1,
+    "tokens": 7,
+    "requested_tiles": 1,
+    "requested_turbo": false,
+    "worker_deadline_seconds": 45,
+    "minimum_idle_after_seconds": 60,
+    "automatic_retry": false,
+    "instantaneous_utilization_cap_verified": false,
+    "safe_operating_limits_qualified": false
+  }
+}
