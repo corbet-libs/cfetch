@@ -17,23 +17,27 @@ variables:
   CI_NIX_JOBS: {default: ""}
   CI_LINKER: {default: system}
   TMPDIR: {default: ""}
+  CI_TOOL_BINARY: {default: ""}
+  CI_TOOL_BINARY_SHA256: {default: ""}
 steps:
   - name: selected-checks
     image: bash
     environment:
-      CCID_REVISION: '99f65658262db4c2321233ad01e7e1a5f52a406c'
+      CCID_REVISION: 'b4224488319cc65987a023215251733b081c275d'
     commands:
       - |
         set -eu
         printf '%s  %s\n' "$CI_TOOL_SHA256" "$CI_TOOL_ARCHIVE" | sha256sum --check --strict
         test "$(git get-tar-commit-id < "$CI_TOOL_ARCHIVE")" = "$CCID_REVISION"
+        test -n "$CI_TOOL_BINARY"
+        test -n "$CI_TOOL_BINARY_SHA256"
+        printf '%s  %s\n' "$CI_TOOL_BINARY_SHA256" "$CI_TOOL_BINARY" | sha256sum --check --strict
+        test "$("$CI_TOOL_BINARY" source-revision)" = "$CCID_REVISION"
         TMPDIR="${TMPDIR:-${CI_CACHE_ROOT:-${CARGO_HOME:-$HOME/.cargo}/ccid}/tmp}"
         export TMPDIR
         mkdir -p "$TMPDIR"
-        ci_tool_dir="$(mktemp -d)"
         ci_source_dir=""
-        trap 'rm -rf -- "$ci_tool_dir" "$ci_source_dir"' EXIT
+        trap 'test -z "$ci_source_dir" || rm -rf -- "$ci_source_dir"' EXIT
         ci_source_dir="$(mktemp -d)"
-        tar --extract --touch --file "$CI_TOOL_ARCHIVE" --no-same-owner --directory "$ci_tool_dir"
-        python3 "$ci_tool_dir/ccid.py" verify-source --archive "$SOURCE_ARCHIVE" --sha256 "$SOURCE_SHA256" --commit "$CI_COMMIT_SHA" --destination "$ci_source_dir"
-        python3 "$ci_tool_dir/ccid.py" check --repo "$ci_source_dir" --check "$CHECKS"
+        "$CI_TOOL_BINARY" verify-source --archive "$SOURCE_ARCHIVE" --sha256 "$SOURCE_SHA256" --commit "$CI_COMMIT_SHA" --destination "$ci_source_dir"
+        "$CI_TOOL_BINARY" check --repo "$ci_source_dir" --check "$CHECKS"
