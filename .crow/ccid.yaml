@@ -8,6 +8,7 @@ variables:
   CI_TOOL_ARCHIVE: {default: ""}
   CI_TOOL_SHA256: {default: ""}
   CHECKS: {default: catalog}
+  CFETCH_POLICY_PYTHON: {default: python3}
   CI_JOBS: {default: ""}
   CI_TEST_THREADS: {default: ""}
   CI_MEMORY_MB: {default: ""}
