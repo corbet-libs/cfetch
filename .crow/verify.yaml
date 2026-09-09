@@ -28,7 +28,7 @@ steps:
     image: bash
     depends_on: [verified-source]
     environment:
-      CARGO_BUILD_JOBS: "2"
+      CARGO_BUILD_JOBS: "1"
       RUST_TEST_THREADS: "2"
     commands:
       - |
@@ -38,9 +38,7 @@ steps:
           portable) set -- catalog rust ;;
           *) echo 'Choose catalog, rust, variants, licenses, profile, or portable' >&2; exit 2 ;;
         esac
-        if [ -n "$CARGO_TARGET_DIR" ]; then
-          mkdir -p "$CARGO_TARGET_DIR"
-          exec flock --wait 60 "$CARGO_TARGET_DIR.ci.lock" timeout --kill-after=30s 45m bash scripts/ci-check.sh "$@"
-        fi
-        unset CARGO_TARGET_DIR
-        exec timeout --kill-after=30s 45m bash scripts/ci-check.sh "$@"
+        CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${CARGO_HOME:-$HOME/.cargo}/ci-targets/cfetch}"
+        export CARGO_TARGET_DIR
+        mkdir -p "$CARGO_TARGET_DIR"
+        exec flock --wait 60 "$CARGO_TARGET_DIR.ci.lock" timeout --kill-after=30s 45m bash scripts/ci-check.sh "$@"

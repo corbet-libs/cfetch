@@ -13,10 +13,8 @@ failure can be investigated and rerun without repeating successful work.
 | `profile` | Policy arithmetic and retained admission evidence replay | Python environment matching `experiments/embedding-profile/requirements-lock.txt` |
 
 `CFETCH_POLICY_PYTHON` may select an existing absolute Python executable. The
-check command never installs tools. Cargo jobs and Rust test threads default
-to two; the worker's resource limits remain the enclosing bound.
-When available, the existing `sccache` executable is used unless the caller
-already selected `RUSTC_WRAPPER`; cache availability never installs a tool.
+check command never installs tools. It defaults to one Cargo job and two Rust
+test threads; the worker's resource limits remain the enclosing bound.
 
 Crow's manual `verify` workflow requires `SOURCE_ARCHIVE` and `SOURCE_SHA256`.
 Create the archive from the exact committed revision with `git archive`; stage
@@ -24,10 +22,11 @@ it on the worker and submit that revision as `CI_COMMIT_SHA`. The source step
 checks both the archive SHA-256 and Git's embedded commit ID before extraction.
 Choose `CHECKS=catalog`, `rust`, `variants`, `licenses`, `profile`, or `portable`
 (`catalog rust`). The inexpensive catalog check is the manual default.
-An optional `CARGO_TARGET_DIR` names a writable persistent project cache on
-the worker. Crow serializes users of that cache with a one-minute lock wait;
+Crow defaults its compiled cache to `ci-targets/cfetch` under `CARGO_HOME`
+(or `$HOME/.cargo`). An optional `CARGO_TARGET_DIR` overrides that directory.
+Crow serializes users of that cache with a one-minute lock wait;
 checks have a 45-minute deadline and a 30-second forced-termination grace.
-Omit the cache variable to use the isolated workflow workspace.
+The worker must provide a persistent writable Cargo home for reuse across runs.
 
 This path removes the source checkout's dependency on GitHub availability.
 Crow may still obtain workflow configuration through the configured forge;
