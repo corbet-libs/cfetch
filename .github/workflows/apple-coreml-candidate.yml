@@ -2,21 +2,9 @@
 # cfetch vector space and does not claim proof of Apple Neural Engine placement.
 name: Apple Core ML candidate
 
+# Native Apple discovery is explicitly requested during release preparation.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/apple-coreml-candidate.yml
-      - experiments/embedding-profile/apple-coreml/**
-      - release/inference-backends.json
-      - src/embedding_profile.rs
-  pull_request:
-    paths:
-      - .github/workflows/apple-coreml-candidate.yml
-      - experiments/embedding-profile/apple-coreml/**
-      - release/inference-backends.json
-      - src/embedding_profile.rs
 
 permissions:
   contents: read

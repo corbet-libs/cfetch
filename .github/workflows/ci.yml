@@ -1,15 +1,15 @@
 # Test + lint gate. Push is limited to main so a pull request runs once, not
 # twice. No secrets are used anywhere in this workflow.
 #
-# All three platforms are SUPPORTED and blocking: test + clippy must pass on
-# Linux, macOS and Windows. Windows was promoted out of its experimental job
-# on 2026-08-21, the first run where it went green — the PRD makes a failing
-# platform a release blocker once its port has landed, and the port has.
+# All three platforms remain supported and blocking for release validation.
+# macOS runs on release tags or explicit dispatch; Windows also runs on main.
+# Routine pull requests use Linux. A Linux pass is not a native-platform verdict.
 name: CI
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths-ignore: [README.md, ARCHITECTURE.md, "docs/**"]
   pull_request:
     paths-ignore: [README.md, ARCHITECTURE.md, "docs/**"]
@@ -36,7 +36,17 @@ jobs:
         shell: bash
         run: |
           bash scripts/ci-check.sh catalog
-          echo "matrix=$(bash scripts/variant-matrix.sh)" >> "$GITHUB_OUTPUT"
+          matrix=$(bash scripts/variant-matrix.sh)
+          # Filter before matrix expansion so omitted platforms allocate no runner.
+          case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
+            workflow_dispatch:*|release:*|*:refs/tags/*) ;;
+            push:refs/heads/main|push:refs/heads/master)
+              matrix=$(jq -c '.include |= map(select(.os != "mac"))' <<< "$matrix") ;;
+            *)
+              matrix=$(jq -c '.include |= map(select(.os != "mac" and .os != "win"))' <<< "$matrix") ;;
+          esac
+          jq -e '.include | length > 0' <<< "$matrix" >/dev/null
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   variant-build:
     name: Variant build (${{ matrix.id }})
@@ -98,8 +108,9 @@ jobs:
       # Keep every platform's result visible even when one fails.
       fail-fast: false
       max-parallel: 2
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+      # macOS: manual/tag/release. Windows: main push plus manual/tag/release; PR uses Linux.
+      matrix: >-
+        ${{ fromJSON((github.event_name == 'workflow_dispatch' || github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')) && '{"os":["ubuntu-latest","macos-latest","windows-latest"]}' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) && '{"os":["ubuntu-latest","windows-latest"]}' || '{"os":["ubuntu-latest"]}') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:

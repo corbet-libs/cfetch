@@ -3,13 +3,9 @@
 # -large or -xlarge label: larger runners are billed separately.
 name: Accelerator discovery
 
+# Native Apple discovery is explicitly requested during release preparation.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/accelerator-discovery.yml
-      - experiments/accelerators/apple_compute_probe.swift
 
 permissions:
   contents: read
