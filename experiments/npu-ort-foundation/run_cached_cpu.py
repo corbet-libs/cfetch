@@ -68,6 +68,8 @@ def main():
     environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
     environment["RAYON_NUM_THREADS"] = "1"
     environment["OMP_NUM_THREADS"] = "1"
+    # Preserve partition diagnostics even when initialization fails before a profile.
+    environment["ORT_LOG"] = "verbose"
     if model == "EmbeddingGemma300M":
         # Cache misses must fail locally rather than fetching an unpinned main.
         environment["HF_ENDPOINT"] = "http://[cfetch-offline"
