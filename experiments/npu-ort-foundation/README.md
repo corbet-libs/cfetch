@@ -87,3 +87,31 @@ are checked before starting the native worker. Its Hugging Face endpoint is
 invalid, so a cache miss cannot fetch a moving `main`.
 The result retains and rechecks the model/tokenizer identities. This candidate's
 long-input compatibility with the canonical source still requires measurement.
+
+For a diagnostic source change, `build_cached_probe.py` prepares a separate
+binary on the CPU build worker. Set `CFETCH_FOUNDATION_RETAINED_ROOT` to the
+existing experiment directory containing `build/vendor/fastembed`,
+`fastembed-6.0.2.crate`, `cargo-home`, `target`, and `runtime-bundle`. Set
+`CFETCH_FOUNDATION_PROBE_DIR` to a fresh absolute output directory, then run:
+
+```sh
+python3 experiments/npu-ort-foundation/build_cached_probe.py
+```
+
+The helper verifies the published crate, the exact retained vendor patch, the
+locked dependencies, and the original runtime manifest. It copies source and
+vendor files into the fresh output's `build-source`, then reuses the existing
+Cargo cache and target directory with `cargo build --offline --locked --jobs 1`.
+The worker must already provide Cargo, Rust, C/C++ compilers, pkg-config,
+OpenSSL development headers/libraries, and GNU timeout; missing prerequisites
+stop the build. No dependencies are downloaded or installed. Crow must supply
+the CPU and memory resource limits and serialize use of this retained target.
+
+The build has an independent 600-second process deadline and bounded reap.
+Successful output contains `cfetch-npu-ort-foundation` and
+`build-identity.json`, recording `binary_sha256`, `source_sha256` for
+`Cargo.toml`, `Cargo.lock`, `fastembed-session.patch`, and `src/main.rs`,
+`vendor_tree_sha256`, `bundle_manifest_sha256`, runtime file identities, and
+compiler identities. The original build source and runtime bundle are retained;
+the Cargo target remains a mutable build cache. Building does not load the
+runtime or execute a model. Model execution is a separate explicit CPU check.

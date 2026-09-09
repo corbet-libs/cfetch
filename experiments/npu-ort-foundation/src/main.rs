@@ -2,19 +2,26 @@
 //! governor and duty cycle around this whole process, including initialization.
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use ort::ep::{ArbitrarilyConfigurableExecutionProvider, ExecutionProvider, OpenVINO};
-use std::{collections::BTreeMap, error::Error, ffi::CStr, fs, path::PathBuf};
+use std::{collections::BTreeMap, error::Error, ffi::CStr, fs, io::Write, path::{Path, PathBuf}, time::Instant};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+fn save_json(path: &Path, value: &serde_json::Value) -> Result<()> {
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(&serde_json::to_vec_pretty(value)?)?;
+    file.sync_all()?;
+    Ok(())
+}
 
 fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let mut options = BTreeMap::new();
     while let Some(key) = args.next() {
         if key == "--help" {
-            println!("--ort LIBRARY [--run-model AllMiniLML6V2|EmbeddingGemma300M --device CPU|NPU --cache DIR --output DIR]");
+            println!("--ort LIBRARY [--run-model AllMiniLML6V2|EmbeddingGemma300M --device CPU|NPU --cache DIR --output DIR [--cpu-fallback diagnostic]]");
             return Ok(());
         }
-        if !["--ort", "--run-model", "--device", "--cache", "--output"].contains(&key.as_str()) {
+        if !["--ort", "--run-model", "--device", "--cache", "--output", "--cpu-fallback"].contains(&key.as_str()) {
             return Err(format!("unknown argument: {key}").into());
         }
         let value = args.next().ok_or("argument needs a value")?;
@@ -63,6 +70,11 @@ fn run() -> Result<()> {
     if device != "CPU" && device != "NPU" {
         return Err("device must be exactly CPU or NPU".into());
     }
+    let diagnostic_fallback = match options.get("--cpu-fallback").map(String::as_str) {
+        None => false,
+        Some("diagnostic") if device == "CPU" => true,
+        _ => return Err("--cpu-fallback diagnostic is restricted to CPU placement investigation".into()),
+    };
     let cache = PathBuf::from(options.get("--cache").ok_or("model mode requires --cache")?);
     let output = PathBuf::from(options.get("--output").ok_or("model mode requires fresh --output")?);
     fs::create_dir(&output)?;
@@ -76,13 +88,16 @@ fn run() -> Result<()> {
     let options = TextInitOptions::new(model_name)
         .with_execution_providers(vec![ep.build().error_on_failure()])
         .with_intra_threads(1).with_max_length(32).with_cache_dir(cache);
-    println!("mode=one-model-call\nmodel={chosen}\nrequested_device={device}\ncpu_fallback_disabled=true");
+    println!("mode=one-model-call\nmodel={chosen}\nrequested_device={device}\ncpu_fallback_disabled={}", !diagnostic_fallback);
+    let load_started = Instant::now();
     let mut model = TextEmbedding::try_new_with_session_builder(options, |builder| {
-        builder
+        let builder = builder
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Disable)?
-            .with_disable_cpu_fallback()?
-            .with_profiling(output.join("ort-profile"))
+            .with_inter_threads(1)?
+            .with_profiling(output.join("ort-profile"))?;
+        if diagnostic_fallback { Ok(builder) } else { builder.with_disable_cpu_fallback() }
     })?;
+    let load_seconds = load_started.elapsed().as_secs_f64();
     // Refuse accidental truncation of the single fixed input.
     let mut tokenizer = model.tokenizer.clone();
     tokenizer.with_truncation(None).map_err(|e| e.to_string())?;
@@ -90,7 +105,9 @@ fn run() -> Result<()> {
     if tokens > 32 {
         return Err("fixed probe input unexpectedly exceeds 32 tokens".into());
     }
+    let embed_started = Instant::now();
     let embedded = model.embed([text], Some(1)); // Exactly one model call; no retries.
+    let embed_seconds = embed_started.elapsed().as_secs_f64();
     if let Err(error) = &embedded {
         eprintln!("embedding_error={error}");
     }
@@ -100,9 +117,21 @@ fn run() -> Result<()> {
     }
     println!("profile={profile:?}");
     let events: serde_json::Value = serde_json::from_slice(&fs::read(&profile)?)?;
-    let providers: Vec<&str> = events.as_array().ok_or("ORT profile must be an event array")?
+    fs::File::open(&profile)?.sync_all()?;
+    let events = events.as_array().ok_or("ORT profile must be an event array")?;
+    let providers: Vec<&str> = events
         .iter().filter_map(|event| event.get("args")?.get("provider")?.as_str()).collect();
-    if providers.is_empty() || providers.iter().any(|provider| *provider != "OpenVINOExecutionProvider") {
+    let mut placement = BTreeMap::<String, BTreeMap<String, usize>>::new();
+    for event in events {
+        if let Some(provider) = event.get("args").and_then(|args| args.get("provider")).and_then(|v| v.as_str()) {
+            let op = event["args"]["op_name"].as_str().ok_or("profile provider event lacks op_name")?;
+            *placement.entry(provider.to_string()).or_default().entry(op.to_string()).or_default() += 1;
+        }
+    }
+    save_json(&output.join("placement.json"), &serde_json::to_value(&placement)?)?;
+    if !providers.contains(&"OpenVINOExecutionProvider") || providers.iter().any(|provider| {
+        *provider != "OpenVINOExecutionProvider" && !(diagnostic_fallback && *provider == "CPUExecutionProvider")
+    }) {
         return Err("profile does not show exclusive OpenVINO execution".into());
     }
     let vectors = embedded?;
@@ -112,7 +141,15 @@ fn run() -> Result<()> {
     if !vectors[0].iter().any(|v| *v != 0.0) {
         return Err("zero embedding refused".into());
     }
-    println!("tokens={tokens}\nvector_length={}\nfinite=true\nopenvino_profile_events={}\nadmission=not-evaluated", vectors[0].len(), providers.len());
+    let measured = serde_json::json!({
+        "model": chosen, "requested_device": device, "cpu_fallback_disabled": !diagnostic_fallback,
+        "tokens": tokens, "text": text, "vector": vectors[0],
+        "model_initialization_seconds": load_seconds, "embedding_seconds": embed_seconds,
+        "calls": 1, "admission": "not-evaluated"
+    });
+    save_json(&output.join("embedding.json"), &measured)?;
+    fs::File::open(&output)?.sync_all()?;
+    println!("tokens={tokens}\nvector_length={}\nfinite=true\nplacement={}\nadmission=not-evaluated", vectors[0].len(), serde_json::to_string(&placement)?);
     Ok(())
 }
 

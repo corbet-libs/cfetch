@@ -26,18 +26,15 @@ def save(path, value):
         stream.write("\n")
         stream.flush()
         os.fsync(stream.fileno())
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
-def main():
-    bundle = Path(os.environ["CFETCH_FOUNDATION_BUNDLE"]).resolve(strict=True)
-    output = Path(os.environ["CFETCH_FOUNDATION_OUTPUT"])
-    if not output.is_absolute():
-        raise RuntimeError("CFETCH_FOUNDATION_OUTPUT must be an absolute fresh directory")
-    model = os.environ.get("CFETCH_FOUNDATION_MODEL", "")
-    if model not in ("", "AllMiniLML6V2", "EmbeddingGemma300M"):
-        raise RuntimeError("choose loader-only (empty), AllMiniLML6V2 or EmbeddingGemma300M")
-    evidence = json.loads(Path(__file__).with_name("evidence.json").read_text())
-    if digest(bundle / "MANIFEST.json") != evidence["bundle_manifest_sha256"]:
+def check_bundle(bundle, expected_manifest):
+    if digest(bundle / "MANIFEST.json") != expected_manifest:
         raise RuntimeError("bundle does not match the measured manifest")
     manifest = json.loads((bundle / "MANIFEST.json").read_text())
     for name, expected in manifest["files"].items():
@@ -49,7 +46,39 @@ def main():
                 raise RuntimeError(f"bundle symlink changed: {name}")
         elif path.stat().st_size != expected["bytes"] or digest(path) != expected["sha256"]:
             raise RuntimeError(f"bundle file changed: {name}")
+
+
+def main():
+    bundle = Path(os.environ["CFETCH_FOUNDATION_BUNDLE"]).resolve(strict=True)
+    output = Path(os.environ["CFETCH_FOUNDATION_OUTPUT"])
+    if not output.is_absolute():
+        raise RuntimeError("CFETCH_FOUNDATION_OUTPUT must be an absolute fresh directory")
+    model = os.environ.get("CFETCH_FOUNDATION_MODEL", "")
+    if model not in ("", "AllMiniLML6V2", "EmbeddingGemma300M"):
+        raise RuntimeError("choose loader-only (empty), AllMiniLML6V2 or EmbeddingGemma300M")
+    evidence = json.loads(Path(__file__).with_name("evidence.json").read_text())
+    check_bundle(bundle, evidence["bundle_manifest_sha256"])
+    probe = bundle / "cfetch-npu-ort-foundation"
+    probe_directory = os.environ.get("CFETCH_FOUNDATION_PROBE_DIR", "")
+    diagnostic = os.environ.get("CFETCH_FOUNDATION_CPU_DIAGNOSTIC", "")
+    if diagnostic not in ("", "1") or (diagnostic and (not probe_directory or not model)):
+        raise RuntimeError("CPU diagnostic requires an explicit newly built probe and model")
+    build_identity = None
+    if probe_directory:
+        probe_directory = Path(probe_directory).resolve(strict=True)
+        build_identity = json.loads((probe_directory / "build-identity.json").read_text())
+        if build_identity["bundle_manifest_sha256"] != evidence["bundle_manifest_sha256"]:
+            raise RuntimeError("new probe was built for a different retained runtime")
+        source = Path(__file__).parent
+        for name in ("Cargo.toml", "Cargo.lock", "fastembed-session.patch", "src/main.rs"):
+            if build_identity["source_sha256"][name] != digest(source / name):
+                raise RuntimeError(f"probe source differs from this checkout: {name}")
+        probe = probe_directory / "cfetch-npu-ort-foundation"
+        if digest(probe) != build_identity["binary_sha256"]:
+            raise RuntimeError("new probe binary differs from its build receipt")
     output.mkdir()
+    if build_identity is not None:
+        save(output / "build-identity.json", build_identity)
     cache = bundle / "model-cache"
     if model == "EmbeddingGemma300M":
         cache_manifest = json.loads(Path(__file__).with_name("embeddinggemma-cache.json").read_text())
@@ -57,11 +86,14 @@ def main():
         observed = prepare(bundle / "model-cache", cache, cache_manifest)
         save(output / "model-identity.json", observed)
     # The independent timer also survives abrupt loss of this Python parent.
-    command = ["timeout", "--signal=KILL", "300", str(bundle / "cfetch-npu-ort-foundation"), "--ort",
+    command = ["timeout", "--signal=KILL", "300", str(probe), "--ort",
                str(bundle / "lib/libonnxruntime.so.1.24.1")]
     if model:
         command += ["--run-model", model, "--device", "CPU", "--cache",
                     str(cache), "--output", str(output / "model")]
+    if diagnostic:
+        command += ["--cpu-fallback", "diagnostic"]
+    probe_sha256 = digest(probe)
     # Match the explicit cache selection; HF_HOME otherwise overrides FastEmbed.
     environment = dict(os.environ)
     environment.pop("HF_HOME", None)
@@ -75,8 +107,10 @@ def main():
         environment["HF_ENDPOINT"] = "http://[cfetch-offline"
     save(output / "intent.json", {"model": model or None, "device": "CPU",
          "bundle_manifest_sha256": evidence["bundle_manifest_sha256"],
+         "cpu_fallback_diagnostic": bool(diagnostic), "binary_sha256": probe_sha256,
          "deadline_seconds": 300, "maximum_embedding_calls": int(bool(model))})
-    result = {"model": model or None, "requested_device": "CPU", "passed": False}
+    result = {"model": model or None, "requested_device": "CPU", "passed": False,
+              "cpu_fallback_diagnostic": bool(diagnostic), "accelerator_qualified": False}
     started = time.monotonic()
     def interrupted(signum, _frame):
         raise RuntimeError(f"supervisor interrupted by signal {signum}")
@@ -100,6 +134,18 @@ def main():
                     os._exit(1)
         finally:
             result["worker_seconds_including_downloads"] = time.monotonic() - started
+            try:
+                check_bundle(bundle, evidence["bundle_manifest_sha256"])
+                if digest(probe) != probe_sha256:
+                    raise RuntimeError("probe binary changed during execution")
+                if build_identity is not None:
+                    for name, expected in build_identity["source_sha256"].items():
+                        if digest(Path(__file__).parent / name) != expected:
+                            raise RuntimeError("probe source changed during execution")
+                result["runtime_identity_unchanged"] = True
+            except Exception as error:
+                result["passed"] = False
+                result["runtime_identity_error"] = repr(error)
             if model == "EmbeddingGemma300M":
                 try:
                     repo = cache / ("models--" + observed["repository"].replace("/", "--"))

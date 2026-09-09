@@ -12,6 +12,9 @@ variables:
   CFETCH_FOUNDATION_BUNDLE: {default: ""}
   CFETCH_FOUNDATION_OUTPUT: {default: ""}
   CFETCH_FOUNDATION_MODEL: {default: ""}
+  CFETCH_FOUNDATION_RETAINED_ROOT: {default: ""}
+  CFETCH_FOUNDATION_PROBE_DIR: {default: ""}
+  CFETCH_FOUNDATION_CPU_DIAGNOSTIC: {default: ""}
   CI_JOBS: {default: ""}
   CI_TEST_THREADS: {default: ""}
   CI_MEMORY_MB: {default: ""}

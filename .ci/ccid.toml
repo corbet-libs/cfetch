@@ -30,3 +30,7 @@ commands = [["bash", "scripts/ci-check.sh", "governor"]]
 [checks.ort-foundation-cpu]
 kind = "commands"
 commands = [["bash", "scripts/ci-check.sh", "ort-foundation-cpu"]]
+
+[checks.ort-foundation-build]
+kind = "commands"
+commands = [["bash", "scripts/ci-check.sh", "ort-foundation-build"]]
