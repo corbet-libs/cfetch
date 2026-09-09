@@ -61,6 +61,9 @@ for check in "$@"; do
       ;;
     ort-foundation-cpu)
       "$python_bin" -m unittest discover -s experiments/npu-ort-foundation -p test_pinned_cache.py -v
+      if [[ -n "${CFETCH_FOUNDATION_CPU_INPUT:-}" ]]; then
+        "$python_bin" -m unittest discover -s experiments/npu-ort-foundation -p test_cpu_input.py -v
+      fi
       "$python_bin" experiments/npu-ort-foundation/run_cached_cpu.py
       ;;
     governor)
