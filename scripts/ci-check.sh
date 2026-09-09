@@ -47,6 +47,9 @@ for check in "$@"; do
       bash scripts/generate-third-party-licenses.sh "$generated"
       diff -u THIRD-PARTY-LICENSES.txt "$generated"
       ;;
+    ort-foundation-cpu)
+      "$python_bin" experiments/npu-ort-foundation/run_cached_cpu.py
+      ;;
     governor)
       # Native deadline and persisted load policy; no model/runtime dependency.
       "$python_bin" -m unittest -v \
@@ -81,6 +84,6 @@ for check in "$@"; do
         "$python_bin" "$command" --help >/dev/null
       done
       ;;
-    *) echo "Unknown check: $check (catalog rust variants licenses governor profile)" >&2; exit 2 ;;
+    *) echo "Unknown check: $check (catalog rust variants licenses governor profile ort-foundation-cpu)" >&2; exit 2 ;;
   esac
 done

@@ -63,3 +63,14 @@ Python module or the host's Python OpenVINO installation. Runtime loading
 reports ORT 1.24.1, API 24 and upstream commit `b5963e82c8`. The wheel's
 OpenVINO C API reports build `2025.4.1-0-test`; it also loads the host's NPU
 compiler loader, which remains part of the physical test tuple.
+
+The explicit Crow/ccid selector `ort-foundation-cpu` can reuse this measured
+bundle without building anything. Supply `CFETCH_FOUNDATION_BUNDLE` and a fresh
+absolute `CFETCH_FOUNDATION_OUTPUT`; set `CFETCH_FOUNDATION_MODEL` to
+`EmbeddingGemma300M` or `AllMiniLML6V2` for one CPU embedding call. Leaving the
+model empty performs only runtime loading. The selector verifies the retained
+manifest and every bundled file, fixes CPU selection, limits tokenization and
+OpenMP threads to one, and retains output/error/intent/result files. A separate
+300-second process timer bounds cold loading and downloads as well as the
+single model call. It never selects NPU or GPU. The recorded total duration
+includes downloads and is not an inference-latency measurement.
