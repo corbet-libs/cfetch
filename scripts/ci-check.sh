@@ -47,6 +47,12 @@ for check in "$@"; do
       bash scripts/generate-third-party-licenses.sh "$generated"
       diff -u THIRD-PARTY-LICENSES.txt "$generated"
       ;;
+    governor)
+      # Native deadline and persisted load policy; no model/runtime dependency.
+      "$python_bin" -m unittest -v \
+        packages.openvino.tests.test_inference_governor \
+        packages.openvino.tests.test_native_deadline
+      ;;
     profile)
       # The caller supplies the environment from requirements-lock.txt.
       # No dependency installation or physical-device probe occurs here.
@@ -75,6 +81,6 @@ for check in "$@"; do
         "$python_bin" "$command" --help >/dev/null
       done
       ;;
-    *) echo "Unknown check: $check (catalog rust variants licenses profile)" >&2; exit 2 ;;
+    *) echo "Unknown check: $check (catalog rust variants licenses governor profile)" >&2; exit 2 ;;
   esac
 done

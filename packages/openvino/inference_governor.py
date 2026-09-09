@@ -21,6 +21,9 @@ exit: synchronous Python cannot interrupt a stuck native call. The durable inten
 then survives flock release on process death and blocks further operations.
 Successful completion/cooldown is fsynced before intent is cleared. Torn writes,
 native exceptions, overruns, boot changes, and backward clocks fail closed.
+Each policy must reserve at least as much idle time as active time, including
+at its maximum permitted call duration. This limits the active/idle duty cycle
+to 50%; it does not cap instantaneous device utilization or other programs.
 No supplied policy is implied safe for an NPU or sufficient to lift quarantine.
 """
 
@@ -231,6 +234,15 @@ class InferenceGovernor:
                            "minimum_cooldown_ns", "cooldown_numerator", "cooldown_denominator"))
             for key, value in limits.items():
                 _integer(value, 0 if key == "cooldown_numerator" else 1)
+            # For cooldown = minimum + duration * numerator / denominator,
+            # the maximum duration is the worst case when the ratio is < 1.
+            # Fixed cooling may satisfy the bound without a proportional part.
+            _require(
+                limits["minimum_cooldown_ns"] * limits["cooldown_denominator"]
+                + limits["max_duration_ns"] * limits["cooldown_numerator"]
+                >= limits["max_duration_ns"] * limits["cooldown_denominator"],
+                "governor policy exceeds the 50% background duty-cycle limit",
+            )
             _integer(limits["max_duration_ns"] + limits["minimum_cooldown_ns"] + (
                 limits["max_duration_ns"] * limits["cooldown_numerator"] + limits["cooldown_denominator"] - 1
             ) // limits["cooldown_denominator"])

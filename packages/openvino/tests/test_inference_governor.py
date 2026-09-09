@@ -119,6 +119,40 @@ class GovernorTests(unittest.TestCase):
             self.assertEqual(state["usage"]["inference"], {"operations": 2, "charged_buckets": 321})
             self.assertAlmostEqual(sum(clock.waits), 0.070)
 
+    def test_background_limit_rejects_unsafe_compile_or_inference_policy_before_native_entry(self):
+        for kind in governor.KINDS:
+            for numerator, denominator in ((0, 1), (1, 2), (2, 3)):
+                def change(policy):
+                    policy["operations"][kind].update(
+                        cooldown_numerator=numerator, cooldown_denominator=denominator)
+
+                with self.subTest(kind=kind, ratio=(numerator, denominator)), self.provisioned(change) as values:
+                    directory, digest, clock, _policy = values
+                    with self.assertRaisesRegex(governor.GovernorError, "50% background duty-cycle"):
+                        with self.instance(directory, digest, clock).operation("inference", 32):
+                            self.fail("unsafe policy reached native work")
+                    self.assertEqual((directory / "intent.json").read_bytes(), b"")
+                    self.assertEqual(self.state(directory)["usage"]["inference"]["operations"], 0)
+
+    def test_half_duty_survives_process_relaunch_with_fixed_or_proportional_cooling(self):
+        for numerator, minimum in ((1, 5_000_000), (0, 100_000_000)):
+            def change(policy):
+                for limits in policy["operations"].values():
+                    limits.update(cooldown_numerator=numerator, cooldown_denominator=1,
+                                  minimum_cooldown_ns=minimum)
+
+            with self.subTest(ratio=numerator, minimum=minimum), self.provisioned(change) as values:
+                directory, digest, clock, _policy = values
+                for kind in governor.KINDS:
+                    for duration in (1, 25_000_000, 100_000_000):
+                        previous_end = self.state(directory)["last_completed"]
+                        with self.instance(directory, digest, clock).operation(kind, 32):
+                            if previous_end is not None:
+                                self.assertGreaterEqual(clock.now, previous_end["cooldown_until_ns"])
+                            clock.now += duration
+                        state = self.state(directory)
+                        self.assertGreaterEqual(state["not_before_ns"] - clock.now, duration)
+
     def test_factory_uses_only_fixed_installation_and_inspects_state_before_return(self):
         change = lambda p: p.update(state_directory=str(governor.INSTALLATION_DIRECTORY))
         with self.provisioned(change) as (directory, digest, clock, _policy):

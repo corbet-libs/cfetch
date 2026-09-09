@@ -248,6 +248,15 @@ wait. Compile and inference have separate counters, with one shared lock and
 persisted cooldown across participating scopes. These schema constraints do
 not establish safe numerical limits for a device.
 
+Both operation policies must keep the active/idle duty cycle at or below 50%:
+at the maximum call duration, the computed cooldown must be at least that
+duration. Proportional cooling of at least 1:1 satisfies this, as does a fixed
+cooldown covering the full maximum duration. A policy that exceeds this bound
+is refused before native work. This preserves background-work headroom; it
+does not cap instantaneous device utilization, reserve CPU or memory, or limit
+unrelated applications. Device controls and worker resource limits are still
+required alongside the governor.
+
 `initial_state(policy_sha256, epoch_id, boot_id, monotonic_ns)` returns data for
 privileged provisioning or explicit recovery. It does not create files or
 authorize a new budget. Before each actual native call the governor fsyncs a

@@ -22,3 +22,7 @@ commands = [["bash", "scripts/ci-check.sh", "licenses"]]
 [checks.profile]
 kind = "commands"
 commands = [["bash", "scripts/ci-check.sh", "profile"]]
+
+[checks.governor]
+kind = "commands"
+commands = [["bash", "scripts/ci-check.sh", "governor"]]
