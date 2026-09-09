@@ -10,12 +10,23 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: [README.md, ARCHITECTURE.md, "docs/**"]
   pull_request:
+    paths-ignore: [README.md, ARCHITECTURE.md, "docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   catalog:
     name: Variant catalog
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       matrix: ${{ steps.catalog.outputs.matrix }}
     steps:
@@ -24,20 +35,18 @@ jobs:
         id: catalog
         shell: bash
         run: |
-          bash scripts/check-packaging-variants.sh
+          bash scripts/ci-check.sh catalog
           echo "matrix=$(bash scripts/variant-matrix.sh)" >> "$GITHUB_OUTPUT"
-      - name: Test exact local payload staging
-        run: python -m unittest -v scripts.test_stage_local_inference
-      - name: Test admitted release matrix
-        run: python -m unittest -v scripts.test_variant_matrix
 
   variant-build:
     name: Variant build (${{ matrix.id }})
     needs: catalog
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix: ${{ fromJSON(needs.catalog.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -56,6 +65,7 @@ jobs:
   licenses:
     name: Dependency licenses
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -63,13 +73,8 @@ jobs:
         with:
           tool: cargo-deny@0.20.2,cargo-about@0.9.2
           fallback: none
-      - name: Enforce dependency-license and advisory policy
-        run: cargo deny check advisories licenses
-      - name: Verify third-party notices are current
-        run: |
-          generated=$(mktemp)
-          bash scripts/generate-third-party-licenses.sh "$generated"
-          diff -u THIRD-PARTY-LICENSES.txt "$generated"
+      - name: Enforce dependency policy and exact notices
+        run: bash scripts/ci-check.sh licenses
 
   embedding-profile-policy:
     name: Embedding profile policy
@@ -84,76 +89,29 @@ jobs:
           cache-dependency-path: experiments/embedding-profile/requirements-lock.txt
       - name: Install the fully hashed policy environment
         run: python -m pip install --require-hashes -r experiments/embedding-profile/requirements-lock.txt
-      - name: Test canonical codec, adapter export, and all-pairs admission
-        working-directory: experiments/embedding-profile
-        run: >-
-          python -m unittest -v
-          test_cross_backend_eval.py
-          test_export_adapter_cache.py
-          test_kat_host_runner.py
-          test_measurement_bundle.py
-          test_physical_evidence.py
-          test_physical_checkpoint.py
-          test_openvino_scope_keys.py
-          test_scifact_contract.py
-          test_final_package_conformance.py
-          test_admission_transaction.py
-      - name: Test dependency-light OpenVINO package contracts
-        run: python -m unittest discover -s packages/openvino/tests -v
-      - name: Test isolated memory measurement checkpoints
-        run: python -m unittest discover -s experiments/memory-retrieval -v
-      - name: Test dependency-light activation promotion
-        run: python -m unittest scripts/test_apply_admission_activation.py -v
-      - name: Verify the pinned SciFact dataset contract
-        working-directory: experiments/embedding-profile
-        env:
-          HF_HUB_DISABLE_TELEMETRY: "1"
-        run: python scifact_contract.py
-      - name: Verify the exact admission implementation bundle
-        working-directory: experiments/embedding-profile
-        run: python cross_backend_eval.py --verify-implementation-bundle
-      - name: Replay every admitted release scope
-        working-directory: experiments/embedding-profile
-        env:
-          HF_HUB_DISABLE_TELEMETRY: "1"
-        run: python cross_backend_eval.py --verify-release-registry
-      - name: Keep command help dependency-light
-        run: |
-          python experiments/embedding-profile/export_adapter_cache.py --help >/dev/null
-          python experiments/embedding-profile/cross_backend_eval.py --help >/dev/null
-          python experiments/embedding-profile/final_package_conformance.py --help >/dev/null
-          python experiments/embedding-profile/admission_transaction.py --help >/dev/null
-          python experiments/embedding-profile/physical_evidence.py --help >/dev/null
-          python scripts/apply_admission_activation.py --help >/dev/null
+      - name: Verify embedding profile contracts and retained admission evidence
+        run: bash scripts/ci-check.sh profile
 
   test:
     name: Test (${{ matrix.os }})
     strategy:
       # Keep every platform's result visible even when one fails.
       fail-fast: false
+      max-parallel: 2
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      - name: Enforce the operator's pre-1.0 lock
-        shell: bash
-        run: |
-          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
-          case "$version" in
-            0.*) ;;
-            *) echo "cfetch 1.0+ is operator-blocked (Cargo.toml has $version)" >&2; exit 1 ;;
-          esac
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - name: Test
-        run: cargo test --locked
-      - name: Check feature combinations
-        run: cargo check --all-targets --all-features --locked
-      - name: Test isolated FastEmbed diagnostics
-        run: |
-          cargo test --locked --features embedded-embeddings --test embed_model_cli
-          cargo test --locked --features embedded-embeddings embedded_embed::tests
-      - name: Clippy (zero warnings)
-        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c
+        with:
+          shared-key: test-${{ runner.os }}-${{ runner.arch }}
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Locked tests, feature combinations, diagnostics and Clippy
+        shell: bash
+        run: bash scripts/ci-check.sh rust
