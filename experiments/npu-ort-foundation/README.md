@@ -27,6 +27,18 @@ For this CPU-only investigation, the new probe accepts
 strict fallback and provider checks. Vector, timing and placement files are
 synced before success; the supervisor rechecks model, probe and runtime bytes.
 
+For one retained CPU comparison input, set `CFETCH_FOUNDATION_CPU_INPUT` and
+its `CFETCH_FOUNDATION_CPU_INPUT_SHA256`. The JSON fixture contains
+`schema_version: 1`, `id`, `text`, `tokens`, and canonical `token_ids_sha256`.
+The token digest hashes the UTF-8 compact JSON array (comma separators, no spaces).
+The fixture is copied into
+the fresh result directory and hashed before and after execution. The worker's
+`--cpu-input` option requires CPU and EmbeddingGemma before loading the runtime,
+allows at most 2048 tokens and 128 KiB of JSON, and rejects a differing token
+count or truncation before the single embedding call. The supervisor verifies
+the returned token IDs against the retained digest before recording success.
+NPU inputs remain fixed.
+
 The measured stack is FastEmbed 6.0.2, `ort` 2.0.0-rc.13 with **API 24 only**,
 and Intel's ONNX Runtime OpenVINO 1.24.1 package containing OpenVINO 2025.4.1.
 Enabling `ort`'s default features would raise the required API version.

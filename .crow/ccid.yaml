@@ -15,6 +15,8 @@ variables:
   CFETCH_FOUNDATION_RETAINED_ROOT: {default: ""}
   CFETCH_FOUNDATION_PROBE_DIR: {default: ""}
   CFETCH_FOUNDATION_CPU_DIAGNOSTIC: {default: ""}
+  CFETCH_FOUNDATION_CPU_INPUT: {default: ""}
+  CFETCH_FOUNDATION_CPU_INPUT_SHA256: {default: ""}
   CFETCH_FOUNDATION_PKG_CONFIG: {default: ""}
   CFETCH_FOUNDATION_OPENSSL_DEV: {default: ""}
   CI_JOBS: {default: ""}

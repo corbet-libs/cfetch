@@ -2,7 +2,7 @@
 //! governor and duty cycle around this whole process, including initialization.
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use ort::ep::{ArbitrarilyConfigurableExecutionProvider, ExecutionProvider, OpenVINO};
-use std::{collections::BTreeMap, error::Error, ffi::CStr, fs, io::Write, path::{Path, PathBuf}, time::Instant};
+use std::{collections::BTreeMap, error::Error, ffi::CStr, fs, io::{Read, Write}, path::{Path, PathBuf}, time::Instant};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -18,10 +18,10 @@ fn run() -> Result<()> {
     let mut options = BTreeMap::new();
     while let Some(key) = args.next() {
         if key == "--help" {
-            println!("--ort LIBRARY [--run-model AllMiniLML6V2|EmbeddingGemma300M --device CPU|NPU --cache DIR --output DIR [--cpu-fallback diagnostic]]");
+            println!("--ort LIBRARY [--run-model AllMiniLML6V2|EmbeddingGemma300M --device CPU|NPU --cache DIR --output DIR [--cpu-fallback diagnostic] [--cpu-input JSON]]");
             return Ok(());
         }
-        if !["--ort", "--run-model", "--device", "--cache", "--output", "--cpu-fallback"].contains(&key.as_str()) {
+        if !["--ort", "--run-model", "--device", "--cache", "--output", "--cpu-fallback", "--cpu-input"].contains(&key.as_str()) {
             return Err(format!("unknown argument: {key}").into());
         }
         let value = args.next().ok_or("argument needs a value")?;
@@ -29,6 +29,30 @@ fn run() -> Result<()> {
             return Err("duplicate argument".into());
         }
     }
+    // Reject extending the physical canary before loading any native runtime.
+    let cpu_input = if let Some(path) = options.get("--cpu-input") {
+        if options.get("--device").map(String::as_str) != Some("CPU")
+            || options.get("--run-model").map(String::as_str) != Some("EmbeddingGemma300M") {
+            return Err("--cpu-input requires CPU and EmbeddingGemma300M".into());
+        }
+        if !fs::metadata(path)?.is_file() {
+            return Err("CPU fixture must be a regular file".into());
+        }
+        let mut bytes = Vec::new();
+        fs::File::open(path)?.take(131073).read_to_end(&mut bytes)?;
+        if bytes.len() > 131072 {
+            return Err("CPU fixture exceeds 128 KiB".into());
+        }
+        let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+        if value["schema_version"] != 1 || value["text"].as_str().is_none()
+            || value["id"].as_str().is_none()
+            || value["tokens"].as_u64().is_none_or(|n| n == 0 || n > 2048)
+            || value["token_ids_sha256"].as_str().is_none_or(|hash| hash.len() != 64
+                || !hash.bytes().all(|c| c.is_ascii_hexdigit())) {
+            return Err("CPU fixture requires schema 1, id, text, 1..2048 tokens and token_ids_sha256".into());
+        }
+        Some(value)
+    } else { None };
     let library = fs::canonicalize(options.get("--ort").ok_or("--ort is required")?)?;
     if ort::MINOR_VERSION != 24 {
         return Err("this worker requires exactly ORT API 24; check Cargo feature unification".into());
@@ -66,6 +90,8 @@ fn run() -> Result<()> {
         "EmbeddingGemma300M" => (EmbeddingModel::EmbeddingGemma300M, 768, "task: search result | query: portable local semantic search"),
         _ => return Err("unsupported built-in model selection".into()),
     };
+    let text = cpu_input.as_ref().and_then(|input| input["text"].as_str()).unwrap_or(text);
+    let max_length = if cpu_input.is_some() { 2048 } else { 32 };
     let device = options.get("--device").ok_or("model mode requires --device")?;
     if device != "CPU" && device != "NPU" {
         return Err("device must be exactly CPU or NPU".into());
@@ -87,7 +113,7 @@ fn run() -> Result<()> {
     }
     let options = TextInitOptions::new(model_name)
         .with_execution_providers(vec![ep.build().error_on_failure()])
-        .with_intra_threads(1).with_max_length(32).with_cache_dir(cache);
+        .with_intra_threads(1).with_max_length(max_length).with_cache_dir(cache);
     println!("mode=one-model-call\nmodel={chosen}\nrequested_device={device}\ncpu_fallback_disabled={}", !diagnostic_fallback);
     let load_started = Instant::now();
     let mut model = TextEmbedding::try_new_with_session_builder(options, |builder| {
@@ -98,12 +124,19 @@ fn run() -> Result<()> {
         if diagnostic_fallback { Ok(builder) } else { builder.with_disable_cpu_fallback() }
     })?;
     let load_seconds = load_started.elapsed().as_secs_f64();
-    // Refuse accidental truncation of the single fixed input.
+    // Refuse truncation or a changed token count. The supervisor compares the
+    // emitted token IDs with the retained canonical SHA256 before success.
     let mut tokenizer = model.tokenizer.clone();
     tokenizer.with_truncation(None).map_err(|e| e.to_string())?;
-    let tokens = tokenizer.encode(text, true).map_err(|e| e.to_string())?.len();
-    if tokens > 32 {
-        return Err("fixed probe input unexpectedly exceeds 32 tokens".into());
+    let encoding = tokenizer.encode(text, true).map_err(|e| e.to_string())?;
+    let tokens = encoding.len();
+    if tokens > max_length {
+        return Err("probe input exceeds its untruncated token limit".into());
+    }
+    if let Some(input) = &cpu_input {
+        if input["tokens"].as_u64() != Some(tokens as u64) {
+            return Err("probe token count differs from the retained fixture".into());
+        }
     }
     let embed_started = Instant::now();
     let embedded = model.embed([text], Some(1)); // Exactly one model call; no retries.
@@ -143,7 +176,8 @@ fn run() -> Result<()> {
     }
     let measured = serde_json::json!({
         "model": chosen, "requested_device": device, "cpu_fallback_disabled": !diagnostic_fallback,
-        "tokens": tokens, "text": text, "vector": vectors[0],
+        "tokens": tokens, "token_ids": encoding.get_ids(), "text": text, "vector": vectors[0],
+        "input_id": cpu_input.as_ref().map(|input| &input["id"]),
         "model_initialization_seconds": load_seconds, "embedding_seconds": embed_seconds,
         "calls": 1, "admission": "not-evaluated"
     });

@@ -63,6 +63,18 @@ def main():
     diagnostic = os.environ.get("CFETCH_FOUNDATION_CPU_DIAGNOSTIC", "")
     if diagnostic not in ("", "1") or (diagnostic and (not probe_directory or not model)):
         raise RuntimeError("CPU diagnostic requires an explicit newly built probe and model")
+    input_path = os.environ.get("CFETCH_FOUNDATION_CPU_INPUT", "")
+    input_sha256 = os.environ.get("CFETCH_FOUNDATION_CPU_INPUT_SHA256", "")
+    input_bytes = None
+    if input_path or input_sha256:
+        if not input_path or not input_sha256 or not probe_directory or model != "EmbeddingGemma300M":
+            raise RuntimeError("CPU input requires its SHA256, a new probe and EmbeddingGemma300M")
+        if not Path(input_path).is_file():
+            raise RuntimeError("CPU input must be a regular file")
+        with Path(input_path).open("rb") as stream:
+            input_bytes = stream.read(131073)
+        if len(input_bytes) > 131072 or hashlib.sha256(input_bytes).hexdigest() != input_sha256:
+            raise RuntimeError("CPU input is oversized or differs from its requested SHA256")
     build_identity = None
     if probe_directory:
         probe_directory = Path(probe_directory).resolve(strict=True)
@@ -77,6 +89,11 @@ def main():
         if digest(probe) != build_identity["binary_sha256"]:
             raise RuntimeError("new probe binary differs from its build receipt")
     output.mkdir()
+    if input_bytes is not None:
+        with (output / "input.json").open("xb") as stream:
+            stream.write(input_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
     if build_identity is not None:
         save(output / "build-identity.json", build_identity)
     cache = bundle / "model-cache"
@@ -93,6 +110,8 @@ def main():
                     str(cache), "--output", str(output / "model")]
     if diagnostic:
         command += ["--cpu-fallback", "diagnostic"]
+    if input_bytes is not None:
+        command += ["--cpu-input", str(output / "input.json")]
     probe_sha256 = digest(probe)
     # Match the explicit cache selection; HF_HOME otherwise overrides FastEmbed.
     environment = dict(os.environ)
@@ -121,6 +140,7 @@ def main():
     save(output / "intent.json", {"model": model or None, "device": "CPU",
          "bundle_manifest_sha256": evidence["bundle_manifest_sha256"],
          "cpu_fallback_diagnostic": bool(diagnostic), "binary_sha256": probe_sha256,
+         "input_sha256": input_sha256 or None,
          "auxiliary_library_directories": auxiliary_library_directories,
          "deadline_seconds": 300, "maximum_embedding_calls": int(bool(model))})
     result = {"model": model or None, "requested_device": "CPU", "passed": False,
@@ -152,6 +172,16 @@ def main():
                 check_bundle(bundle, evidence["bundle_manifest_sha256"])
                 if digest(probe) != probe_sha256:
                     raise RuntimeError("probe binary changed during execution")
+                if input_bytes is not None and digest(output / "input.json") != input_sha256:
+                    raise RuntimeError("CPU input changed during execution")
+                if input_bytes is not None and result["passed"]:
+                    fixture = json.loads(input_bytes)
+                    embedding = json.loads((output / "model/embedding.json").read_text())
+                    ids = embedding["token_ids"]
+                    token_hash = hashlib.sha256(json.dumps(ids, separators=(",", ":")).encode()).hexdigest()
+                    if token_hash != fixture["token_ids_sha256"] or len(ids) != fixture["tokens"]:
+                        raise RuntimeError("probe token IDs differ from the canonical fixture")
+                    result["canonical_token_ids_verified"] = True
                 if build_identity is not None:
                     for name, expected in build_identity["source_sha256"].items():
                         if digest(Path(__file__).parent / name) != expected:
