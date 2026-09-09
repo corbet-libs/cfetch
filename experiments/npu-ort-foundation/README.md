@@ -12,13 +12,45 @@ observations, not a warm-latency benchmark or semantic admission.
 OpenVINO executed 99 subgraphs, while ORT's CPU provider executed 24
 `MultiHeadAttention` and 48 `RotaryEmbedding` operations. Those are model
 computation, not shape bookkeeping. On this short input their summed profile
-time was 3.418 ms, versus 112.528 ms for the OpenVINO kernels. Long-input cost
-and device handoff overhead remain unmeasured; this does not prove that an
+time was 3.418 ms, versus 112.528 ms for the OpenVINO kernels. Device handoff
+overhead remains unmeasured; this does not prove that an
 explicitly qualified mixed route is impractical. This exact graph/runtime pair
 therefore
 does not establish exclusive accelerator execution; the strict mode correctly
 refuses it. NPU/GPU execution and canonical long-input compatibility remain
 unqualified.
+
+The [retained-reference comparison](cpu-parity-evidence.json) now measures one
+13-token and one 1,946-token document through the same built-in model, with
+exact canonical token IDs and no truncation. Both match the retained community
+ONNX CPU vectors to cosine above 0.999999999998. Agreement with the independent
+canonical-source reference falls from 0.99998846 for the short text to
+**0.90861737** for the long text (maximum component error **0.0512400**).
+This reproduces the community graph's existing long-input mismatch; successful
+FastEmbed/ORT execution does not admit its canonical semantics.
+
+The long call took **6.499 seconds** with one requested thread. Its 99 OpenVINO
+subgraphs totaled 3.874 seconds of kernel time; the 24 CPU attention and 48 CPU
+rotary operations totaled 2.612 seconds, about **40.27%** of summed kernel time.
+That ratio measures neither host utilization nor NPU handoff cost. These are
+single calls in separate sessions, not warm benchmarks. Reference vectors,
+weights and dependency caches were reused; the incremental probe build took
+9.84 seconds. Five native CLI rejection checks passed before model execution.
+
+[Read-only graph inspection](graph-mask-evidence.json) identifies a concrete
+semantic discrepancy: all 24 `MultiHeadAttention` nodes receive the same
+padding-only bias. The canonical configuration requires a local mask at
+exclusive distance 257 in layers 0–4, 6–10, 12–16 and 18–22; only layers
+5, 11, 17 and 23 use full attention. Local/global rotary caches do not enforce
+that visibility restriction. The graph was inspected without opening external
+weights. A controlled mask-only numerical comparison is still required before
+attributing the whole vector difference to this defect or claiming a repair.
+
+The next derived-graph candidate should change only those 20 masks, retain the
+weights/tokenizer, and preserve the original graph. Check real lengths 257 and
+258, padding, and the retained long vector before expanding any attention or
+rotary operators for accelerator placement. Keep the derived ONNX file and
+manifest outside the HF snapshot; its own hash must identify execution.
 
 For this CPU-only investigation, the new probe accepts
 `--cpu-fallback diagnostic`. The CPU wrapper requires an explicit

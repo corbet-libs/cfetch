@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "purpose": "CPU FastEmbed ORT placement and retained-reference comparison",
+  "source_commit": "d626627c25c5c862013ce8ef322ba81fa560a57c",
+  "admission": "not-evaluated",
+  "accelerator_qualified": false,
+  "binary_sha256": "db57a144c66bf5805131686718eb9612d9bf58337c3fcdb692560a4f29e95a75",
+  "source_sha256": {
+    "Cargo.lock": "e6531dfcaa002e838ddbdf64578a70183b8bf2592c2bd0495274b5b65cd7d920",
+    "Cargo.toml": "4591325c5c96197aed2a11a45ae91a7f2048d23ac7f39a5163451ad7d5bbfcdd",
+    "fastembed-session.patch": "50114597b4e382bb76057f56b5e059b3c20f97e70e6a29462101f1ce5df6ea20",
+    "src/main.rs": "ff671451a359cf36107992e8e562f012121986c0b3930f12e08397d49413c001"
+  },
+  "reference_files_sha256": {
+    "holdout-payload-manifest.json": "c4f979aa9da230e37ed27aed3cc2e9ef12b2a36dda4227213b3ac0c73f3b7978",
+    "holdout-native-vectors.json": "73448c48da54569781a0f8ddc0079734173c07ff4315bf72060855fdbc3a91de",
+    "holdout-fp32-vectors.json": "5e75c6327d285d137251182ffbc3ab6c0cbbb04347426b32badd35fe2e2c646e",
+    "native-audit-radius257.json": "cb7148e793896448e1ca5991cc45c0bc87dd1341c25a356a72d634c4dd5726cf"
+  },
+  "canonical_artifact_manifest_sha256": "1c79b0e67ec4e0b4ac93e66f05cdf7a4c54647b2bf87e235be3d1b4d6ab6775c",
+  "canonical_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "community_revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+  "cases": {
+    "short": {
+      "admission": "not-evaluated",
+      "calls": 1,
+      "cpu_fallback_disabled": false,
+      "embedding_seconds": 0.094568894,
+      "input_id": "4ab1df956e1b8356d9e00f796c2d2b8f250d519637a8bd476abdde75d0e974b1",
+      "model": "EmbeddingGemma300M",
+      "model_initialization_seconds": 8.103069003,
+      "requested_device": "CPU",
+      "tokens": 13,
+      "crow": {
+        "repository_id": 19,
+        "run": 18,
+        "step": 21739
+      },
+      "input_sha256": "aeb85b1f1c85c6ea1a654d43c0bd36a5885c4ceb7dc76bfbbe91c5ab243c3f22",
+      "text_sha256": "a9889e20a067ccb6dffec75b03e36f01c262175ac4183a9e60f2910ee6cec5d5",
+      "canonical_token_ids_verified": true,
+      "token_ids_sha256": "55938cb782acaf96cad5a2ca7ae6fdf3af33f508751f8ab6e063bdbea04bb56e",
+      "l2_norm": 0.9999998540112383,
+      "worker_seconds": 8.681374418083578,
+      "canonical": {
+        "cosine": 0.9999884558784894,
+        "maximum_absolute_difference": 0.0005642212927341461
+      },
+      "community": {
+        "cosine": 0.9999999999983423,
+        "maximum_absolute_difference": 2.8312206268310547e-7
+      },
+      "profile": {
+        "OpenVINOExecutionProvider": {
+          "events": 99,
+          "kernel_microseconds": 88169,
+          "distinct_subgraphs": 99
+        },
+        "CPUExecutionProvider": {
+          "events": 72,
+          "kernel_microseconds": 3420,
+          "operators": {
+            "RotaryEmbedding": 48,
+            "MultiHeadAttention": 24
+          }
+        }
+      },
+      "cpu_fraction_of_summed_kernel_time": 0.03734072869012654,
+      "artifacts_sha256": {
+        "embedding.json": "3aa10b38288ee5223586e03399a49f74a4e0ecfac80be9c675dee0fabdf68d4c",
+        "placement.json": "05549e84ad6ac60cdb38ab2fd83ada84449f35d143dcec94ef2645fe6c80c611",
+        "result.json": "39383da20931d65abadc71e96fbd94e1493fbbffc8d4eedcf5ec78b7e0b09660",
+        "ort-profile_2026-09-09_16-33-11.json": "8cdb608f1b2f164ca9701d3f96e4b3dae3bd3abd6974ee15ad865795d24d5664"
+      }
+    },
+    "long": {
+      "admission": "not-evaluated",
+      "calls": 1,
+      "cpu_fallback_disabled": false,
+      "embedding_seconds": 6.498541101,
+      "input_id": "0c515b4b8b017c940a7d037bafbd1a2166fefff1701b877fb32ad9988395355b",
+      "model": "EmbeddingGemma300M",
+      "model_initialization_seconds": 5.441892631,
+      "requested_device": "CPU",
+      "tokens": 1946,
+      "crow": {
+        "repository_id": 19,
+        "run": 19,
+        "step": 21740
+      },
+      "input_sha256": "eadf8f6b1b481513afc28e2a3a382e8b16c101ec5e28810d28e056de1cc85189",
+      "text_sha256": "8952f7dc6f6ac3399634185e0e778032c7a6a82cd157f46d950e9584f2176b2b",
+      "canonical_token_ids_verified": true,
+      "token_ids_sha256": "63862fb06d5d40c4da96b3a4b298687ca43c7dd20758afee411480949fe41b5e",
+      "l2_norm": 1.0000001027408443,
+      "worker_seconds": 12.53789880592376,
+      "canonical": {
+        "cosine": 0.908617374435339,
+        "maximum_absolute_difference": 0.051240015774965286
+      },
+      "community": {
+        "cosine": 0.9999999999986842,
+        "maximum_absolute_difference": 1.862645149230957e-7
+      },
+      "profile": {
+        "OpenVINOExecutionProvider": {
+          "events": 99,
+          "kernel_microseconds": 3874292,
+          "distinct_subgraphs": 99
+        },
+        "CPUExecutionProvider": {
+          "events": 72,
+          "kernel_microseconds": 2611717,
+          "operators": {
+            "RotaryEmbedding": 48,
+            "MultiHeadAttention": 24
+          }
+        }
+      },
+      "cpu_fraction_of_summed_kernel_time": 0.40266934566387436,
+      "artifacts_sha256": {
+        "embedding.json": "ab89938aa014d8cc309b6afb42c16ea97b4d0a9eb72cc0924b7d595bb2f8e08e",
+        "placement.json": "05549e84ad6ac60cdb38ab2fd83ada84449f35d143dcec94ef2645fe6c80c611",
+        "result.json": "ca976503c64cc8d7744d59a0dc0c33a17dcc844b708e0bdc32eb76affa28fdf8",
+        "ort-profile_2026-09-09_16-34-43.json": "ea2a9412d83dc23c175d5f1b63d891218d05313486c90ad970cde9e990eb2053"
+      }
+    }
+  },
+  "interpretation": [
+    "The same pinned community graph agrees across the measured FastEmbed+ORT OpenVINO/CPU route and retained ORT CPU-only route for both inputs.",
+    "The long community vector does not establish compatibility with the independently checked canonical-source reference.",
+    "CPU fraction is a share of summed profiled kernel durations, not host utilization, total latency or an accelerator measurement.",
+    "Single calls in separate sessions do not measure warm latency, batching, restart or sustained duty. No boundary fixture near 257 was available in retained vectors."
+  ],
+  "comparison_method": {
+    "cosine": "dot(a,b)/(sqrt(dot(a,a))*sqrt(dot(b,b)))",
+    "maximum_absolute_difference": "max(abs(a[i]-b[i]))",
+    "token_ids_sha256": "sha256(UTF8 compact JSON array, comma separators, no newline)",
+    "vector_dimensions": 768,
+    "reference_selection": "match input_id and token_count; short ordinal 43, long ordinal 11"
+  }
+}

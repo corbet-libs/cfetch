@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "purpose": "Read-only inspection of the pinned community ONNX attention mask",
+  "model_executed": false,
+  "external_weights_opened": false,
+  "graph_bytes": 479932,
+  "graph_sha256": "ea91fd315a7c152d427d231746f0f811a1ac93beaba656abfdf2b24e091265e4",
+  "community_revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+  "canonical_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
+  "canonical_config_sha256": "8f863f76e2d9c710cc833dc92efa898c9adfd41031c786507cc6b0e49c2e3e68",
+  "canonical_sliding_layers": [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22],
+  "canonical_full_attention_layers": [5, 11, 17, 23],
+  "canonical_serialized_sliding_window": 512,
+  "canonical_effective_exclusive_distance": 257,
+  "attention_nodes": {
+    "count": 24,
+    "domain": "com.microsoft",
+    "op_type": "MultiHeadAttention",
+    "name_pattern": "/model/layers.{i}/attn/MultiHeadAttention",
+    "layer_indexes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+    "num_heads": 3,
+    "scale": 0.0625,
+    "unidirectional_attribute": "absent",
+    "inputs_pattern": [
+      "/model/layers.{i}/attn/q_rotary/RotaryEmbedding/output_0",
+      "/model/layers.{i}/attn/k_proj/repeat_kv/Reshape_4/output_0",
+      "/model/layers.{i}/attn/v_proj/repeat_kv/Reshape_4/output_0",
+      "", "", "/model/attn_mask_reformat/Expand/output_0", "", ""
+    ]
+  },
+  "shared_mask": {
+    "output": "/model/attn_mask_reformat/Expand/output_0",
+    "padding_bias": "(1.0 - Cast(attention_mask, FLOAT)) * -3.4028234663852886e38",
+    "unsqueeze_axes": [1, 2],
+    "expanded_shape": ["batch", 3, "sequence", "sequence"],
+    "query_key_distance_restriction": false
+  },
+  "finding": "The graph omits the required local attention mask in 20 layers; distinct local/global rotary caches do not provide that mask.",
+  "limits": [
+    "This is a graph-level semantic discrepancy, not yet a measured mask-only numerical repair.",
+    "Finite float32 minimum is used instead of literal negative infinity.",
+    "Padded query rows remain active; pooling excludes padding. A repair must handle empty padded attention rows without changing real-token visibility."
+  ]
+}
