@@ -133,9 +133,23 @@ def main():
     require(digest(source / "Cargo.toml") == evidence["source_sha256"]["Cargo.toml"], "dependency configuration changed")
     for name in ("cargo-home/registry/src", "target/debug", "build/vendor/fastembed"):
         require((retained / name).is_dir(), "missing retained build input: " + name)
+    environment = dict(os.environ)
+    pkg_config = environment.get("CFETCH_FOUNDATION_PKG_CONFIG", "")
+    openssl_dev = environment.get("CFETCH_FOUNDATION_OPENSSL_DEV", "")
+    if pkg_config or openssl_dev:
+        require(pkg_config and openssl_dev, "supply both existing pkg-config and OpenSSL development paths")
+        pkg_config = Path(pkg_config)
+        openssl_dev = Path(openssl_dev)
+        require(pkg_config.is_absolute() and pkg_config.is_file() and os.access(pkg_config, os.X_OK),
+                "explicit pkg-config must be an existing absolute executable")
+        require(openssl_dev.is_absolute() and (openssl_dev / "lib/pkgconfig/openssl.pc").is_file(),
+                "explicit OpenSSL development path lacks package metadata")
+        environment["PATH"] = str(pkg_config.parent) + os.pathsep + environment["PATH"]
+        environment["PKG_CONFIG"] = str(pkg_config)
+        environment["PKG_CONFIG_PATH"] = str(openssl_dev / "lib/pkgconfig")
     tools = {}
     for name in ("cargo", "rustc", "cc", "c++", "pkg-config", "timeout"):
-        executable = shutil.which(name)
+        executable = shutil.which(name, path=environment["PATH"])
         require(executable is not None, "worker lacks required tool: " + name)
         path = Path(executable).resolve(strict=True)
         tools[name] = {"path": str(path), "sha256": digest(path)}
@@ -147,7 +161,6 @@ def main():
     output = output.resolve(strict=True)
     save(output / "intent.json", {"kind": "offline-probe-build", "model_execution": False,
          "bundle_manifest_sha256": manifest_sha256, "maximum_build_seconds": 600})
-    environment = dict(os.environ)
     environment.update(CARGO_HOME=str(retained / "cargo-home"), CARGO_TARGET_DIR=str(retained / "target"),
                        CARGO_BUILD_JOBS="1", CARGO_NET_OFFLINE="true", RUSTUP_AUTO_INSTALL="0",
                        CC=shutil.which("cc"), CXX=shutil.which("c++"), RUSTC=shutil.which("rustc"))

@@ -88,6 +88,13 @@ invalid, so a cache miss cannot fetch a moving `main`.
 The result retains and rechecks the model/tokenizer identities. This candidate's
 long-input compatibility with the canonical source still requires measurement.
 
+If the worker's default environment omits existing native build tools, supply
+`CFETCH_FOUNDATION_PKG_CONFIG` (absolute executable) and
+`CFETCH_FOUNDATION_OPENSSL_DEV` (existing headers and `lib/pkgconfig` directory)
+together. The build records the selected tools and OpenSSL version. These
+inputs select provisioned files; they never install packages. A worker-native
+diagnostic binary is not evidence of portability to another machine.
+
 For a diagnostic source change, `build_cached_probe.py` prepares a separate
 binary on the CPU build worker. Set `CFETCH_FOUNDATION_RETAINED_ROOT` to the
 existing experiment directory containing `build/vendor/fastembed`,
