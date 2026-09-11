@@ -582,6 +582,9 @@ Linux, macOS, and Windows all gate releases in CI. Platform-specific local
 control transport is hidden behind the same CLI: Unix sockets on Linux/macOS,
 and authenticated loopback TCP on Windows.
 
+See [CI checks and provider coverage](.ci/README.md) for selected public checks,
+Crow execution, exact-input evidence, and the remaining native/release routes.
+
 ## Configuration
 
 cfetch searches for one JSON configuration in this order:

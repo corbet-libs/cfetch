@@ -1,158 +1,309 @@
-# Tag v* -> GitHub release with endpoint variants and admitted local packages.
-# Every archive contains the binary, cfetch's license and the generated
-# third-party license/NOTICE bundle. Uses only the workflow's own GITHUB_TOKEN
-# (via the contents: write permission) — no configured secrets.
-#
-# The backend is part of every artifact name. Today every real build is the
-# endpoint-only `remote` flavor. Candidate targets remain in the executable
-# catalog and normal build CI; only admitted local packages enter a release.
+# One gate graph produces retained bytes before any publication credentials exist.
 name: Release
-
 on:
   push:
     tags: ['v*']
-
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  CARGO_BUILD_JOBS: "1"
+  RUST_TEST_THREADS: "1"
+  RELEASE_TAG: ${{ github.ref_name }}
 
 jobs:
-  preflight:
-    name: Validate release policy
+  plan:
+    if: github.event.repository.private == false
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Reject 1.0+ and mismatched tags
-        shell: bash
-        run: |
-          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
-          tag_version=${GITHUB_REF_NAME#v}
-          test "$tag_version" = "$version" || {
-            echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
-            exit 1
-          }
-          case "$version" in
-            0.*) ;;
-            *) echo "cfetch 1.0+ is operator-blocked (requested $version)" >&2; exit 1 ;;
-          esac
-
-  catalog:
-    name: Load executable variant catalog
-    needs: preflight
-    runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
-      matrix: ${{ steps.catalog.outputs.matrix }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      source_sha256: ${{ steps.plan.outputs.source_sha256 }}
     steps:
-      - uses: actions/checkout@v7
-      - name: Validate and export matrix
-        id: catalog
+      - name: Preserve committed checkout bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Select the complete admitted native matrix
+        id: plan
         shell: bash
         run: |
-          python -m unittest -v scripts.test_variant_matrix
-          matrix=$(bash scripts/variant-matrix.sh --release)
+          export RELEASE_ARTIFACT_DIR="$RUNNER_TEMP/cfetch-release"
+          matrix=$(python scripts/release.py plan)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-
-  build:
-    name: Build (${{ matrix.id }})
-    needs: [preflight, catalog]
-    strategy:
-      # One platform failing must not silently ship a partial release; every
-      # platform's result stays visible and the publish job gates on all.
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.catalog.outputs.matrix) }}
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+          echo "source_sha256=$(sha256sum "$RELEASE_ARTIFACT_DIR/source.tar" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          targets: ${{ matrix.target }}
-      - name: Build
-        shell: bash
-        run: |
-          export CFETCH_VARIANT='${{ matrix.id }}'
-          if [ -n "${{ matrix.target }}" ]; then
-            cargo build --release --locked --target "${{ matrix.target }}" --features '${{ matrix.cargo_features }}'
-          else
-            cargo build --release --locked --features '${{ matrix.cargo_features }}'
-          fi
-      - name: Stage artifact
-        shell: bash
-        run: |
-          package="${{ matrix.id }}-${GITHUB_REF_NAME}"
-          mkdir -p "dist/$package"
-          if [ -n "${{ matrix.target }}" ]; then
-            cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/$package/${{ matrix.binary }}"
-          else
-            cp "target/release/${{ matrix.binary }}" "dist/$package/${{ matrix.binary }}"
-          fi
-          cp LICENSE.md THIRD-PARTY-LICENSES.txt release/variants.json \
-            release/inference-backends.json "dist/$package/"
-          python scripts/stage_local_inference.py \
-            --registry release/inference-backends.json \
-            --catalog release/variants.json \
-            --variant '${{ matrix.id }}' \
-            --destination "dist/$package"
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            (cd dist && 7z a "$package.zip" "$package" >/dev/null)
-          else
-            (cd dist && tar -czf "$package.tar.gz" "$package")
-          fi
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.id }}
-          path: dist/${{ matrix.id }}-${{ github.ref_name }}.*
+          name: release-plan
+          path: ${{ runner.temp }}/cfetch-release/
           if-no-files-found: error
+          retention-days: 30
 
-  publish:
-    # Gates on every platform: a release that is missing a supported platform
-    # is a broken promise, not a partial success.
-    needs: build
-    runs-on: ubuntu-latest
+  gates:
+    needs: plan
+    uses: ./.github/workflows/ci.yml
+    with:
+      release_checks: true
+      release_source_sha256: ${{ needs.plan.outputs.source_sha256 }}
+
+  native:
+    needs: [plan, gates]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - name: Preserve committed checkout bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          path: staged
-      - name: Collect
-        run: |
-          mkdir -p dist
-          find staged -type f -exec cp {} dist/ \;
-          cp LICENSE.md dist/LICENSE.md
-          cp THIRD-PARTY-LICENSES.txt dist/THIRD-PARTY-LICENSES.txt
-          cp release/variants.json dist/variants.json
-          cp release/inference-backends.json dist/inference-backends.json
-          ls -la dist
-      # Published as a release asset because downstream packaging consumes it
-      # rather than re-hashing: the Homebrew tap regenerates its formula from
-      # these lines, and a formula whose sha256 came from anywhere but the
-      # released bytes is a formula that can silently install something else.
-      - name: Checksums
-        working-directory: dist
-        run: |
-          sha256sum -- * > "$RUNNER_TEMP/checksums_sha256.txt"
-          mv "$RUNNER_TEMP/checksums_sha256.txt" .
-          cat checksums_sha256.txt
-      - uses: softprops/action-gh-release@v3
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          files: dist/*
-          fail_on_unmatched_files: true
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c
+        with:
+          shared-key: variant-${{ matrix.id }}
+          cache-bin: false
+          save-if: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-plan
+          path: ${{ runner.temp }}/cfetch-plan
+      - name: Use the exact shared plan source
+        shell: bash
+        env:
+          PLAN_SOURCE_SHA256: ${{ needs.plan.outputs.source_sha256 }}
+        run: |
+          {
+            echo "RELEASE_SOURCE_ARCHIVE=$RUNNER_TEMP/cfetch-plan/source.tar"
+            echo "RELEASE_SOURCE_SHA256=$PLAN_SOURCE_SHA256"
+          } >> "$GITHUB_ENV"
+      - name: Build, stage, smoke and retain exact native bytes
+        shell: bash
+        env:
+          RELEASE_VARIANT: ${{ matrix.id }}
+        run: |
+          export RELEASE_ARTIFACT_DIR="$RUNNER_TEMP/cfetch-release"
+          python scripts/release.py prepare "$RELEASE_VARIANT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-native-${{ matrix.id }}
+          path: |
+            ${{ runner.temp }}/cfetch-release/${{ matrix.id }}/*.json
+            ${{ runner.temp }}/cfetch-release/${{ matrix.id }}/*.tar.gz
+            ${{ runner.temp }}/cfetch-release/${{ matrix.id }}/*.zip
+          if-no-files-found: error
+          retention-days: 30
 
-  publish-crate:
-    # crates.io publication is irreversible, so it follows the complete,
-    # all-platform GitHub release rather than racing the artifact builds.
-    name: Publish crate
-    needs: publish
+  crate:
+    needs: [plan, gates]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Preserve committed checkout bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c
+        with:
+          shared-key: test-Linux-X64
+          cache-bin: false
+          save-if: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-plan
+          path: ${{ runner.temp }}/cfetch-plan
+      - name: Use the exact shared plan source
+        shell: bash
+        env:
+          PLAN_SOURCE_SHA256: ${{ needs.plan.outputs.source_sha256 }}
+        run: |
+          {
+            echo "RELEASE_SOURCE_ARCHIVE=$RUNNER_TEMP/cfetch-plan/source.tar"
+            echo "RELEASE_SOURCE_SHA256=$PLAN_SOURCE_SHA256"
+          } >> "$GITHUB_ENV"
+      - name: Verify the exact Cargo upload archive without credentials
+        shell: bash
+        run: |
+          export RELEASE_ARTIFACT_DIR="$RUNNER_TEMP/cfetch-release"
+          python scripts/release.py prepare cargo
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-crate
+          path: ${{ runner.temp }}/cfetch-release/cargo/
+          if-no-files-found: error
+          retention-days: 30
+
+  verify:
+    needs: [gates, native, crate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      sha256: ${{ steps.verify.outputs.sha256 }}
+    steps:
+      - name: Preserve committed checkout bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: corbet-labs/ccid
+          ref: 00daadaeaa757320178715cac4e66ed388421f7e
+          path: .ci-tool-source
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: release-*
+          path: ${{ runner.temp }}/cfetch-staged
+      - name: Verify producing source, complete gates and exact artifact bytes
+        id: verify
+        shell: bash
+        run: |
+          export RELEASE_ARTIFACT_DIR="$RUNNER_TEMP/cfetch-release"
+          export CI_TOOL_ARCHIVE="$RUNNER_TEMP/ccid.tar"
+          test "$(git -C .ci-tool-source rev-parse HEAD)" = 00daadaeaa757320178715cac4e66ed388421f7e
+          git -C .ci-tool-source archive --format=tar HEAD > "$CI_TOOL_ARCHIVE"
+          export CI_TOOL_SHA256
+          CI_TOOL_SHA256=$(sha256sum "$CI_TOOL_ARCHIVE" | cut -d' ' -f1)
+          python scripts/release.py verify --input "$RUNNER_TEMP/cfetch-staged" > "$RUNNER_TEMP/release-result.json"
+          echo "sha256=$(jq -r .sha256 "$RUNNER_TEMP/release-result.json")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-bundle
+          path: |
+            ${{ runner.temp }}/cfetch-release/*.tar
+            ${{ runner.temp }}/release-result.json
+          if-no-files-found: error
+          retention-days: 30
+
+  github:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Preserve committed checkout bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: corbet-labs/ccid
+          ref: 00daadaeaa757320178715cac4e66ed388421f7e
+          path: .ci-tool-source
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-bundle
+          path: ${{ runner.temp }}/cfetch-input
+      - name: Establish verified public handoff paths
+        shell: bash
+        env:
+          BUNDLE_SHA256: ${{ needs.verify.outputs.sha256 }}
+        run: |
+          test "$(git -C .ci-tool-source rev-parse HEAD)" = 00daadaeaa757320178715cac4e66ed388421f7e
+          git -C .ci-tool-source archive --format=tar HEAD > "$RUNNER_TEMP/ccid.tar"
+          {
+            echo "CI_TOOL_ARCHIVE=$RUNNER_TEMP/ccid.tar"
+            echo "CI_TOOL_SHA256=$(sha256sum "$RUNNER_TEMP/ccid.tar" | cut -d' ' -f1)"
+            echo "RELEASE_ARTIFACT_DIR=$RUNNER_TEMP/cfetch-release"
+            echo "RELEASE_JOURNAL_ROOT=$RUNNER_TEMP/cfetch-journal"
+            echo "RELEASE_BUNDLE=$RUNNER_TEMP/cfetch-input/cfetch-release/cfetch-${RELEASE_TAG}-bundle.tar"
+            echo "RELEASE_BUNDLE_SHA256=$BUNDLE_SHA256"
+          } >> "$GITHUB_ENV"
+      - name: Create draft, reconcile/upload exact assets, then make it public
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/release.py create
+          python scripts/release.py publish github
+          python scripts/release.py finish github
+      - name: Retain publication and creation intents even after uncertainty
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-github-journal-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cfetch-journal/
+          if-no-files-found: ignore
+          retention-days: 90
+
+  cargo:
+    needs: [verify, github]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: crates-io
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Authenticate to crates.io with GitHub OIDC
-        id: auth
-        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
-      - name: Publish
-        run: cargo publish --locked
+      - name: Preserve committed checkout bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: corbet-labs/ccid
+          ref: 00daadaeaa757320178715cac4e66ed388421f7e
+          path: .ci-tool-source
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-bundle
+          path: ${{ runner.temp }}/cfetch-input
+      - name: Establish verified public handoff paths
+        shell: bash
         env:
+          BUNDLE_SHA256: ${{ needs.verify.outputs.sha256 }}
+        run: |
+          test "$(git -C .ci-tool-source rev-parse HEAD)" = 00daadaeaa757320178715cac4e66ed388421f7e
+          git -C .ci-tool-source archive --format=tar HEAD > "$RUNNER_TEMP/ccid.tar"
+          {
+            echo "CI_TOOL_ARCHIVE=$RUNNER_TEMP/ccid.tar"
+            echo "CI_TOOL_SHA256=$(sha256sum "$RUNNER_TEMP/ccid.tar" | cut -d' ' -f1)"
+            echo "RELEASE_ARTIFACT_DIR=$RUNNER_TEMP/cfetch-release"
+            echo "RELEASE_JOURNAL_ROOT=$RUNNER_TEMP/cfetch-journal"
+            echo "RELEASE_BUNDLE=$RUNNER_TEMP/cfetch-input/cfetch-release/cfetch-${RELEASE_TAG}-bundle.tar"
+            echo "RELEASE_BUNDLE_SHA256=$BUNDLE_SHA256"
+          } >> "$GITHUB_ENV"
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18
+        id: auth
+      - name: Publish the verified archive without compilation or repackaging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          RELEASE_CARGO_AUTH: trusted
+        run: python scripts/release.py publish cargo
+      - name: Retain Cargo publication intent
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-cargo-journal-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cfetch-journal/
+          if-no-files-found: ignore
+          retention-days: 90

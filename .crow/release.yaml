@@ -1,0 +1,94 @@
+# Manual source-staged release operations. No credential is resolved for preparation.
+when:
+  - event: manual
+    branch: main
+skip_clone: true
+variables:
+  SOURCE_ARCHIVE: {default: ""}
+  SOURCE_SHA256: {default: ""}
+  CI_TOOL_ARCHIVE: {default: ""}
+  CI_TOOL_SHA256: {default: ""}
+  CI_TOOL_BINARY: {default: ""}
+  CI_TOOL_BINARY_SHA256: {default: ""}
+  CI_REPOSITORY_URL: {default: ""}
+  CARGO_TARGET_DIR: {default: ""}
+  CI_JOBS: {default: "1"}
+  CI_TEST_THREADS: {default: "1"}
+  CI_MEMORY_MB: {default: ""}
+  CI_MEMORY_PER_JOB_MB: {default: ""}
+  CI_TIMEOUT: {default: "900"}
+  CI_CACHE_ROOT: {default: ""}
+  CI_NIX_JOBS: {default: ""}
+  CI_LINKER: {default: system}
+  CI_MIN_AVAILABLE_MB: {default: "8192"}
+  TMPDIR: {default: ""}
+  CFETCH_POLICY_PYTHON: {default: python3}
+  RELEASE_OPERATION: {default: inspect}
+  RELEASE_SELECTION: {default: all}
+  RELEASE_TAG: {default: ""}
+  RELEASE_SOURCE_ARCHIVE: {default: ""}
+  RELEASE_SOURCE_SHA256: {default: ""}
+  RELEASE_ARTIFACT_DIR: {default: ""}
+  RELEASE_INPUT: {default: ""}
+  RELEASE_BUNDLE: {default: ""}
+  RELEASE_BUNDLE_SHA256: {default: ""}
+  RELEASE_JOURNAL_ROOT: {default: ""}
+steps:
+  - name: validate-release-selection
+    image: bash
+    environment: &release-environment
+      CCID_REVISION: '00daadaeaa757320178715cac4e66ed388421f7e'
+      CARGO_BUILD_JOBS: "1"
+      RUST_TEST_THREADS: "1"
+    commands:
+      - |
+        set -eu
+        case "$RELEASE_OPERATION:$RELEASE_SELECTION" in
+          guards:all|plan:all|verify:all|inspect:all|status:all|status:github|status:cargo|create:all|publish:github|publish:cargo|finish:github|check:catalog|check:licenses|check:profile|check:rust) ;;
+          prepare:cargo|prepare:linux-cfetch-*|prepare:mac-cfetch-*|prepare:win-cfetch-*) ;;
+          *) echo 'Unsupported release operation/selection' >&2; exit 2 ;;
+        esac
+        test "$CI_JOBS" = 1
+        test "$CI_TEST_THREADS" = 1
+
+  - name: prepare-or-inspect
+    image: bash
+    depends_on: [validate-release-selection]
+    when:
+      - evaluate: RELEASE_OPERATION == "guards" || RELEASE_OPERATION == "plan" || RELEASE_OPERATION == "check" || RELEASE_OPERATION == "prepare" || RELEASE_OPERATION == "verify" || RELEASE_OPERATION == "inspect"
+    environment: *release-environment
+    commands: &release-commands
+      - |
+        set -eu
+        printf '%s  %s\n' "$CI_TOOL_SHA256" "$CI_TOOL_ARCHIVE" | sha256sum --check --strict
+        test "$(git get-tar-commit-id < "$CI_TOOL_ARCHIVE")" = "$CCID_REVISION"
+        test -n "$CI_TOOL_BINARY"
+        test -n "$CI_TOOL_BINARY_SHA256"
+        printf '%s  %s\n' "$CI_TOOL_BINARY_SHA256" "$CI_TOOL_BINARY" | sha256sum --check --strict
+        test "$("$CI_TOOL_BINARY" source-revision)" = "$CCID_REVISION"
+        exec "$CI_TOOL_BINARY" check --archive "$SOURCE_ARCHIVE" --sha256 "$SOURCE_SHA256" --commit "$CI_COMMIT_SHA" --check release
+
+  - name: github-release-state
+    image: bash
+    depends_on: [validate-release-selection]
+    when:
+      - evaluate: (RELEASE_OPERATION == "status" && RELEASE_SELECTION in ["all", "github", "cargo"]) || (RELEASE_OPERATION == "create" && RELEASE_SELECTION == "all") || ((RELEASE_OPERATION == "publish" || RELEASE_OPERATION == "finish") && RELEASE_SELECTION == "github")
+    environment:
+      <<: *release-environment
+      GH_TOKEN:
+        from_secret: cfetch_release_github_token
+    commands: *release-commands
+
+  - name: publish-cargo
+    image: bash
+    depends_on: [validate-release-selection]
+    when:
+      - evaluate: RELEASE_OPERATION == "publish" && RELEASE_SELECTION == "cargo"
+    environment:
+      <<: *release-environment
+      RELEASE_CARGO_AUTH: token
+      GH_TOKEN:
+        from_secret: cfetch_release_github_token
+      CARGO_REGISTRY_TOKEN:
+        from_secret: cfetch_release_cargo_token
+    commands: *release-commands

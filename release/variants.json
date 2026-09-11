@@ -49,7 +49,7 @@
       "id": "mac-cfetch-remote-x86_64",
       "os": "mac",
       "arch": "x86_64",
-      "runner": "macos-latest",
+      "runner": "macos-26-intel",
       "target": "x86_64-apple-darwin",
       "binary": "cfetch",
       "archive": "tar.gz",

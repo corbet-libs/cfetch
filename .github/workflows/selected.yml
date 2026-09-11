@@ -1,0 +1,166 @@
+name: Selected public checks
+run-name: ${{ inputs.request_id != '' && format('ccid/{0}', inputs.request_id) || format('Selected public checks ({0})', inputs.checks) }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      checks:
+        description: Comma-separated public selectors from .ci/ccid.toml
+        type: string
+        required: true
+        default: catalog,governor
+
+      source_commit:
+        description: Exact source commit from the reviewed dispatcher
+        type: string
+        required: false
+        default: ""
+      request_id:
+        description: Exact dispatcher correlation identity; leave empty for manual selection
+        type: string
+        required: false
+        default: ""
+      dependency_snapshot:
+        description: Committed dependency snapshot SHA-256
+        type: string
+        required: false
+        default: ""
+      tool_revision:
+        description: Verified portable ccid source revision
+        type: string
+        required: false
+        default: ""
+      tool_run_id:
+        description: Successful portable bootstrap run identity
+        type: string
+        required: false
+        default: ""
+      tool_asset_id:
+        description: Exact portable binary release asset identity
+        type: string
+        required: false
+        default: ""
+      tool_archive_sha256:
+        description: Portable binary ZIP SHA-256
+        type: string
+        required: false
+        default: ""
+      tool_binary_sha256:
+        description: Portable binary SHA-256
+        type: string
+        required: false
+        default: ""
+      manifest_sha256:
+        description: Committed ccid manifest SHA-256
+        type: string
+        required: false
+        default: ""
+      config_sha256:
+        description: Committed provider mapping SHA-256
+        type: string
+        required: false
+        default: ""
+      tool_bootstrap_sha256:
+        description: Verified producing bootstrap workflow SHA-256
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: selected-${{ inputs.request_id || github.ref }}-${{ inputs.checks }}
+  cancel-in-progress: ${{ inputs.request_id == '' }}
+
+env:
+  CARGO_BUILD_JOBS: "1"
+  RUST_TEST_THREADS: "1"
+
+jobs:
+  automatic:
+    if: github.event.repository.private == false && inputs.request_id != ''
+    uses: corbet-labs/ccid/.github/workflows/reusable-check.yml@a0430c3a77c79cb921b0d8d8574903ff7d96945a
+    with:
+      source_commit: ${{ inputs.source_commit }}
+      checks: ${{ inputs.checks }}
+      request_id: ${{ inputs.request_id }}
+      dependency_snapshot: ${{ inputs.dependency_snapshot }}
+      tool_revision: ${{ inputs.tool_revision }}
+      tool_run_id: ${{ inputs.tool_run_id }}
+      tool_asset_id: ${{ inputs.tool_asset_id }}
+      tool_archive_sha256: ${{ inputs.tool_archive_sha256 }}
+      tool_binary_sha256: ${{ inputs.tool_binary_sha256 }}
+      manifest_sha256: ${{ inputs.manifest_sha256 }}
+      config_sha256: ${{ inputs.config_sha256 }}
+      tool_bootstrap_sha256: ${{ inputs.tool_bootstrap_sha256 }}
+      ci_jobs: 1
+      ci_test_threads: 1
+      ci_min_available_mb: 8192
+      ci_timeout: 900
+      setup_rust: false
+  checks:
+    if: github.event.repository.private == false && inputs.request_id == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate selection and capture immutable inputs
+        id: plan
+        env:
+          REQUESTED_CHECKS: ${{ inputs.checks }}
+        run: python3 .ci/hosted.py plan
+      - name: Set up current stable Rust
+        if: steps.plan.outputs.rust == 'true'
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Reuse Rust inputs and compiled dependencies
+        if: steps.plan.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c
+        with:
+          shared-key: test-${{ runner.os }}-${{ runner.arch }}
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Set up the supported policy Python
+        if: steps.plan.outputs.profile == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: experiments/embedding-profile/requirements-lock.txt
+      - name: Install the exact public policy environment
+        if: steps.plan.outputs.profile == 'true'
+        run: python3 -m pip install --require-hashes -r experiments/embedding-profile/requirements-lock.txt
+      - name: Set up license checking tools
+        if: steps.plan.outputs.licenses == 'true'
+        uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833
+        with:
+          tool: cargo-deny@0.20.2,cargo-about@0.9.2
+          fallback: none
+      - name: Set up Actionlint for configuration checks
+        if: steps.plan.outputs.ci_config == 'true'
+        shell: bash
+        run: |
+          GOBIN="$RUNNER_TEMP/actionlint-bin" go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
+      - name: Run the same repository commands as Crow
+        id: checks
+        run: python3 .ci/hosted.py run
+      - name: Retain the actual check outcome
+        if: always() && steps.plan.outcome == 'success'
+        env:
+          CHECK_OUTCOME: ${{ steps.checks.outcome }}
+        run: python3 .ci/hosted.py finish
+      - name: Retain exact input and runtime evidence
+        if: always() && steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: selected-checks-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cfetch-checks/result.json
+          if-no-files-found: error
+          retention-days: 30

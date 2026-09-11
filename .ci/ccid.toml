@@ -1,6 +1,10 @@
 schema = 1
 project = "cfetch"
 
+[checks.ci-config]
+kind = "commands"
+commands = [["bash", "scripts/ci-check.sh", "ci-config"]]
+
 # Profile dependencies must already exist. Native accelerator and macOS/Windows qualification remain explicit separate gates.
 
 [checks.catalog]
@@ -34,3 +38,11 @@ commands = [["bash", "scripts/ci-check.sh", "ort-foundation-cpu"]]
 [checks.ort-foundation-build]
 kind = "commands"
 commands = [["bash", "scripts/ci-check.sh", "ort-foundation-build"]]
+
+[checks.release-guards]
+kind = "commands"
+commands = [["bash", "scripts/ci-check.sh", "release-guards"]]
+
+[checks.release]
+kind = "commands"
+commands = [["python3", "scripts/release.py"]]

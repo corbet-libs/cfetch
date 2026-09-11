@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
-export RUST_TEST_THREADS="${RUST_TEST_THREADS:-2}"
+export RUST_TEST_THREADS="${RUST_TEST_THREADS:-1}"
 python_bin="${CFETCH_POLICY_PYTHON:-python3}"
 
 if (($# == 0)); then
@@ -11,6 +11,13 @@ if (($# == 0)); then
 fi
 for check in "$@"; do
   case "$check" in
+    ci-config)
+      "$python_bin" .ci/test_hosted.py
+      "$python_bin" .ci/check-ci.py
+      ;;
+    release-guards)
+      "$python_bin" -m unittest -v scripts.test_release
+      ;;
     catalog)
       bash scripts/check-packaging-variants.sh
       bash scripts/variant-matrix.sh >/dev/null
@@ -100,6 +107,6 @@ for check in "$@"; do
         "$python_bin" "$command" --help >/dev/null
       done
       ;;
-    *) echo "Unknown check: $check (catalog rust variants licenses governor profile ort-foundation-build ort-foundation-cpu)" >&2; exit 2 ;;
+    *) echo "Unknown check: $check (ci-config release-guards catalog rust variants licenses governor profile ort-foundation-build ort-foundation-cpu)" >&2; exit 2 ;;
   esac
 done

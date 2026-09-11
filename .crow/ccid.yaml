@@ -1,4 +1,4 @@
-# Replace 99f65658262db4c2321233ad01e7e1a5f52a406c with one verified ccid commit before committing this adapter.
+# Run selected checks with the verified source-path-aware shared executor.
 when:
   - event: manual
 skip_clone: true
@@ -19,11 +19,11 @@ variables:
   CFETCH_FOUNDATION_CPU_INPUT_SHA256: {default: ""}
   CFETCH_FOUNDATION_PKG_CONFIG: {default: ""}
   CFETCH_FOUNDATION_OPENSSL_DEV: {default: ""}
-  CI_JOBS: {default: ""}
-  CI_TEST_THREADS: {default: ""}
+  CI_JOBS: {default: "1"}
+  CI_TEST_THREADS: {default: "1"}
   CI_MEMORY_MB: {default: ""}
   CI_MEMORY_PER_JOB_MB: {default: ""}
-  CI_TIMEOUT: {default: ""}
+  CI_TIMEOUT: {default: "900"}
   CI_CACHE_ROOT: {default: ""}
   CI_NIX_JOBS: {default: ""}
   CI_LINKER: {default: system}
@@ -37,7 +37,7 @@ steps:
   - name: selected-checks
     image: bash
     environment:
-      CCID_REVISION: '0d26838935e59dd3d7bc431decb86b067f150d59'
+      CCID_REVISION: '85e316579ea938c42a4e45d42cb3ac94aa2d9328'
     commands:
       - |
         set -eu
