@@ -1,0 +1,51 @@
+# Read-only release maintenance. Git history is staged explicitly, never fetched.
+when:
+  - event: manual
+    branch: main
+skip_clone: true
+variables:
+  SOURCE_ARCHIVE: {default: ""}
+  SOURCE_SHA256: {default: ""}
+  CI_TOOL_ARCHIVE: {default: ""}
+  CI_TOOL_SHA256: {default: ""}
+  CI_TOOL_BINARY: {default: ""}
+  CI_TOOL_BINARY_SHA256: {default: ""}
+  CI_REPOSITORY_URL: {default: ""}
+  CARGO_TARGET_DIR: {default: ""}
+  CI_JOBS: {default: "1"}
+  CI_TEST_THREADS: {default: "1"}
+  CI_MEMORY_MB: {default: ""}
+  CI_MEMORY_PER_JOB_MB: {default: ""}
+  CI_TIMEOUT: {default: "900"}
+  CI_CACHE_ROOT: {default: ""}
+  CI_NIX_JOBS: {default: ""}
+  CI_LINKER: {default: system}
+  CI_MIN_AVAILABLE_MB: {default: "8192"}
+  TMPDIR: {default: ""}
+  MAINTENANCE_OPERATION: {default: guards}
+  MAINTENANCE_HISTORY_BUNDLE: {default: ""}
+  MAINTENANCE_HISTORY_SHA256: {default: ""}
+  RELEASE_ARTIFACT_DIR: {default: ""}
+  RELEASE_BUNDLE: {default: ""}
+  RELEASE_BUNDLE_SHA256: {default: ""}
+steps:
+  - name: prepare-maintenance
+    image: bash
+    environment:
+      CCID_REVISION: '00daadaeaa757320178715cac4e66ed388421f7e'
+      CARGO_BUILD_JOBS: "1"
+      RUST_TEST_THREADS: "1"
+    commands:
+      - |
+        set -eu
+        case "$MAINTENANCE_OPERATION" in
+          guards|patch-plan|homebrew-render) ;;
+          *) echo 'Select credential-free maintenance preparation' >&2; exit 2 ;;
+        esac
+        test "$CI_JOBS" = 1
+        test "$CI_TEST_THREADS" = 1
+        printf '%s  %s\n' "$CI_TOOL_SHA256" "$CI_TOOL_ARCHIVE" | sha256sum --check --strict
+        test "$(git get-tar-commit-id < "$CI_TOOL_ARCHIVE")" = "$CCID_REVISION"
+        printf '%s  %s\n' "$CI_TOOL_BINARY_SHA256" "$CI_TOOL_BINARY" | sha256sum --check --strict
+        test "$("$CI_TOOL_BINARY" source-revision)" = "$CCID_REVISION"
+        exec "$CI_TOOL_BINARY" check --archive "$SOURCE_ARCHIVE" --sha256 "$SOURCE_SHA256" --commit "$CI_COMMIT_SHA" --check maintenance

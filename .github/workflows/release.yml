@@ -250,6 +250,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
+  homebrew:
+    needs: github
+    uses: ./.github/workflows/homebrew.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+      source_commit: ${{ github.sha }}
+    secrets:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+
   cargo:
     needs: [verify, github]
     runs-on: ubuntu-latest

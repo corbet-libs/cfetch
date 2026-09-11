@@ -46,3 +46,7 @@ commands = [["bash", "scripts/ci-check.sh", "release-guards"]]
 [checks.release]
 kind = "commands"
 commands = [["python3", "scripts/release.py"]]
+
+[checks.maintenance]
+kind = "commands"
+commands = [["python3", "scripts/release_maintenance.py"]]

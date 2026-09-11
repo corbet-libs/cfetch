@@ -1,16 +1,19 @@
 name: Publish to Homebrew tap
 
-# Fires on the same 'v*' tag as release.yml, waits for that workflow to finish
-# uploading assets, then regenerates the formula in the tap repo from the
-# PUBLISHED checksums and pushes it.
-#
-# Needs: PACKAGES_TOKEN — a classic PAT with 'public_repo' scope on an account
-# that can write to corbet-labs/homebrew-cfetch.
-
+# Automatic updates begin after the exact GitHub release is public. Manual
+# updates retain support for older public releases without retained bundles.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      source_commit:
+        required: true
+        type: string
+    secrets:
+      PACKAGES_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       version:
@@ -18,149 +21,97 @@ on:
         required: true
         type: string
 
-permissions: read-all
+permissions:
+  contents: read
+
+concurrency:
+  group: cfetch-homebrew
+  cancel-in-progress: false
 
 jobs:
   homebrew:
+    if: github.event.repository.private == false
     runs-on: ubuntu-latest
-    # The asset poll is a deliberate 15 min ceiling; steady-state runs are ~2 min.
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Resolve version
         id: ver
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          version="$REQUESTED_VERSION"
+          if [ -z "$version" ]; then
+            version="${REQUESTED_TAG#v}"
           fi
+          version=$(python3 scripts/release_maintenance.py version --version "$version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Check PACKAGES_TOKEN exists
+      - name: Inspect the exact public release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/cfetch-homebrew"
+          gh release view "v$VERSION" --repo corbet-labs/cfetch \
+            --json tagName,isDraft,isPrerelease,assets > "$RUNNER_TEMP/cfetch-homebrew/release.json"
+          gh api "repos/corbet-labs/cfetch/git/ref/tags/v$VERSION" \
+            --jq .object > "$RUNNER_TEMP/cfetch-homebrew/tag.json"
+          for attempt in $(seq 1 5); do
+            type=$(jq -r .type "$RUNNER_TEMP/cfetch-homebrew/tag.json")
+            if [ "$type" = commit ]; then break; fi
+            test "$type" = tag
+            object=$(jq -er '.sha | select(test("^[0-9a-f]{40}$"))' "$RUNNER_TEMP/cfetch-homebrew/tag.json")
+            gh api "repos/corbet-labs/cfetch/git/tags/$object" \
+              --jq .object > "$RUNNER_TEMP/cfetch-homebrew/tag-next.json"
+            mv "$RUNNER_TEMP/cfetch-homebrew/tag-next.json" "$RUNNER_TEMP/cfetch-homebrew/tag.json"
+          done
+          gh release download "v$VERSION" --repo corbet-labs/cfetch \
+            --pattern checksums_sha256.txt --pattern variants.json \
+            --dir "$RUNNER_TEMP/cfetch-homebrew"
+
+      - name: Render and validate the formula before requesting tap access
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          EXPECTED_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          python3 scripts/release_maintenance.py homebrew-metadata \
+            --version "$VERSION" --expected-commit "$EXPECTED_COMMIT" \
+            --metadata "$RUNNER_TEMP/cfetch-homebrew" \
+            --output "$RUNNER_TEMP/cfetch-homebrew/cfetch.rb"
+
+      - name: Require tap write credential
         env:
           TOKEN: ${{ secrets.PACKAGES_TOKEN }}
         run: |
-          if [ -z "$TOKEN" ]; then
-            echo "::error::PACKAGES_TOKEN secret is not configured."
-            echo "Create a classic PAT with 'public_repo' scope, then add it as"
-            echo "a repository secret named PACKAGES_TOKEN."
+          test -n "$TOKEN" || {
+            echo "::error::PACKAGES_TOKEN needs Contents write access to corbet-labs/homebrew-cfetch."
             exit 1
-          fi
-
-      - name: Wait for release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          for i in $(seq 1 60); do
-            if gh release view "v${VERSION}" --repo corbet-labs/cfetch \
-                --json assets -q '.assets[].name' 2>/dev/null | grep -q '^checksums_sha256.txt$'; then
-              echo "release assets ready"
-              exit 0
-            fi
-            echo "waiting for release v${VERSION} assets ($i/60)..."
-            sleep 15
-          done
-          echo "::error::Release v${VERSION} assets never appeared"
-          exit 1
-
-      - name: Download release metadata
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          gh release download "v${VERSION}" --repo corbet-labs/cfetch \
-            --pattern 'checksums_sha256.txt' --pattern 'variants.json' --dir /tmp
+          }
 
       - name: Check out tap repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: corbet-labs/homebrew-cfetch
           token: ${{ secrets.PACKAGES_TOKEN }}
           path: tap
 
-      - name: Regenerate formula
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          sha_of() {
-            awk -v want="$1" '$2 == want || $2 == "*" want {print $1}' /tmp/checksums_sha256.txt
-          }
-          variant_id() {
-            jq -er --arg os "$1" --arg arch "$2" \
-              '.variants[] | select(.os == $os and .arch == $arch and .backend == "endpoint") | .id' \
-              /tmp/variants.json
-          }
-          MAC_ARM="$(variant_id mac aarch64)-v${VERSION}.tar.gz"
-          MAC_X86="$(variant_id mac x86_64)-v${VERSION}.tar.gz"
-          LNX_ARM="$(variant_id linux aarch64)-v${VERSION}.tar.gz"
-          LNX_X86="$(variant_id linux x86_64)-v${VERSION}.tar.gz"
-          SHA_MAC_ARM=$(sha_of "$MAC_ARM")
-          SHA_MAC_X86=$(sha_of "$MAC_X86")
-          SHA_LNX_ARM=$(sha_of "$LNX_ARM")
-          SHA_LNX_X86=$(sha_of "$LNX_X86")
-          for pair in "$MAC_ARM:$SHA_MAC_ARM" "$MAC_X86:$SHA_MAC_X86" "$LNX_ARM:$SHA_LNX_ARM" "$LNX_X86:$SHA_LNX_X86"; do
-            if [ -z "${pair#*:}" ]; then
-              echo "::error::No checksum for ${pair%%:*}"
-              cat /tmp/checksums_sha256.txt
-              exit 1
-            fi
-          done
-
-          mkdir -p tap/Formula
-          cat > tap/Formula/cfetch.rb <<RUBY
-          class Cfetch < Formula
-            desc "Agent memory: ring-ordered recall over a shared brain, with native Claude Code and Codex hooks"
-            homepage "https://github.com/corbet-labs/cfetch"
-            license "FSL-1.1-ALv2"
-            version "${VERSION}"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/corbet-labs/cfetch/releases/download/v${VERSION}/${MAC_ARM}"
-                sha256 "${SHA_MAC_ARM}"
-              else
-                url "https://github.com/corbet-labs/cfetch/releases/download/v${VERSION}/${MAC_X86}"
-                sha256 "${SHA_MAC_X86}"
-              end
-            end
-
-            on_linux do
-              if Hardware::CPU.arm?
-                url "https://github.com/corbet-labs/cfetch/releases/download/v${VERSION}/${LNX_ARM}"
-                sha256 "${SHA_LNX_ARM}"
-              else
-                url "https://github.com/corbet-labs/cfetch/releases/download/v${VERSION}/${LNX_X86}"
-                sha256 "${SHA_LNX_X86}"
-              end
-            end
-
-            def install
-              bin.install "cfetch"
-              doc.install "LICENSE.md"
-              doc.install "THIRD-PARTY-LICENSES.txt"
-            end
-
-            test do
-              assert_match version.to_s, shell_output("#{bin}/cfetch --version")
-            end
-          end
-          RUBY
-
-      - name: Commit and push
+      - name: Commit and push formula
         working-directory: tap
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
+          mkdir -p Formula
+          cp "$RUNNER_TEMP/cfetch-homebrew/cfetch.rb" Formula/cfetch.rb
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          # Stage FIRST, then compare the index. `git diff --quiet` alone
-          # ignores untracked files, so the very first formula — which is
-          # necessarily untracked — reads as "no changes" and the job exits
-          # green having pushed nothing.
           git add Formula/cfetch.rb
           if git diff --cached --quiet; then
-            echo "No changes — formula already at ${VERSION}"
+            echo "Formula already matches $VERSION"
           else
-            git commit -m "formula: bump cfetch to ${VERSION}"
-            git push origin main
+            git commit -m "formula: bump cfetch to $VERSION"
+            git push origin HEAD:main
           fi

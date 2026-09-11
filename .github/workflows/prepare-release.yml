@@ -16,6 +16,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
+      - name: Preflight blocking CI before preparing a new commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/corbet-labs/cfetch/actions/workflows/ci.yml \
+            --jq .state | jq -eR 'select(. == "active")' >/dev/null
+          # Active configuration is a preflight, not proof of future execution.
+          # The exact candidate must still pass the bounded CI wait below.
       - name: Require release token
         env:
           TOKEN: ${{ secrets.PACKAGES_TOKEN }}

@@ -168,6 +168,66 @@ retains its registered `release.yml` / `crates-io` OIDC boundary; the built-in
 GitHub token writes independent publication intents. Compilation and staging
 receive neither token.
 
+## Maintenance preparation and remaining publication routes
+
+Homebrew's existing GHA updater now runs after the exact GitHub release becomes
+public, or through manual version dispatch. It validates the version, peeled tag,
+public release, catalog checksum and four endpoint archive references/checksums
+before tap access.
+The formula renderer is shared with Crow; historical release metadata does not
+claim fresh native build evidence. The updater preserves its existing tap commit
+and normal fast-forward push. `PACKAGES_TOKEN` needs Contents write on that tap;
+the renderer receives no token. No asset polling or duplicate tag-triggered job
+is needed.
+
+The separate Crow `maintenance` workflow contains no secrets and permits only
+`MAINTENANCE_OPERATION=guards`, `patch-plan`, or `homebrew-render`. It uses the
+existing shared publisher source revision for complete bundle inspection.
+`homebrew-render` requires `RELEASE_BUNDLE` and its independent
+`RELEASE_BUNDLE_SHA256`; it verifies all retained release gates and prepares a
+formula. This offline result does not establish that the release is public.
+
+`patch-plan` calls the existing patch-preparation script inside a disposable
+checkout from an explicitly staged full Git bundle. Set
+`MAINTENANCE_HISTORY_BUNDLE` and `MAINTENANCE_HISTORY_SHA256`; use the existing
+shared transport with `extension="bundle"`. Its source commit and files must
+match the exact dispatched archive, and its latest release tag must be an
+ancestor. Create the bundle with `git bundle create <path> --all` after fetching
+the intended public history; the worker never fetches it. No `.ci/archives.toml`
+is added, so automatic ordinary check routing remains available. The matching
+GHA `Inspect patch preparation` workflow uses the same command.
+
+The retained `maintenance/<operation>/` contains a formula or patch plus a
+source/history/bundle-bound receipt. Patch planning leaves source, main and tags
+unchanged and preserves resumption of an already prepared untagged version.
+License regeneration and full checks remain explicit pending steps. The existing
+credentialed GHA preparation transaction still checks CI is enabled before a
+version/main write and waits for success at the exact candidate SHA before
+tagging. Running that workflow establishes current GHA execution; enabled state
+alone does not promise future capacity. Its bounded wait remains necessary.
+
+Crow **tap writes and candidate/main/tag publication are still unserved**. The
+minimal shared mutation design is an explicit prepare/finish transaction:
+
+1. Verify the prepared receipt, unchanged base and complete required evidence;
+   for a tap update reuse the existing release driver's exact public-release
+   verification. Regenerate licenses before freezing one candidate commit.
+2. Retain the expected base SHA, candidate commit/tree, tag name, output digest
+   and operation intent before any write. Share this exact identity across
+   providers; never recompute the next version during reconciliation.
+3. Push the pre-created commit by normal fast-forward push. For a new immutable
+   tag, use a create-only ref operation; never force or rewrite an existing tag.
+   Remote main/tag must still match the expected source. A competing advance
+   invalidates the transaction for review; no automatic rebase of checked bytes.
+4. Read back exact refs after success or an uncertain response. A matching ref
+   completes the existing intent; a different ref fails; an unresolved outcome
+   stops without another write. Require complete source-bound CI evidence before
+   the tag, and retain the existing release driver's all-native publication gates.
+
+The current preparation helper implements no publication or credential storage.
+Scoped source/tap credentials and complete native evidence remain prerequisites
+to implementing and executing those shared mutation commands.
+
 ## Native and downstream coverage limits
 
 Crow's provisioned Linux worker can execute its native checks/preparation and
@@ -179,10 +239,11 @@ local-package admission still uses the existing explicit policy and staged
 payload verifier. Keep the one-thread and approximately 50% hardware-budget
 policy for any separate device work.
 
-Version preparation/tag creation and downstream Homebrew updating keep their
-existing separate GHA workflows. They are distinct from the new package
-preparation/publication adapter and do not yet have Crow equivalents. A configured
-route is not proof of a completed native release or downstream package update.
+Candidate/main/tag writes and downstream Homebrew tap writes keep their existing
+GHA publication routes and do not yet have Crow equivalents. Read-only patch
+planning and formula rendering now have the separate shared maintenance routes
+described above. A configured route is not proof of a completed native release
+or downstream package update.
 
 Run the lightweight configuration/catalog checks through workflow `ccid`, and
 run release fixtures through workflow `release` with `RELEASE_OPERATION=guards`.

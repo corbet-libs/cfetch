@@ -30,7 +30,7 @@ def require(condition, message):
 def main():
     for path in sorted((ROOT / ".ci").glob("*.py")):
         ast.parse(path.read_text(), filename=str(path))
-    for name in ("release.py", "test_release.py"):
+    for name in ("release.py", "test_release.py", "release_maintenance.py", "test_release_maintenance.py"):
         ast.parse((ROOT / "scripts" / name).read_text(), filename="scripts/" + name)
     config = tomllib.loads((ROOT / ".ci/ccid.toml").read_text())
     require(config["checks"]["ci-config"]["commands"] == [["bash", "scripts/ci-check.sh", "ci-config"]],
@@ -73,6 +73,7 @@ def main():
             "Release commands must share the repository driver")
     shellcheck, actionlint = tool("shellcheck"), tool("actionlint")
     subprocess.run([shellcheck, "scripts/ci-check.sh"], cwd=ROOT, check=True)
+    paths += [".github/workflows/homebrew.yml", ".github/workflows/prepare-release.yml", ".github/workflows/maintenance.yml"]
     subprocess.run([actionlint, "-shellcheck", shellcheck, *paths], cwd=ROOT, check=True)
     print(json.dumps({"actionlint": subprocess.check_output([actionlint, "-version"], text=True).strip(),
                       "shellcheck": subprocess.check_output([shellcheck, "--version"], text=True).strip(),
