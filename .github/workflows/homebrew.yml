@@ -60,7 +60,7 @@ jobs:
             --json tagName,isDraft,isPrerelease,assets > "$RUNNER_TEMP/cfetch-homebrew/release.json"
           gh api "repos/corbet-labs/cfetch/git/ref/tags/v$VERSION" \
             --jq .object > "$RUNNER_TEMP/cfetch-homebrew/tag.json"
-          for attempt in $(seq 1 5); do
+          for ((attempt=0; attempt<5; attempt++)); do
             type=$(jq -r .type "$RUNNER_TEMP/cfetch-homebrew/tag.json")
             if [ "$type" = commit ]; then break; fi
             test "$type" = tag
