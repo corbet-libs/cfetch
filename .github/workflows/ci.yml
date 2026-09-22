@@ -301,6 +301,9 @@ jobs:
             echo "RELEASE_SOURCE_ARCHIVE=$RUNNER_TEMP/cfetch-plan/source.tar"
             echo "RELEASE_SOURCE_SHA256=$PLAN_SOURCE_SHA256"
           } >> "$GITHUB_ENV"
+      - name: Verify release planning on this native platform before compilation
+        shell: bash
+        run: RELEASE_ARTIFACT_DIR="$RUNNER_TEMP/cfetch-native-plan" python scripts/release.py plan
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: stable

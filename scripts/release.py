@@ -83,9 +83,14 @@ def durable(path, value):
 
 
 def command(args, *, env=None, capture=False):
-    return subprocess.run(args, cwd=ROOT, env=env, check=True, text=True,
-                          stdout=subprocess.PIPE if capture else None,
-                          stderr=subprocess.PIPE if capture else None).stdout
+    try:
+        return subprocess.run(args, cwd=ROOT, env=env, check=True, text=True,
+                              stdout=subprocess.PIPE if capture else None,
+                              stderr=subprocess.PIPE if capture else None).stdout
+    except subprocess.CalledProcessError as error:
+        if capture and error.stderr:
+            print(error.stderr[-16384:], file=sys.stderr, end="")
+        raise
 
 
 def no_credentials():
@@ -204,7 +209,7 @@ def matrix(files):
         directory = Path(temporary)
         (directory / "variants.json").write_bytes(files["release/variants.json"])
         (directory / "registry.json").write_bytes(files["release/inference-backends.json"])
-        return json.loads(command(["bash", "scripts/variant-matrix.sh", "--release", str(directory / "variants.json"), str(directory / "registry.json")],
+        return json.loads(command(["bash", "scripts/variant-matrix.sh", "--release", (directory / "variants.json").as_posix(), (directory / "registry.json").as_posix()],
                                   env={key: value for key, value in os.environ.items() if key not in TOKENS}, capture=True))["include"]
 
 
