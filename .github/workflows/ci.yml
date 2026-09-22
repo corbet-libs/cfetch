@@ -133,11 +133,17 @@ jobs:
       - name: Reuse native variant dependencies
         uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c
         with:
+          # ort-sys links an external native archive from its build-script cache.
+          # Keep that archive with Cargo state; older caches omitted it.
+          prefix-key: v1-rust-ort
           shared-key: variant-${{ matrix.id }}
+          cache-directories: ${{ runner.temp }}/cfetch-ort
           cache-bin: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check exact release build
         shell: bash
+        env:
+          ORT_CACHE_DIR: ${{ runner.temp }}/cfetch-ort
         run: |
           export CFETCH_VARIANT='${{ matrix.id }}'
           if [ -n "${{ matrix.target }}" ]; then
