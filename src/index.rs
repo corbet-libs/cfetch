@@ -677,6 +677,25 @@ pub fn tree_walker(root: &Path) -> ignore::WalkBuilder {
     builder
 }
 
+/// Markdown traversal treats repository ownership and retrieval policy separately.
+/// Parent Git ignores cannot hide independently shared child checkouts.
+pub fn brain_walker(brain_root: &Path, rules: &RingRules) -> ignore::WalkBuilder {
+    let mut builder = tree_walker(brain_root);
+    let root = brain_root.to_path_buf();
+    let policy = rules.clone();
+    builder.git_ignore(false).git_exclude(false).git_global(false).parents(false)
+        .filter_entry(move |entry| {
+            let Ok(rel) = entry.path().strip_prefix(&root) else { return false; };
+            if rel.as_os_str().is_empty() { return true; }
+            if entry.file_type().is_some_and(|kind| kind.is_dir())
+                && matches!(entry.file_name().to_str(), Some("target" | "node_modules" | ".venv")) {
+                return false;
+            }
+            !policy.excluded(&rel_doc_path(rel))
+        });
+    builder
+}
+
 /// A managed nixcards checkout is knowledge even when the outer brain keeps
 /// the nested repository out of its own Git history. Walk it explicitly so
 /// `.gitignore` remains a version-control boundary rather than silently
@@ -804,10 +823,7 @@ fn collect_files(
 ) -> Vec<SourceFile> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let mut walkers = vec![tree_walker(brain_root).build()];
-    if let Some(builder) = managed_cards_walker(brain_root) {
-        walkers.push(builder.build());
-    }
+    let walkers = vec![brain_walker(brain_root, rules).build()];
     for walker in walkers {
         for entry in walker.flatten() {
             let Ok(meta) = entry.metadata() else { continue };
@@ -2239,8 +2255,8 @@ pub fn ensure_fresh(
 ) -> anyhow::Result<Connection> {
     let mut conn = open(state_dir).context("open index")?;
     if stale(&conn, brain_root, native_root, rules)? {
-        // `None` = another rebuilder is active; serve the committed snapshot.
         let lock = crate::lockfile::acquire(&state_dir.join("scan.lock"), 500, 120);
+        anyhow::ensure!(lock.is_some(), "index refresh is busy; retry when the current scan completes");
         // Re-check under the lock: the previous holder may have rebuilt
         // exactly what we were about to.
         if lock.is_some() && stale(&conn, brain_root, native_root, rules)? {
@@ -2348,9 +2364,9 @@ mod scoping_tests {
         let brain = tempfile::tempdir().unwrap();
         let root = brain.path();
         std::fs::create_dir_all(root.join("mind/secrets")).unwrap();
-        std::fs::create_dir_all(root.join("mind/memories")).unwrap();
+        std::fs::create_dir_all(root.join("knowledge/behaviours")).unwrap();
         std::fs::write(root.join("mind/secrets/token.md"), "# token\n").unwrap();
-        std::fs::write(root.join("mind/memories/how.md"), "# how\n").unwrap();
+        std::fs::write(root.join("knowledge/behaviours/how.md"), "# how\n").unwrap();
         std::fs::write(root.join("keep.md"), "# keep\n").unwrap();
         // Gitignore syntax carries negation, so the overlay can be written to
         // ASK for secrets back. It gets `mind/` excluded and nothing else:
@@ -2407,7 +2423,7 @@ mod scoping_tests {
             census.record(&format!("knowledge/hosts/h{i}.md"));
         }
         for i in 0..4 {
-            census.record(&format!("mind/memories/m{i}.md"));
+            census.record(&format!("knowledge/behaviours/m{i}.md"));
         }
         census.record("AGENT.md");
         census
@@ -2552,19 +2568,14 @@ mod tests {
         let r = RingRules::default();
         assert_eq!(default_ring("AGENT.md", &r), 1);
         assert_eq!(default_ring("README.md", &r), 1);
-        assert_eq!(default_ring("mind/memories/MEMORY.md", &r), 1);
-        assert_eq!(default_ring("mind/memories/feedback_x.md", &r), 2);
+        assert_eq!(default_ring("knowledge/behaviours/MEMORY.md", &r), 2);
+        assert_eq!(default_ring("knowledge/behaviours/feedback_x.md", &r), 2);
         assert_eq!(default_ring("knowledge/hosts/example/storage.md", &r), 3);
         assert_eq!(default_ring("todo/active/task/STATUS.md", &r), 4);
-        assert_eq!(default_ring("todo/staging/hot-file-1234abcd.md", &r), 5);
-        assert_eq!(default_ring("todo/staging/dismissed/hot-file-1234abcd.md", &r), 5);
-        // An unmigrated tree must stay quarantined: falling through to the
-        // unmatched ring would promote candidates into recall on upgrade.
-        assert_eq!(default_ring("staging/cfetch/hot-file-1234abcd.md", &r), 5);
-        // Disposable working material is excluded outright, not ringed.
-        assert!(r.excluded("todo/scratch/dump.md"));
+        let memory = format!("mind/{}/memories/candidate.md", crate::paths::mind_id());
+        assert_eq!(default_ring(&memory, &r), 5);
+        assert_eq!(default_ring("knowledge/rules/must.md", &r), 0);
         assert!(r.excluded("scratch/dump.md"));
-        assert_eq!(default_ring("scratch/cfetch-staging/candidate.md", &r), 5);
     }
 
     #[test]
@@ -2608,8 +2619,8 @@ mod tests {
         let mut conn = open(state.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert_eq!(report.docs, 1, "only the ring-3 knowledge file is indexed");
-        assert_eq!(report.skipped_high_ring, 0, "scratch is excluded before traversal");
-        assert!(report.skipped.is_empty());
+        assert_eq!(report.skipped_high_ring, 2, "provisional mind evidence stays outside recall");
+        assert_eq!(report.skipped.len(), 2);
         assert_eq!(recall(&conn, "zulqar", 10).unwrap().len(), 1, "only the ring-3 hit");
         assert_eq!(recall(&conn, "zulqar", 10).unwrap()[0].path, "knowledge/live.md");
         assert!(
@@ -2809,7 +2820,7 @@ mod tests {
         // location decides for ring-5+ directories, so the file must stay
         // unindexed exactly like one whose frontmatter was stripped.
         let dir = brain(&[
-            ("todo/staging/smuggled.md", "---\nring: 2\n---\nself promoted candidate\n"),
+            (&format!("mind/{}/memories/smuggled.md", crate::paths::mind_id()), "---\nring: 2\n---\nself promoted candidate\n"),
             ("knowledge/honest.md", "---\nring: 1\n---\nlegitimate promotion\n"),
         ]);
         let state = tempfile::tempdir().unwrap();
@@ -2829,7 +2840,7 @@ mod tests {
         // marker has to quarantine, and a BOM'd `ring: 1` promotion has to
         // promote.
         let dir = brain(&[
-            ("todo/staging/bomq.md", "\u{FEFF}---\nring: 5\n---\nzebraxq quarantined payload\n"),
+            (&format!("mind/{}/memories/bomq.md", crate::paths::mind_id()), "\u{FEFF}---\nring: 5\n---\nzebraxq quarantined payload\n"),
             ("knowledge/bomp.md", "\u{FEFF}---\nring: 1\n---\npluvixq promoted decision\n"),
         ]);
         let state = tempfile::tempdir().unwrap();
@@ -4048,7 +4059,7 @@ mod tests {
         // block must surface ONCE, as its lowest-ring copy, with the
         // suppressed paths recorded as mirrors.
         let brain = brain(&[(
-            "mind/memories/MEMORY.md",
+            "knowledge/behaviours/MEMORY.md",
             "- zvol on btrfs needs the nossd mount option\n",
         )]);
         let native = tempfile::tempdir().unwrap();
@@ -4062,7 +4073,7 @@ mod tests {
         let hits = recall(&conn, "nossd", 5).unwrap();
         assert_eq!(hits.len(), 1, "one logical block, one hit");
         assert_eq!(hits[0].ring, 1, "the lowest-ring copy survives");
-        assert_eq!(hits[0].path, "mind/memories/MEMORY.md");
+        assert_eq!(hits[0].path, "knowledge/behaviours/MEMORY.md");
         assert_eq!(hits[0].mirrors, vec!["native:p/MEMORY.md".to_string()]);
     }
 
@@ -4082,7 +4093,7 @@ mod tests {
         };
         let hits = vec![
             h("r2-aabbccddee", "native:p/MEMORY.md", 2, "Memory"),
-            h("r1-aabbccddee", "mind/memories/MEMORY.md", 1, "Memory"),
+            h("r1-aabbccddee", "knowledge/behaviours/MEMORY.md", 1, "Memory"),
             h("r3-0123456789", "knowledge/x.md", 3, ""),
         ];
         let out = dedup_by_content(hits);
@@ -4151,7 +4162,7 @@ mod tests {
         // LIMIT 2 would return both copies of it and lose the second logical
         // block. Suppression must not shrink the result count.
         let brain = brain(&[
-            ("mind/memories/MEMORY.md", "- flumox\n"),
+            ("knowledge/behaviours/MEMORY.md", "- flumox\n"),
             ("knowledge/other.md", "flumox beta fact with more words\n"),
         ]);
         let native = tempfile::tempdir().unwrap();
@@ -4164,9 +4175,9 @@ mod tests {
         let hits = recall(&conn, "flumox", 2).unwrap();
         assert_eq!(hits.len(), 2, "suppression must not shrink the result count");
         let paths: Vec<&str> = hits.iter().map(|h| h.path.as_str()).collect();
-        assert!(paths.contains(&"mind/memories/MEMORY.md"));
+        assert!(paths.contains(&"knowledge/behaviours/MEMORY.md"));
         assert!(paths.contains(&"knowledge/other.md"));
-        let kept = hits.iter().find(|h| h.path == "mind/memories/MEMORY.md").unwrap();
+        let kept = hits.iter().find(|h| h.path == "knowledge/behaviours/MEMORY.md").unwrap();
         assert_eq!(kept.mirrors, vec!["native:p/MEMORY.md".to_string()]);
     }
 

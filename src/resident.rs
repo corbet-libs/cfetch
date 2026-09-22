@@ -1217,7 +1217,7 @@ mod tests {
         for (dir, name) in [
             ("knowledge", "a.md"),
             ("knowledge", "b.md"),
-            ("mind/memories", "m.md"),
+            ("knowledge/behaviours", "m.md"),
             ("todo", "t.md"),
         ] {
             std::fs::create_dir_all(brain.path().join(dir)).unwrap();

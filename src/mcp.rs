@@ -23,11 +23,11 @@ use crate::{answer, code, config::Config, graph, index, maintenance, paths, serv
 /// The tools we serve; a tools/call naming anything else is the caller's
 /// protocol error (-32602), not a tool-execution failure.
 const TOOL_NAMES: &[&str] = &[
+    "cfetch_graph",
+    "cfetch_graph_path",
     "cfetch_recall",
     "cfetch_expand",
     "cfetch_find",
-    "cfetch_graph",
-    "cfetch_graph_path",
     "cfetch_code_path",
     "cfetch_code_impact",
     "cfetch_code_context",
@@ -64,14 +64,14 @@ fn tool_defs() -> Vec<Tool> {
     vec![
         Tool::new(
             "cfetch_graph",
-            "Explore the current Obsidian link graph across available repositories. Missing and ambiguous notes are never invented.",
+            "Explore the current Obsidian link graph across available repositories. The answer is bounded by a node limit of 200 and an edge limit of four times the node limit. Missing and ambiguous notes are never invented.",
             object_schema(json!({"type":"object", "properties": {
                 "focus":{"type":"string"}, "limit":{"type":"integer", "minimum":1, "maximum":200, "default":40}
             }})),
         ).with_annotations(read_only()),
         Tool::new(
             "cfetch_graph_path",
-            "Find a bounded shortest connection between two notes through explicit links and backlinks. Returns original edge directions and ambiguous or missing endpoints.",
+            "Find a shortest connection between two notes through explicit links and backlinks. The answer is bounded by a depth limit of 32 hops. Returns original edge directions and ambiguous or missing endpoints.",
             object_schema(json!({"type":"object", "properties": {
                 "from":{"type":"string"}, "to":{"type":"string"},
                 "depth":{"type":"integer", "minimum":1, "maximum":32, "default":6}
@@ -499,11 +499,10 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     match name {
         "cfetch_recall" => {
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
-            let native = paths::native_projects_root();
-            let conn = index::ensure_fresh(
+                let conn = index::ensure_fresh(
                 &paths::state_dir(),
                 &cfg.brain_root,
-                Some(&native),
+                None,
                 &cfg.rings(),
             )?;
             let hits = index::recall(&conn, query, if limit == 0 { 8 } else { limit })?;
@@ -518,11 +517,10 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
         }
         "cfetch_expand" => {
             let cite = args.get("cite").and_then(Value::as_str).unwrap_or("");
-            let native = paths::native_projects_root();
-            let conn = index::ensure_fresh(
+                let conn = index::ensure_fresh(
                 &paths::state_dir(),
                 &cfg.brain_root,
-                Some(&native),
+                None,
                 &cfg.rings(),
             )?;
             let blocks = index::expand(&conn, cite)?;
@@ -780,7 +778,7 @@ mod tests {
         // A cap the caller cannot see reads as a broken index: the model
         // re-asks the same question instead of following the file:line
         // pointer the truncated answer already handed it.
-        for tool in tool_defs().into_iter().take(3) {
+        for tool in tool_defs().into_iter().filter(|tool| matches!(tool.name.as_ref(), "cfetch_recall" | "cfetch_expand" | "cfetch_find")) {
             let description = tool.description.as_deref().unwrap_or_default();
             assert!(
                 description.contains("token budget"),

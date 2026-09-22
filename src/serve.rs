@@ -175,7 +175,7 @@ impl FingerprintBasis {
     pub(crate) fn of(cfg: &Config) -> FingerprintBasis {
         FingerprintBasis {
             brain_root: cfg.brain_root.clone(),
-            native_root: Some(paths::native_projects_root()),
+            native_root: None,
             rules: cfg.rings(),
         }
     }
@@ -716,7 +716,7 @@ fn watchable_dirs(brain_root: &Path, rules: &crate::config::RingRules) -> WatchS
         WatchScope { dirs: vec![brain_root.to_path_buf()], census: index::DocCensus::default() };
     let mut seen_dirs = std::collections::HashSet::from([brain_root.to_path_buf()]);
     let mut seen_files = std::collections::HashSet::new();
-    let mut walkers = vec![crate::index::tree_walker(brain_root).build()];
+    let mut walkers = vec![crate::index::brain_walker(brain_root, rules).build()];
     if let Some(builder) = crate::index::managed_cards_walker(brain_root) {
         walkers.push(builder.build());
     }
@@ -1070,11 +1070,10 @@ fn worker(
     wake: &mpsc::Receiver<Wake>,
     watcher: &Arc<Mutex<notify::RecommendedWatcher>>,
 ) {
-    let native = paths::native_projects_root();
     let mut conn: Option<rusqlite::Connection> = None;
     // Startup backstop: whatever happened while the daemon was down is
     // invisible to the watcher.
-    apply(state, &mut conn, cfg, &native, true);
+    apply(state, &mut conn, cfg, true);
     let mut last_backstop = Instant::now();
     let mut watched: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     loop {
@@ -1092,7 +1091,7 @@ fn worker(
                 while let Ok(w) = wake.try_recv() {
                     forced |= w == Wake::Barrier;
                 }
-                apply(state, &mut conn, cfg, &native, forced);
+                apply(state, &mut conn, cfg, forced);
                 if forced {
                     // That pass WAS the fingerprint sweep; do not repeat it.
                     last_backstop = Instant::now();
@@ -1103,7 +1102,7 @@ fn worker(
         }
         if last_backstop.elapsed() >= FINGERPRINT_INTERVAL {
             last_backstop = Instant::now();
-            apply(state, &mut conn, cfg, &native, true);
+            apply(state, &mut conn, cfg, true);
             // Directories created since the last sweep carry no watch of
             // their own (watches are per-directory, non-recursive by design).
             // Re-enumerating on the backstop cadence keeps the watch set
@@ -1133,7 +1132,6 @@ fn apply(
     state: &ServeState,
     conn: &mut Option<rusqlite::Connection>,
     cfg: &Config,
-    native: &Path,
     backstop: bool,
 ) {
     let pass_start = Instant::now();
@@ -1167,7 +1165,7 @@ fn apply(
     // entry, and the real walk is then later still.
     let mut walked: Option<String> = None;
     let need_scan = if backstop {
-        let result = index::staleness(c, &cfg.brain_root, Some(native), &rules);
+        let result = index::staleness(c, &cfg.brain_root, None, &rules);
         // This walk is the same one the unordered barrier would take at query
         // entry; its cost is what tells that barrier whether it can afford to.
         state.note_walk_cost(pass_start.elapsed());
@@ -1185,9 +1183,9 @@ fn apply(
         // Incremental first: re-scan only the changed files. `None` (diff too
         // large, basis changed) and errors alike fall back to the full scan —
         // the correctness floor either way.
-        let result = match index::rescan_changed(c, &cfg.brain_root, Some(native), &rules) {
+        let result = match index::rescan_changed(c, &cfg.brain_root, None, &rules) {
             Ok(Some(r)) => Ok(r),
-            Ok(None) | Err(_) => index::scan(c, &cfg.brain_root, Some(native), &rules),
+            Ok(None) | Err(_) => index::scan(c, &cfg.brain_root, None, &rules),
         };
         match result {
             // Both scan paths stat the whole tree and commit the fingerprint

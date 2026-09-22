@@ -1,11 +1,8 @@
 //! Filesystem locations.
 //!
-//! Two homes, deliberately: the state dir is per-host LOCAL (derived indexes,
-//! sockets, heartbeat — rebuildable, never NFS), while everything that is a
-//! FACT OF RECORD lives in the shared brain tree. Ring-6 exhaust, the ledger
-//! and ring-5 staging belong to the second group: they are the ladder's raw
-//! material, and material only one machine can see is material the fleet does
-//! not have.
+//! Mutable indexes, sockets and heartbeat belong to the local runtime.
+//! Markdown belongs to the configured brain and selected mind. Physical
+//! placement and file sharing are outside cfetch's contract.
 //!
 //! Every location keeps the same override environment variable on every
 //! platform (`HOME`, `CFETCH_STATE_DIR`, `CFETCH_CONFIG`, `CFETCH_BRAIN`);
@@ -159,7 +156,7 @@ pub fn default_brain_root() -> PathBuf {
 /// and read by every host that can reach the tree — never recomputed per
 /// host, and never a per-host database's private property.
 pub fn shared_vector_dir(brain_root: &std::path::Path) -> PathBuf {
-    brain_root.join("state/cfetch/vectors")
+    brain_root.join("scratch/cfetch/vectors")
 }
 
 /// Append-only JSONL streams of record (ring-6 exhaust, injection ledger).
@@ -170,14 +167,29 @@ pub fn logs_dir(brain_root: &Path) -> PathBuf {
     brain_root.join("logs/cfetch")
 }
 
-/// Ring-5 generated evidence, shared across hosts and outside task state.
+/// Ring-5 provisional evidence belongs to the selected mind.
 pub fn staging_dir(brain_root: &Path) -> PathBuf {
-    brain_root.join("scratch/cfetch-staging")
+    mind_dir(brain_root).join("memories")
 }
 
-/// Former staging locations, read only during explicit migration.
-pub fn legacy_staging_dirs(brain_root: &Path) -> [PathBuf; 2] {
-    [brain_root.join("todo/staging"), brain_root.join("staging/cfetch")]
+/// A mind may serve several machines. CFETCH_MIND selects its directory
+/// name independently of the host identity used to attribute log records.
+pub fn mind_id() -> String {
+    std::env::var("CFETCH_MIND").unwrap_or_else(|_| host_id())
+}
+
+pub fn validate_mind_id() -> anyhow::Result<()> {
+    let id = mind_id();
+    anyhow::ensure!(
+        !id.is_empty() && id != "." && id != ".." && id != "models"
+            && id.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.')),
+        "CFETCH_MIND must be one directory name (letters, digits, '.', '_' or '-'), excluding '.', '..' and 'models'"
+    );
+    Ok(())
+}
+
+pub fn mind_dir(brain_root: &Path) -> PathBuf {
+    brain_root.join("mind").join(mind_id())
 }
 
 /// Tool configuration inside the tree — shared by every host that mounts it,

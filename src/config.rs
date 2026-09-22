@@ -21,7 +21,7 @@ pub const UNMATCHED_RING: u8 = 3;
 /// credentials, session exhaust, and git internals. This is the boundary the
 /// whole trust model rests on, so it is compiled in rather than configured —
 /// `exclude_prefixes` can only ADD to it.
-const HARD_EXCLUDE_PREFIXES: &[&str] = &["mind/secrets/", "logs/"];
+const HARD_EXCLUDE_PREFIXES: &[&str] = &["knowledge/secrets/", "mind/models/", "mind/secrets/", "logs/", "scratch/"];
 
 /// One entry of the path -> ring taxonomy.
 ///
@@ -217,6 +217,7 @@ impl RingRules {
     pub fn excluded(&self, rel: &str) -> bool {
         let rel = rel.trim_end_matches('/');
         in_git_dir(rel)
+            || (rel.starts_with("mind/") && !under_prefix(rel, &format!("mind/{}", paths::mind_id())))
             || HARD_EXCLUDE_PREFIXES.iter().any(|p| under_prefix(rel, p))
             || self.exclude_prefixes.iter().any(|p| under_prefix(rel, p))
     }
@@ -234,31 +235,21 @@ impl RingRules {
 /// tree) but not baked in: replacing `ring_rules` in the config replaces it
 /// whole.
 fn default_ring_rules() -> Vec<RingRule> {
+    let mind = format!("mind/{}", paths::mind_id());
     vec![
         // The tree's own entry points: what every agent reads first.
         RingRule { prefix: "AGENT.md".into(), ring: 1 },
         RingRule { prefix: "README.md".into(), ring: 1 },
-        // Exactly the memory index — a topic file named e.g. OLD-MEMORY.md
-        // must not inherit ring 1 by suffix accident.
-        RingRule { prefix: "mind/memories/MEMORY.md".into(), ring: 1 },
-        // Distilled behavioral memories.
-        RingRule { prefix: "mind/memories/".into(), ring: 2 },
-        RingRule { prefix: "scratch/cfetch-staging/".into(), ring: 5 },
-        // Legacy ring-5 candidates. This MUST precede the `todo/` rule:
-        // `ring_for` takes the first match, so the general lane would
-        // otherwise claim the quarantined one and make candidates recallable.
-        RingRule { prefix: "todo/staging/".into(), ring: 5 },
-        // Where staging lived before the tree was standardised. Kept as a
-        // rule, not merely migrated: without it an unmigrated tree matches
-        // nothing on upgrade, falls through to the unmatched ring, and
-        // silently promotes quarantined candidates into recall.
-        RingRule { prefix: "staging/".into(), ring: 5 },
+        RingRule { prefix: "knowledge/rules/".into(), ring: 0 },
+        RingRule { prefix: format!("{mind}/guidance/"), ring: 1 },
+        RingRule { prefix: format!("{mind}/identity/"), ring: 1 },
+        RingRule { prefix: format!("{mind}/policy/"), ring: 1 },
+        RingRule { prefix: "knowledge/behaviours/".into(), ring: 2 },
+        RingRule { prefix: "mind/".into(), ring: 5 },
         // Working state: queues and task notes.
         RingRule { prefix: "todo/".into(), ring: 4 },
-        // Ring-5 staging candidates. The LOCATION decides, so a candidate
-        // whose frontmatter is stripped or hand-mangled is still never
-        // recallable — this exclusion cannot be edited away file by file.
-        // Everything else is curated knowledge; see UNMATCHED_RING.
+        RingRule { prefix: "logs/".into(), ring: 6 },
+        RingRule { prefix: "scratch/".into(), ring: 6 },
     ]
 }
 
@@ -1151,6 +1142,7 @@ impl Config {
 
     /// The shared post-parse checks; every load path funnels through here.
     fn validate(&self) -> anyhow::Result<()> {
+        paths::validate_mind_id()?;
         anyhow::ensure!(self.git.interval_secs >= 10, "git.interval_secs must be at least 10");
         anyhow::ensure!((1..=300).contains(&self.git.timeout_secs), "git.timeout_secs must be between 1 and 300");
         anyhow::ensure!(!self.git.enabled || !self.git.roots.is_empty(), "enroll git.roots before enabling synchronization");
@@ -1591,14 +1583,14 @@ mod tests {
     }
 
     #[test]
-    fn shipped_ring_rules_reproduce_the_historical_mapping() {
+    fn shipped_ring_rules_follow_the_composed_brain_layout() {
         // Regression lock: the shipped default must assign exactly what the
         // hardcoded taxonomy assigned before it became configuration.
         let r = RingRules::default();
         assert_eq!(r.ring_for("AGENT.md"), 1);
         assert_eq!(r.ring_for("README.md"), 1);
-        assert_eq!(r.ring_for("mind/memories/MEMORY.md"), 1);
-        assert_eq!(r.ring_for("mind/memories/feedback_x.md"), 2);
+        assert_eq!(r.ring_for("knowledge/behaviours/MEMORY.md"), 2);
+        assert_eq!(r.ring_for("knowledge/behaviours/feedback_x.md"), 2);
         assert_eq!(r.ring_for("todo/active/task/STATUS.md"), 4);
         assert_eq!(r.ring_for("knowledge/hosts/example/storage.md"), 3);
         // A non-slash prefix is an EXACT path, never a string prefix.
@@ -1784,7 +1776,7 @@ mod tests {
         // Longest matching prefix wins, whatever order they are declared in.
         assert_eq!(m.slice_for("knowledge/hosts/server/zfs.md"), "hosts");
         assert_eq!(m.slice_for("knowledge/world/cloudflare.md"), "work");
-        assert_eq!(m.slice_for("mind/memories/x.md"), ROOT_SLICE);
+        assert_eq!(m.slice_for("knowledge/behaviours/x.md"), ROOT_SLICE);
     }
 
     #[test]

@@ -93,7 +93,7 @@ pub fn queue_staging_visibility(st: &mut SessionState, staging_dir: &Path) -> bo
 /// The top ring-0 rules as one "[cfetch rule refresh]" block: description
 /// frontmatter lines of the resident config's ring-0 files THIS session is
 /// entitled to (or, with no resident config at all, of the brain's
-/// `mind/memories` files declaring `ring: 0`), first `RULES_MAX_LINES`,
+/// `knowledge/behaviours` files declaring `ring: 0`), first `RULES_MAX_LINES`,
 /// capped at `RULES_MAX_CHARS`.
 pub fn top_ring0_rules(cfg: &Config, scope: &SessionScope) -> Option<String> {
     let descriptions = if cfg.resident.is_empty() {
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn prohibitions_are_discovered_from_the_behaviour_directory() {
         let dir = tempfile::tempdir().unwrap();
-        let mem = dir.path().join("mind/memories");
+        let mem = dir.path().join("knowledge/behaviours");
         std::fs::create_dir_all(&mem).unwrap();
         std::fs::write(
             mem.join("feedback_never_enable_dedup.md"),
@@ -381,7 +381,7 @@ forbids:\n  - \"dedup=on|sha256|blake3|edonr\"\nmetadata:\n  type: feedback\n---
         st.record_write("/elsewhere/c.md");
         assert!(!queue_status_nudge(&mut st, brain), "two brain writes are below the threshold");
         assert!(st.drain_reminders().is_empty());
-        st.record_write("/b/agents/mind/memories/c.md");
+        st.record_write("/b/agents/knowledge/behaviours/c.md");
         assert!(queue_status_nudge(&mut st, brain));
         let texts = st.drain_reminders();
         assert_eq!(texts.len(), 1);
@@ -499,7 +499,7 @@ forbids:\n  - \"dedup=on|sha256|blake3|edonr\"\nmetadata:\n  type: feedback\n---
     #[test]
     fn ring0_rules_fall_back_to_memories_when_resident_is_empty() {
         let dir = tempfile::tempdir().unwrap();
-        let memories = dir.path().join("mind/memories");
+        let memories = dir.path().join("knowledge/behaviours");
         std::fs::create_dir_all(&memories).unwrap();
         std::fs::write(
             memories.join("feedback_a.md"),
@@ -541,7 +541,7 @@ forbids:\n  - \"dedup=on|sha256|blake3|edonr\"\nmetadata:\n  type: feedback\n---
             "---\nring: 0\ndescription: house rule alpha\n---\n",
         )
         .unwrap();
-        let memories = dir.path().join("mind/memories");
+        let memories = dir.path().join("knowledge/behaviours");
         std::fs::create_dir_all(&memories).unwrap();
         std::fs::write(
             memories.join("b.md"),
@@ -562,7 +562,7 @@ forbids:\n  - \"dedup=on|sha256|blake3|edonr\"\nmetadata:\n  type: feedback\n---
     #[test]
     fn ring0_rules_cap_lines_and_chars() {
         let dir = tempfile::tempdir().unwrap();
-        let memories = dir.path().join("mind/memories");
+        let memories = dir.path().join("knowledge/behaviours");
         std::fs::create_dir_all(&memories).unwrap();
         for i in 0..5 {
             std::fs::write(

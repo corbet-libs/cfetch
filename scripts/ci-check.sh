@@ -32,9 +32,7 @@ for check in "$@"; do
       ;;
     memory)
       rustc --version
-      cargo test --locked --bin cfetch repositories::tests
-      cargo test --locked --bin cfetch knowledge_graph::tests
-      cargo test --locked --bin cfetch mcp::tests
+      cargo test --locked --bin cfetch
       ;;
     rust)
       version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)

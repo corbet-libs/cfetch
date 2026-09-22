@@ -70,7 +70,6 @@ mod maintenance_worker;
 mod memory_eval;
 mod embedding_input;
 mod mcp;
-mod migrate;
 mod net;
 #[cfg(not(test))]
 mod output;
@@ -732,16 +731,13 @@ fn selfcheck() -> anyhow::Result<()> {
     // tree answers from a version of it that no longer exists.
     if let Some(cfg) = &cfg {
         let (severity, line) =
-            index_liveness_line(cfg, &state, Some(&paths::native_projects_root()));
+            index_liveness_line(cfg, &state, None);
         match severity {
             heartbeat::Severity::Healthy => println!("ok    {line}"),
             _ => println!("warn  {line}"),
         }
     }
 
-    if let Some(note) = migrate::legacy_note(&state) {
-        println!("warn  {note}");
-    }
 
     match daemon::call("ping", std::time::Duration::from_millis(300)) {
         Some(r) => println!("ok    daemon answers (v{})", r.version.unwrap_or_default()),
@@ -842,8 +838,7 @@ fn scan(background: bool) -> anyhow::Result<()> {
     none_tier_guard(&cfg, "scan")?;
     {
         let mut conn = index::open(&paths::state_dir())?;
-        let native = paths::native_projects_root();
-        let report = index::scan(&mut conn, &cfg.brain_root, Some(&native), &cfg.rings())?;
+        let report = index::scan(&mut conn, &cfg.brain_root, None, &cfg.rings())?;
         println!(
             "indexed {} docs, {} blocks (generation {}, {} file(s) skipped as ring 5+)",
             report.docs, report.blocks, report.generation, report.skipped_high_ring
@@ -1636,7 +1631,7 @@ fn graph_cmd(
     let conn = index::ensure_fresh(
         &paths::state_dir(),
         &cfg.brain_root,
-        Some(&paths::native_projects_root()),
+        None,
         &cfg.rings(),
     )?;
     let graph = if let Some(slice) = slice {
@@ -1895,8 +1890,7 @@ fn recall(
     {
         return recall_served(&resp, id, budget_tokens, json);
     }
-    let native = paths::native_projects_root();
-    let conn = index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, Some(&native), &cfg.rings())?;
+    let conn = index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
 
     if let Some(cite) = id {
         let blocks = index::expand(&conn, cite)?;
@@ -2016,16 +2010,6 @@ fn recall(
 fn staging_cmd(action: StagingAction) -> anyhow::Result<()> {
     let cfg = config::Config::load()?;
     let ex = exhaust::Exhaust::from_config(&cfg);
-    let state_dir = paths::state_dir();
-    // A legacy per-host exhaust.db is imported once, and said out loud.
-    if let Some(r) = migrate::import_legacy_exhaust(&state_dir, &ex)? {
-        println!(
-            "imported {} event(s) and {} ring-5 candidate(s) from {} into the tree",
-            r.events,
-            r.staged,
-            r.db.display()
-        );
-    }
     let dir = ex.staging_dir.clone();
     match action {
         StagingAction::List { json } => {
@@ -2363,15 +2347,6 @@ fn init_cmd(path: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let root = path.unwrap_or_else(paths::default_brain_root);
     let out = init::run(&root)?;
     println!("brain tree at {}", out.root.display());
-    // Getting an existing tree to spec is the same command as creating one:
-    // a standard nobody can migrate onto is a standard for new users only.
-    let moved = migrate::migrate_staging(&root)?;
-    if !moved.moved.is_empty() {
-        println!("  moved   {} staged candidate(s) into scratch/cfetch-staging/", moved.moved.len());
-    }
-    for name in &moved.collisions {
-        println!("  CLASH   {name} exists at both ends — left untouched, resolve by hand");
-    }
     for (name, fresh) in &out.dirs {
         println!("  {} {name}/", if *fresh { "created" } else { "present" });
     }
@@ -2723,15 +2698,12 @@ fn status() -> anyhow::Result<()> {
         }
     }
     let state = paths::state_dir();
-    println!("{}", index_liveness_line(&cfg, &state, Some(&paths::native_projects_root())).1);
+    println!("{}", index_liveness_line(&cfg, &state, None).1);
     // The identity is what a peer grants a slice TO, so an operator needs to
     // be able to read it off the machine it belongs to.
     match net::endpoint_id(&state) {
         Ok(id) => println!("identity: {id}"),
         Err(e) => println!("identity: unavailable ({e})"),
-    }
-    if let Some(note) = migrate::legacy_note(&state) {
-        println!("{note}");
     }
     let bytes: u64 = std::fs::read_dir(&state)
         .map(|rd| {

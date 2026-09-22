@@ -11,7 +11,7 @@
 //! | `OPENWOLF.md` | `knowledge/openwolf-protocol.md` | 3 | the old operating protocol, preserved verbatim but recall-only: its instructions point at `.wolf/` paths that do not exist here and at `openwolf recall`; injecting them with ring-1 authority would redirect every session's work outside the brain |
 //! | *(authored)* | `AGENT.md` | 1 | a migration bridge written by cfetch (never overwriting an operator's file): where knowledge, bugs, memories, and staging live now, and where the old protocol is kept |
 //! | `cerebrum.md` | `knowledge/cerebrum.md` | 3 | curated, recallable |
-//! | `memory.md` | `mind/memories/MEMORY.md` | 2 | behaviour, scoped injection |
+//! | `memory.md` | `knowledge/behaviours/MEMORY.md` | 2 | behaviour, scoped injection |
 //! | `identity.md` | `knowledge/identity.md` | 3 | project identity |
 //! | `reframe-frameworks.md` | `knowledge/reframe-frameworks.md` | 3 | reference |
 //! | `STATUS.md` | `knowledge/handoff.md` | 0 | snapshot of the project state at migration time; a one-way import makes it history, and it is the natural ring-0 handoff |
@@ -57,7 +57,7 @@ pub struct ImportReport {
 pub const MIGRATIONS: &[(&str, &str, Option<u8>)] = &[
     ("OPENWOLF.md", "knowledge/openwolf-protocol.md", Some(3)),
     ("cerebrum.md", "knowledge/cerebrum.md", Some(3)),
-    ("memory.md", "mind/memories/MEMORY.md", Some(2)),
+    ("memory.md", "knowledge/behaviours/MEMORY.md", Some(2)),
     ("identity.md", "knowledge/identity.md", Some(3)),
     ("reframe-frameworks.md", "knowledge/reframe-frameworks.md", Some(3)),
     ("STATUS.md", "knowledge/handoff.md", Some(0)),
@@ -67,7 +67,7 @@ pub const MIGRATIONS: &[(&str, &str, Option<u8>)] = &[
 /// the resident channel to the old tool's protocol (or to nothing). Facts
 /// only: where the migrated conventions live now and where the old protocol
 /// is kept. An operator's own AGENT.md is never overwritten.
-const AGENT_BRIDGE: &str = "---\nring: 1\n---\n\n# Migration bridge (authored by `cfetch import openwolf`)\n\nThis brain was migrated from an openwolf-enhanced `.wolf/` tree. The\nprevious operating protocol is preserved verbatim at\n`knowledge/openwolf-protocol.md` — recall-only. Its instructions reference\n`.wolf/` paths (`.wolf/STATUS.md`, `.wolf/memory.md`, `.wolf/buglog.json`)\nand the `openwolf recall` command; none of these exist in a cfetch brain.\nFollowing them here sends work outside the tree.\n\nWhere things live now:\n\n- curated facts and project knowledge → `knowledge/`\n- one note per bug or failure conclusion → `knowledge/bugs/`\n- behaviour and working agreements → `mind/memories/`\n- quarantine for anything unreviewed → `scratch/cfetch-staging/`\n- the migrated project-state snapshot (ring-0 handoff) → `knowledge/handoff.md`\n";
+const AGENT_BRIDGE: &str = "---\nring: 1\n---\n\n# Migration bridge (authored by `cfetch import openwolf`)\n\nThis brain was migrated from an openwolf-enhanced `.wolf/` tree. The\nprevious operating protocol is preserved verbatim at\n`knowledge/openwolf-protocol.md` — recall-only. Its instructions reference\n`.wolf/` paths (`.wolf/STATUS.md`, `.wolf/memory.md`, `.wolf/buglog.json`)\nand the `openwolf recall` command; none of these exist in a cfetch brain.\nFollowing them here sends work outside the tree.\n\nWhere things live now:\n\n- curated facts and project knowledge → `knowledge/`\n- one note per bug or failure conclusion → `knowledge/bugs/`\n- behaviour and working agreements → `knowledge/behaviours/`\n- quarantine for anything unreviewed → `scratch/cfetch-staging/`\n- the migrated project-state snapshot (ring-0 handoff) → `knowledge/handoff.md`\n";
 
 /// Files cfetch regenerates or tracks differently — skipped with a reason.
 const SKIPPED: &[(&str, &str)] = &[
@@ -361,7 +361,7 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
             if !name.ends_with(".md") {
                 continue;
             }
-            let dest_rel = format!("scratch/cfetch-staging/{name}");
+            let dest_rel = format!("mind/{}/memories/{name}", crate::paths::mind_id());
             let dest = crate::paths::staging_dir(brain_root).join(&name);
             if dest.exists() {
                 report.skipped.push((dest_rel.clone(), "already exists".to_string()));
@@ -538,13 +538,13 @@ mod tests {
             .imported
             .iter()
             .any(|(s, d)| s == "cerebrum.md" && d == "knowledge/cerebrum.md"));
-        assert!(report.imported.iter().any(|(s, d)| s == "memory.md" && d == "mind/memories/MEMORY.md"));
+        assert!(report.imported.iter().any(|(s, d)| s == "memory.md" && d == "knowledge/behaviours/MEMORY.md"));
         assert!(report.imported.iter().any(|(s, _)| s.starts_with("handoff-archiv")));
-        assert!(report.imported.iter().any(|(s, _)| s.starts_with("scratch/cfetch-staging/")));
+        assert!(report.imported.iter().any(|(s, _)| s.starts_with("todo/staging/")));
         assert!(report.skipped.iter().any(|(s, r)| s == "anatomy.md" && r.contains("code index")));
 
         // Ring frontmatter was applied.
-        let memory = std::fs::read_to_string(brain.path().join("mind/memories/MEMORY.md")).unwrap();
+        let memory = std::fs::read_to_string(brain.path().join("knowledge/behaviours/MEMORY.md")).unwrap();
         assert!(memory.starts_with("---\nring: 2\n---"), "got: {}", &memory[..40.min(memory.len())]);
     }
 
