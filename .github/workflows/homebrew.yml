@@ -88,14 +88,14 @@ jobs:
           TOKEN: ${{ secrets.PACKAGES_TOKEN }}
         run: |
           test -n "$TOKEN" || {
-            echo "::error::PACKAGES_TOKEN needs Contents write access to corbet-labs/homebrew-cfetch."
+            echo "::error::PACKAGES_TOKEN needs Contents write access to corbet-libs/homebrew-cfetch."
             exit 1
           }
 
       - name: Check out tap repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: corbet-labs/homebrew-cfetch
+          repository: corbet-libs/homebrew-cfetch
           token: ${{ secrets.PACKAGES_TOKEN }}
           path: tap
 
