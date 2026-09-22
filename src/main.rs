@@ -38,20 +38,20 @@ mod daemon;
 mod dashboard;
 mod doctor;
 mod embed;
+#[cfg(feature = "embedded-embeddings")]
+mod embedded_embed;
+mod embedding_input;
 mod embedding_profile;
 mod exhaust;
 mod fsutil;
 mod govern;
-mod grant;
-mod import;
-#[cfg(feature = "embedded-embeddings")]
-mod embedded_embed;
 mod graph;
 mod hardware;
 mod hashing;
 mod heartbeat;
 mod hook_io;
 mod hooks;
+mod import;
 mod index;
 mod init;
 mod install;
@@ -59,32 +59,30 @@ mod ipc;
 mod jsonl;
 mod knowledge_graph;
 mod ledger;
-mod lockfile;
 mod local_adapter;
 mod local_inference;
-mod markers;
+mod lockfile;
 mod maintenance;
 mod maintenance_inbox;
 mod maintenance_model;
 mod maintenance_worker;
-mod memory_eval;
-mod embedding_input;
+mod markers;
 mod mcp;
-mod net;
+mod memory_eval;
 #[cfg(not(test))]
 mod output;
 mod paths;
 mod pipeline;
+mod repositories;
 mod rerank;
 mod resident;
-mod repositories;
 mod retrieval_fixture;
 mod runtime_status;
 mod serve;
 mod session_state;
+mod staging;
 #[cfg(test)]
 mod testhttp;
-mod staging;
 mod transcript;
 mod variant;
 mod vector_worker;
@@ -243,31 +241,6 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Mint a one-time invite to a slice, to paste to another host
-    Invite {
-        /// Slice to grant (must be configured on this host)
-        slice: String,
-        /// Access to grant: ro or rw
-        #[arg(long, default_value = "ro")]
-        mode: String,
-        /// Expire the invite after this many hours
-        #[arg(long)]
-        expires_in_hours: Option<u64>,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Redeem an invite minted by another host
-    Join {
-        /// The ticket text from `cfetch invite`
-        ticket: String,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Show who has been granted which slice, and which invites are unused
-    Grants {
-        #[arg(long)]
-        json: bool,
-    },
     /// Detect accelerators and name the variant this machine should run
     Hardware {
         #[arg(long)]
@@ -307,11 +280,6 @@ enum Command {
         /// Evaluate a candidate vector bundle bound to that exact manifest
         #[arg(long)]
         vectors: Option<std::path::PathBuf>,
-    },
-    /// Show this host's network identity (created on first use)
-    Identity {
-        #[arg(long)]
-        json: bool,
     },
     /// List the configured slices with what each one holds
     Slices {
@@ -667,7 +635,11 @@ fn selfcheck() -> anyhow::Result<()> {
                 "ok    {} resident entr(ies) out of scope for host {}{}",
                 digest.skipped_by_scope.len(),
                 scope.host,
-                scope.repo.as_deref().map(|r| format!(" / repo {r}")).unwrap_or_default(),
+                scope
+                    .repo
+                    .as_deref()
+                    .map(|r| format!(" / repo {r}"))
+                    .unwrap_or_default(),
             );
             for label in &digest.skipped_by_scope {
                 println!("        {label}: not injected here");
@@ -730,14 +702,12 @@ fn selfcheck() -> anyhow::Result<()> {
     // never scanned answers every recall from nothing, and one lagging the
     // tree answers from a version of it that no longer exists.
     if let Some(cfg) = &cfg {
-        let (severity, line) =
-            index_liveness_line(cfg, &state, None);
+        let (severity, line) = index_liveness_line(cfg, &state, None);
         match severity {
             heartbeat::Severity::Healthy => println!("ok    {line}"),
             _ => println!("warn  {line}"),
         }
     }
-
 
     match daemon::call("ping", std::time::Duration::from_millis(300)) {
         Some(r) => println!("ok    daemon answers (v{})", r.version.unwrap_or_default()),
@@ -756,39 +726,6 @@ fn selfcheck() -> anyhow::Result<()> {
         }
     }
 
-    if let Some(cfg) = &cfg {
-        if cfg.serve.enabled {
-            println!("ok    serving mode: origin {}", serve::origin_of(cfg));
-            if let (Some(bind), Some(tf)) = (&cfg.serve.bind, &cfg.serve.token_file) {
-                match serve::read_token(tf, true) {
-                    Ok(_) => println!("ok    tcp serving configured on {bind} (token file is 0600)"),
-                    Err(e) => {
-                        println!("FAIL  tcp serving: {e}");
-                        hard_failures += 1;
-                    }
-                }
-            } else {
-                println!("ok    serving on the local control channel only (no serve.bind)");
-            }
-        }
-        if let Some(cs) = &cfg.client.serving {
-            // A none-tier host without its serving host has NO memory at all
-            // — that is a hard failure, not a warning.
-            match serve::client_call(cs, serde_json::json!({"op": "generation"}), serve::QUERY_TIMEOUT) {
-                Ok(r) => println!(
-                    "ok    client mode (none-tier): serving host {} answers (origin {}, generation {})",
-                    cs.addr,
-                    r.origin.unwrap_or_default(),
-                    r.generation.unwrap_or(0)
-                ),
-                Err(e) => {
-                    println!("FAIL  client mode (none-tier): {e}");
-                    hard_failures += 1;
-                }
-            }
-        }
-    }
-
     // "No degraded hooks" was the answer whether the hooks were fine or had
     // never run at all — the one check meant to prove the installation works
     // could not tell a clean result from a dead one.
@@ -797,7 +734,9 @@ fn selfcheck() -> anyhow::Result<()> {
         heartbeat::Severity::Healthy => println!("ok    {}", liveness.summary()),
         heartbeat::Severity::Unobserved => {
             println!("warn  {}", liveness.summary());
-            println!("        a hook that has never fired reports nothing to fail on; start a session, then re-run");
+            println!(
+                "        a hook that has never fired reports nothing to fail on; start a session, then re-run"
+            );
         }
         // Still a warning, not a hard failure: a repeatedly failing hook is
         // loud but recoverable, and selfcheck's nonzero exit is reserved for
@@ -805,7 +744,12 @@ fn selfcheck() -> anyhow::Result<()> {
         heartbeat::Severity::Failing => println!("warn  {}", liveness.summary()),
     }
     for h in liveness.degraded() {
-        if let heartbeat::HookState::Failing { consecutive, last_error, .. } = &h.state {
+        if let heartbeat::HookState::Failing {
+            consecutive,
+            last_error,
+            ..
+        } = &h.state
+        {
             println!(
                 "warn  hook {} failing ({consecutive} consecutive; last: {})",
                 h.name,
@@ -820,22 +764,9 @@ fn selfcheck() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Commands that need a local index refuse on a none-tier host instead of
-/// quietly building a parallel truth next to the remote routing.
-fn none_tier_guard(cfg: &config::Config, what: &str) -> anyhow::Result<()> {
-    if let Some(cs) = &cfg.client.serving {
-        anyhow::bail!(
-            "{what} needs a local index, but this host is none-tier by config \
-             (client.serving = {}): queries are served remotely and no local index exists",
-            cs.addr
-        );
-    }
-    Ok(())
-}
-
 fn scan(background: bool) -> anyhow::Result<()> {
     let cfg = config::Config::load()?;
-    none_tier_guard(&cfg, "scan")?;
+
     {
         let mut conn = index::open(&paths::state_dir())?;
         let report = index::scan(&mut conn, &cfg.brain_root, None, &cfg.rings())?;
@@ -851,32 +782,53 @@ fn scan(background: bool) -> anyhow::Result<()> {
             println!(
                 "  skipped (ring 5+ or unparseable ring frontmatter): {}{}",
                 shown.join(", "),
-                if more > 0 { format!(" . and {more} more") } else { String::new() }
+                if more > 0 {
+                    format!(" . and {more} more")
+                } else {
+                    String::new()
+                }
             );
         }
         // Unreadable files are a different failure with a different fix
         // (encoding, or an editor/antivirus lock on Windows) — naming them
         // under the ring-5+ reason sends the operator to the wrong place.
         if !report.unreadable.is_empty() {
-            let shown: Vec<&str> = report.unreadable.iter().take(10).map(String::as_str).collect();
+            let shown: Vec<&str> = report
+                .unreadable
+                .iter()
+                .take(10)
+                .map(String::as_str)
+                .collect();
             let more = report.unreadable.len() - shown.len();
             println!(
                 "  unreadable (invalid UTF-8 or locked): {}{}",
                 shown.join(", "),
-                if more > 0 { format!(" . and {more} more") } else { String::new() }
+                if more > 0 {
+                    format!(" . and {more} more")
+                } else {
+                    String::new()
+                }
             );
         }
         // An unclosed <private> blanks to end of file by design, fail-closed
         // — often a mere mention of the tag in prose. The design keeps the
         // hiding; the silence was the bug.
         if !report.private_swallowed.is_empty() {
-            let shown: Vec<&str> =
-                report.private_swallowed.iter().take(10).map(String::as_str).collect();
+            let shown: Vec<&str> = report
+                .private_swallowed
+                .iter()
+                .take(10)
+                .map(String::as_str)
+                .collect();
             let more = report.private_swallowed.len() - shown.len();
             println!(
                 "  <private> never closed — content blanked to end of file: {}{}",
                 shown.join(", "),
-                if more > 0 { format!(" . and {more} more") } else { String::new() }
+                if more > 0 {
+                    format!(" . and {more} more")
+                } else {
+                    String::new()
+                }
             );
         }
         if report.blob_dropped > 0 {
@@ -894,7 +846,10 @@ fn scan(background: bool) -> anyhow::Result<()> {
                 return Ok(());
             }
             Some(r) => {
-                println!("daemon refused: {}", r.error.unwrap_or_else(|| "unknown error".into()));
+                println!(
+                    "daemon refused: {}",
+                    r.error.unwrap_or_else(|| "unknown error".into())
+                );
                 return Ok(());
             }
             None => println!("warning: daemon unreachable — running the code scan inline"),
@@ -983,7 +938,10 @@ mod answer {
     /// and the drop line still says what that cost.
     fn fit(mut entries: Vec<String>, budget: u64) -> Fitted {
         if uncapped(budget) {
-            return Fitted { entries, dropped: 0 };
+            return Fitted {
+                entries,
+                dropped: 0,
+            };
         }
         let mut chars = 0usize;
         let mut kept = 0usize;
@@ -1042,7 +1000,10 @@ mod answer {
     /// the file range holding the rest.
     fn clip(text: &str, budget: u64) -> Clipped {
         if uncapped(budget) || estimate_tokens(text.len()) <= budget {
-            return Clipped { text: text.to_string(), omitted_tokens: 0 };
+            return Clipped {
+                text: text.to_string(),
+                omitted_tokens: 0,
+            };
         }
         let mut end = fitting_bytes(budget, text.len());
         while end > 0 && !text.is_char_boundary(end) {
@@ -1051,7 +1012,10 @@ mod answer {
         if let Some(newline) = text[..end].rfind('\n') {
             end = newline;
         }
-        Clipped { text: text[..end].to_string(), omitted_tokens: estimate_tokens(text.len() - end) }
+        Clipped {
+            text: text[..end].to_string(),
+            omitted_tokens: estimate_tokens(text.len() - end),
+        }
     }
 
     /// One budget spanning several blocks. `expand` hands back every mirrored
@@ -1064,21 +1028,32 @@ mod answer {
 
     impl BlockBudget {
         pub fn new(budget: u64) -> BlockBudget {
-            BlockBudget { left: budget, uncapped: uncapped(budget) }
+            BlockBudget {
+                left: budget,
+                uncapped: uncapped(budget),
+            }
         }
 
         pub fn take(&mut self, body: &str) -> Clipped {
             if self.uncapped {
-                return Clipped { text: body.to_string(), omitted_tokens: 0 };
+                return Clipped {
+                    text: body.to_string(),
+                    omitted_tokens: 0,
+                };
             }
             if self.left == 0 {
                 // Exhausted, which `clip` would read as "no cap" — the exact
                 // opposite. The block still gets named by its caller; only its
                 // text is withheld.
-                return Clipped { text: String::new(), omitted_tokens: estimate_tokens(body.len()) };
+                return Clipped {
+                    text: String::new(),
+                    omitted_tokens: estimate_tokens(body.len()),
+                };
             }
             let clipped = clip(body, self.left);
-            self.left = self.left.saturating_sub(estimate_tokens(clipped.text.len()));
+            self.left = self
+                .left
+                .saturating_sub(estimate_tokens(clipped.text.len()));
             clipped
         }
     }
@@ -1153,8 +1128,10 @@ mod answer {
             .map(|block| {
                 let locator = format!("{}:{}-{}", block.path, block.start_line, block.end_line);
                 let clipped = running.take(&block.text);
-                let mut out =
-                    format!("{} {locator} (ring {})\n{}", block.cite, block.ring, clipped.text);
+                let mut out = format!(
+                    "{} {locator} (ring {})\n{}",
+                    block.cite, block.ring, clipped.text
+                );
                 if clipped.omitted_tokens > 0 {
                     out.push('\n');
                     out.push_str(&clipped_note(clipped.omitted_tokens, &locator));
@@ -1168,54 +1145,7 @@ mod answer {
 
 fn find(query: &str, limit: usize, budget_tokens: u64, json: bool) -> anyhow::Result<()> {
     // None-tier: the serving host's code index answers; no local index opens.
-    if let Some(cs) = config::Config::load()?.client.serving {
-        let body = serde_json::json!({"op": "find", "query": query, "limit": limit});
-        let resp = serve::client_call(&cs, body, serve::QUERY_TIMEOUT)?;
-        let hits = resp.code_hits.clone().unwrap_or_default();
-        if json {
-            let (arr, dropped) = answer::fit_json(
-                hits.iter()
-                    .map(|h| {
-                        serde_json::json!({
-                            "path": h.path, "name": h.name, "kind": h.kind,
-                            "lines": [h.start_line, h.end_line],
-                            "tokens_estimated": h.token_estimate,
-                        })
-                    })
-                    .collect(),
-                budget_tokens,
-            );
-            println!(
-                "{}",
-                serde_json::json!({
-                    "hits": arr, "dropped": dropped, "budget_tokens": budget_tokens,
-                    "origin": resp.origin, "generation": resp.generation,
-                    "fresh": resp.fresh, "stale_note": resp.stale_note,
-                })
-            );
-            return Ok(());
-        }
-        if hits.is_empty() {
-            println!("no hits for \"{query}\" (served by {})", resp.origin.unwrap_or_default());
-            return Ok(());
-        }
-        let entries = hits
-            .iter()
-            .map(|h| {
-                answer::find_entry(
-                    &h.path,
-                    h.name.as_deref(),
-                    h.kind.as_deref(),
-                    h.start_line,
-                    h.end_line,
-                    h.token_estimate,
-                )
-            })
-            .collect();
-        println!("{}", answer::listing(entries, budget_tokens, answer::CLI_RECOVERY));
-        print_served_by(&resp);
-        return Ok(());
-    }
+
     // Serves the existing snapshot ONLY: a full code scan over NFS roots
     // takes minutes and must never ride on an interactive lookup. `cfetch
     // scan` (or the daemon's background scan) owns index freshness.
@@ -1274,7 +1204,10 @@ fn find(query: &str, limit: usize, budget_tokens: u64, json: bool) -> anyhow::Re
             )
         })
         .collect();
-    println!("{}", answer::listing(entries, budget_tokens, answer::CLI_RECOVERY));
+    println!(
+        "{}",
+        answer::listing(entries, budget_tokens, answer::CLI_RECOVERY)
+    );
     Ok(())
 }
 
@@ -1299,7 +1232,10 @@ fn print_map(m: &serve::WireMap, focus: Option<&str>, served_by: Option<&str>) {
         println!("{line}");
     }
     if m.lines.len() < m.total_files {
-        println!("… {} more file(s) beyond the token budget", m.total_files - m.lines.len());
+        println!(
+            "… {} more file(s) beyond the token budget",
+            m.total_files - m.lines.len()
+        );
     }
 }
 
@@ -1307,19 +1243,7 @@ fn map_cmd(focus: Option<&str>, budget_tokens: u64) -> anyhow::Result<()> {
     let cfg = config::Config::load()?;
     // None-tier: the serving host's code index answers, exactly as for find.
     // (scan and embed-index stay local — they write.)
-    if let Some(cs) = &cfg.client.serving {
-        let body = serde_json::json!({
-            "op": "map", "focus": focus, "budget_tokens": budget_tokens,
-        });
-        let resp = serve::client_call(cs, body, serve::QUERY_TIMEOUT)?;
-        let m = resp
-            .map
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("serving host {} returned no map", cs.addr))?;
-        print_map(m, focus, Some(&cs.addr));
-        print_served_by(&resp);
-        return Ok(());
-    }
+
     let conn = index::open(&paths::state_dir())?;
     let m = graph::map(&conn, &cfg.effective_code_roots(), focus, budget_tokens)?;
     print_map(&m.into(), focus, None);
@@ -1329,84 +1253,27 @@ fn map_cmd(focus: Option<&str>, budget_tokens: u64) -> anyhow::Result<()> {
 fn code_graph_cmd(action: CodeGraphAction) -> anyhow::Result<()> {
     let cfg = config::Config::load()?;
     match action {
-        CodeGraphAction::Path { from, to, depth, json } => {
-            if let Some(cs) = &cfg.client.serving {
-                let response = serve::client_call(
-                    cs,
-                    serde_json::json!({
-                        "op": "code-path",
-                        "from_path": from,
-                        "to_path": to,
-                        "depth": depth,
-                    }),
-                    serve::QUERY_TIMEOUT,
-                )?;
-                let path = response.dependency_path.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("serving host {} returned no dependency path", cs.addr)
-                })?;
-                if json {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&serde_json::json!({
-                            "path": path,
-                            "origin": response.origin,
-                            "generation": response.generation,
-                            "fresh": response.fresh,
-                            "stale_note": response.stale_note,
-                        }))?
-                    );
-                } else {
-                    println!("{}", graph::render_dependency_path(path));
-                    print_served_by(&response);
-                }
-                return Ok(());
-            }
+        CodeGraphAction::Path {
+            from,
+            to,
+            depth,
+            json,
+        } => {
             let conn = index::open(&paths::state_dir())?;
-            let path = graph::dependency_path(
-                &conn,
-                &cfg.effective_code_roots(),
-                &from,
-                &to,
-                depth,
-            )?;
+            let path =
+                graph::dependency_path(&conn, &cfg.effective_code_roots(), &from, &to, depth)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&path)?);
             } else {
                 println!("{}", graph::render_dependency_path(&path));
             }
         }
-        CodeGraphAction::Impact { target, depth, limit, json } => {
-            if let Some(cs) = &cfg.client.serving {
-                let response = serve::client_call(
-                    cs,
-                    serde_json::json!({
-                        "op": "code-impact",
-                        "path": target,
-                        "depth": depth,
-                        "limit": limit,
-                    }),
-                    serve::QUERY_TIMEOUT,
-                )?;
-                let impact = response.dependency_impact.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("serving host {} returned no dependency impact", cs.addr)
-                })?;
-                if json {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&serde_json::json!({
-                            "impact": impact,
-                            "origin": response.origin,
-                            "generation": response.generation,
-                            "fresh": response.fresh,
-                            "stale_note": response.stale_note,
-                        }))?
-                    );
-                } else {
-                    println!("{}", graph::render_dependency_impact(impact));
-                    print_served_by(&response);
-                }
-                return Ok(());
-            }
+        CodeGraphAction::Impact {
+            target,
+            depth,
+            limit,
+            json,
+        } => {
             let conn = index::open(&paths::state_dir())?;
             let impact = graph::dependency_impact(
                 &conn,
@@ -1421,38 +1288,12 @@ fn code_graph_cmd(action: CodeGraphAction) -> anyhow::Result<()> {
                 println!("{}", graph::render_dependency_impact(&impact));
             }
         }
-        CodeGraphAction::Context { target, depth, limit, json } => {
-            if let Some(cs) = &cfg.client.serving {
-                let response = serve::client_call(
-                    cs,
-                    serde_json::json!({
-                        "op": "code-context",
-                        "path": target,
-                        "depth": depth,
-                        "limit": limit,
-                    }),
-                    serve::QUERY_TIMEOUT,
-                )?;
-                let context = response.dependency_context.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("serving host {} returned no dependency context", cs.addr)
-                })?;
-                if json {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&serde_json::json!({
-                            "context": context,
-                            "origin": response.origin,
-                            "generation": response.generation,
-                            "fresh": response.fresh,
-                            "stale_note": response.stale_note,
-                        }))?
-                    );
-                } else {
-                    println!("{}", graph::render_dependency_context(context));
-                    print_served_by(&response);
-                }
-                return Ok(());
-            }
+        CodeGraphAction::Context {
+            target,
+            depth,
+            limit,
+            json,
+        } => {
             let conn = index::open(&paths::state_dir())?;
             let context = graph::dependency_context(
                 &conn,
@@ -1468,43 +1309,8 @@ fn code_graph_cmd(action: CodeGraphAction) -> anyhow::Result<()> {
             }
         }
         CodeGraphAction::Symbol { query, limit, json } => {
-            if let Some(cs) = &cfg.client.serving {
-                let response = serve::client_call(
-                    cs,
-                    serde_json::json!({
-                        "op": "code-symbol",
-                        "query": query,
-                        "limit": limit,
-                    }),
-                    serve::QUERY_TIMEOUT,
-                )?;
-                let context = response.symbol_context.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("serving host {} returned no symbol context", cs.addr)
-                })?;
-                if json {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&serde_json::json!({
-                            "symbol": context,
-                            "origin": response.origin,
-                            "generation": response.generation,
-                            "fresh": response.fresh,
-                            "stale_note": response.stale_note,
-                        }))?
-                    );
-                } else {
-                    println!("{}", graph::render_symbol_context(context));
-                    print_served_by(&response);
-                }
-                return Ok(());
-            }
             let conn = index::open(&paths::state_dir())?;
-            let context = graph::symbol_context(
-                &conn,
-                &cfg.effective_code_roots(),
-                &query,
-                limit,
-            )?;
+            let context = graph::symbol_context(&conn, &cfg.effective_code_roots(), &query, limit)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&context)?);
             } else {
@@ -1558,7 +1364,10 @@ fn print_knowledge_graph(graph: &knowledge_graph::KnowledgeGraph) {
             println!("{} → {}", edge.from, edge.to);
         }
         if graph.omitted_edges > 0 {
-            println!("… {} more link(s) omitted from this bounded view", graph.omitted_edges);
+            println!(
+                "… {} more link(s) omitted from this bounded view",
+                graph.omitted_edges
+            );
         }
     }
 }
@@ -1569,80 +1378,20 @@ fn graph_cmd(
     limit: usize,
     json: bool,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!((1..=200).contains(&limit), "--limit must be between 1 and 200");
+    anyhow::ensure!(
+        (1..=200).contains(&limit),
+        "--limit must be between 1 and 200"
+    );
     let cfg = config::Config::load()?;
-    if let Some(slice) = slice
-        && let Some(membership) = grant::membership_for_slice(&paths::state_dir(), slice)?
-    {
-        let response = daemon::call_iroh(
-            &membership.origin,
-            serde_json::json!({
-                "op": "graph",
-                "focus": focus,
-                "limit": limit,
-                "slice": membership.slice,
-            }),
-        )?;
-        let graph = response.knowledge_graph.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("joined origin returned no knowledge graph for slice {slice:?}")
-        })?;
-        if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "graph": graph,
-                    "origin": response.origin,
-                    "generation": response.generation,
-                    "fresh": response.fresh,
-                    "stale_note": response.stale_note,
-                }))?
-            );
-        } else {
-            print_knowledge_graph(graph);
-            print_served_by(&response);
-        }
-        return Ok(());
-    }
-    if let Some(cs) = &cfg.client.serving {
-        let body = serde_json::json!({
-            "op": "graph", "focus": focus, "limit": limit, "slice": slice,
-        });
-        let response = serve::client_call(cs, body, serve::QUERY_TIMEOUT)?;
-        let graph = response.knowledge_graph.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("serving host {} returned no knowledge graph", cs.addr)
-        })?;
-        if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "graph": graph,
-                    "origin": response.origin,
-                    "generation": response.generation,
-                    "fresh": response.fresh,
-                    "stale_note": response.stale_note,
-                }))?
-            );
-        } else {
-            print_knowledge_graph(graph);
-            print_served_by(&response);
-        }
-        return Ok(());
-    }
-    let conn = index::ensure_fresh(
-        &paths::state_dir(),
-        &cfg.brain_root,
-        None,
-        &cfg.rings(),
-    )?;
+
+    let conn = index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
     let graph = if let Some(slice) = slice {
         let slices = cfg.slice_model()?;
         anyhow::ensure!(
             slice == config::ROOT_SLICE || slices.names().any(|name| name == slice),
             "unknown slice {slice:?}"
         );
-        knowledge_graph::build_matching(&conn, focus, limit, |path| {
-            slices.contains(slice, path)
-        })?
+        knowledge_graph::build_matching(&conn, focus, limit, |path| slices.contains(slice, path))?
     } else {
         knowledge_graph::build(&conn, focus, limit)?
     };
@@ -1661,7 +1410,9 @@ fn print_served_by(resp: &daemon::Response) {
     if resp.fresh == Some(false) {
         println!(
             "\nserved by {origin} (generation {generation}) — STALE: {}",
-            resp.stale_note.clone().unwrap_or_else(|| "barrier expired".to_string())
+            resp.stale_note
+                .clone()
+                .unwrap_or_else(|| "barrier expired".to_string())
         );
     } else {
         println!("\nserved by {origin} (generation {generation}, fresh)");
@@ -1778,75 +1529,10 @@ fn recall_served(
 /// none-tier: recall/expand answered by the remote serving host. Unreachable
 /// is an explicit error naming the host — this host has no local index to
 /// fall back to, and must never pretend otherwise.
-#[allow(clippy::too_many_arguments)] // thin CLI adapter, mirrors the flag set
-fn recall_remote(
-    cs: &config::ClientServingConfig,
-    query: &str,
-    id: Option<&str>,
-    expand: bool,
-    semantic: bool,
-    hybrid: bool,
-    slice: Option<&str>,
-    limit: usize,
-    budget_tokens: u64,
-    json: bool,
-) -> anyhow::Result<()> {
-    if expand {
-        eprintln!("note: --expand (linked docs) is not yet available over remote serving — showing hits only");
-    }
-    let body = match id {
-        Some(cite) => serde_json::json!({"op": "expand", "cite": cite}),
-        None => {
-            if query.trim().is_empty() {
-                anyhow::bail!("empty query (pass search terms or --id <citation>)");
-            }
-            // The serving host ranks: it holds the vectors and it is the one
-            // with an endpoint to embed the query against. A client that
-            // holds nothing is exactly who this is for.
-            serde_json::json!({
-                "op": "recall", "query": query, "limit": limit,
-                "semantic": semantic, "hybrid": hybrid, "slice": slice,
-            })
-        }
-    };
-    let resp = serve::client_call(cs, body, serve::QUERY_TIMEOUT)?;
-    recall_served(&resp, id, budget_tokens, json)
-}
-
 /// A slice joined through an invite is routed through the daemon's persistent
 /// iroh endpoint. The line-JSON body is identical to the TCP serving path;
 /// transport authentication replaces the bearer token and the origin checks
 /// the caller's endpoint id against the slice grant.
-#[allow(clippy::too_many_arguments)]
-fn recall_iroh(
-    membership: &grant::Membership,
-    query: &str,
-    id: Option<&str>,
-    semantic: bool,
-    hybrid: bool,
-    limit: usize,
-    budget_tokens: u64,
-    json: bool,
-) -> anyhow::Result<()> {
-    let body = match id {
-        Some(cite) => serde_json::json!({
-            "op": "expand", "cite": cite, "slice": membership.slice,
-        }),
-        None => {
-            if query.trim().is_empty() {
-                anyhow::bail!("empty query (pass search terms or --id <citation>)");
-            }
-            serde_json::json!({
-                "op": "recall", "query": query, "limit": limit,
-                "semantic": semantic, "hybrid": hybrid,
-                "slice": membership.slice,
-            })
-        }
-    };
-    let resp = daemon::call_iroh(&membership.origin, body)?;
-    recall_served(&resp, id, budget_tokens, json)
-}
-
 #[allow(clippy::too_many_arguments)] // thin CLI adapter, mirrors the flag set
 fn recall(
     query: &str,
@@ -1860,16 +1546,7 @@ fn recall(
     json: bool,
 ) -> anyhow::Result<()> {
     let cfg = config::Config::load()?;
-    if let Some(slice) = slice
-        && let Some(membership) = grant::membership_for_slice(&paths::state_dir(), slice)?
-    {
-        return recall_iroh(&membership, query, id, semantic, hybrid, limit, budget_tokens, json);
-    }
-    if let Some(cs) = &cfg.client.serving {
-        return recall_remote(
-            cs, query, id, expand, semantic, hybrid, slice, limit, budget_tokens, json,
-        );
-    }
+
     // On a serving host, plain recall/expand go through the local daemon's
     // drain barrier when it answers. The direct path below is an equally
     // coherent fallback: `ensure_fresh` stat-fingerprints the tree on every
@@ -1877,16 +1554,18 @@ fn recall(
     if id.is_none() && query.trim().is_empty() {
         anyhow::bail!("empty query (pass search terms or --id <citation>)");
     }
-    if cfg.serve.enabled
-        && !(semantic || hybrid || expand)
+    if !(semantic || hybrid || expand)
         && let Some(resp) = daemon::call_req(
             &match id {
-                Some(cite) => serde_json::json!({"op": "expand", "cite": cite}),
-                None => serde_json::json!({"op": "recall", "query": query, "limit": limit}),
+                Some(cite) => serde_json::json!({"op": "expand", "cite": cite, "slice": slice}),
+                None => {
+                    serde_json::json!({"op": "recall", "query": query, "limit": limit, "slice": slice})
+                }
             },
             std::time::Duration::from_secs(8),
         )
         && resp.ok
+        && resp.fresh == Some(true)
     {
         return recall_served(&resp, id, budget_tokens, json);
     }
@@ -1895,7 +1574,9 @@ fn recall(
     if let Some(cite) = id {
         let blocks = index::expand(&conn, cite)?;
         if blocks.is_empty() {
-            println!("no block with citation {cite} (index may have moved on — content-addressed ids change when the entry changes)");
+            println!(
+                "no block with citation {cite} (index may have moved on — content-addressed ids change when the entry changes)"
+            );
             return Ok(());
         }
         if json {
@@ -1992,7 +1673,10 @@ fn recall(
                 )
             })
             .collect();
-        println!("{}", answer::listing(entries, budget_tokens, answer::CLI_RECOVERY));
+        println!(
+            "{}",
+            answer::listing(entries, budget_tokens, answer::CLI_RECOVERY)
+        );
         if !linked.is_empty() {
             println!("\nlinked (curated wikilinks, 1 hop from top hits):");
             for (p, r) in &linked {
@@ -2088,7 +1772,8 @@ fn maintain_cmd(action: MaintainAction) -> anyhow::Result<()> {
             } else if report.paused {
                 println!(
                     "maintenance paused: {}",
-                    maintenance::pause_reason(&cfg).unwrap_or_else(|| "pause marker present".into())
+                    maintenance::pause_reason(&cfg)
+                        .unwrap_or_else(|| "pause marker present".into())
                 );
             } else {
                 println!(
@@ -2133,15 +1818,25 @@ fn maintain_cmd(action: MaintainAction) -> anyhow::Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&packet)?);
             } else {
-                println!("maintenance evidence packet for {}", packet.candidate.candidate.id);
+                println!(
+                    "maintenance evidence packet for {}",
+                    packet.candidate.candidate.id
+                );
                 println!(
                     "  candidate evidence: {}  raw events: {}{}",
                     packet.candidate.evidence_id,
                     packet.events.len(),
-                    if packet.events_truncated { " (bounded; more matched)" } else { "" }
+                    if packet.events_truncated {
+                        " (bounded; more matched)"
+                    } else {
+                        ""
+                    }
                 );
                 if !packet.unreadable_streams.is_empty() {
-                    println!("  WARNING: {} exhaust stream(s) unreadable", packet.unreadable_streams.len());
+                    println!(
+                        "  WARNING: {} exhaust stream(s) unreadable",
+                        packet.unreadable_streams.len()
+                    );
                 }
                 if let Some(target) = &packet.target_snapshot {
                     println!(
@@ -2151,7 +1846,10 @@ fn maintain_cmd(action: MaintainAction) -> anyhow::Result<()> {
                         if target.exists { "present" } else { "absent" }
                     );
                 }
-                println!("  relevant statements: {}", packet.relevant_statements.len());
+                println!(
+                    "  relevant statements: {}",
+                    packet.relevant_statements.len()
+                );
                 for statement in &packet.relevant_statements {
                     println!(
                         "    {}  {}:{}-{}  ring {}",
@@ -2195,7 +1893,11 @@ fn maintain_cmd(action: MaintainAction) -> anyhow::Result<()> {
             } else {
                 println!(
                     "{} {} in ring-5 quarantine",
-                    if result.created { "submitted" } else { "already recorded" },
+                    if result.created {
+                        "submitted"
+                    } else {
+                        "already recorded"
+                    },
                     result.proposal.id
                 );
                 println!(
@@ -2229,7 +1931,11 @@ fn maintain_cmd(action: MaintainAction) -> anyhow::Result<()> {
             } else {
                 println!(
                     "{} {} for {} ({:?})",
-                    if created { "recorded" } else { "already recorded" },
+                    if created {
+                        "recorded"
+                    } else {
+                        "already recorded"
+                    },
                     review.id,
                     review.proposal_id,
                     review.verdict
@@ -2282,14 +1988,22 @@ fn maintain_cmd(action: MaintainAction) -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string(&report)?);
             } else {
                 for check in &report.checks {
-                    println!("{}  {:<20} {}", if check.ok { "ok  " } else { "FAIL" }, check.name, check.detail);
+                    println!(
+                        "{}  {:<20} {}",
+                        if check.ok { "ok  " } else { "FAIL" },
+                        check.name,
+                        check.detail
+                    );
                 }
                 if let Some(diff) = &report.diff {
                     println!("\nexact proposed diff:\n{diff}");
                 }
                 if report.valid {
                     println!("verified {}", report.proposal_id);
-                    println!("approval token: {}", report.approval_token.as_deref().unwrap_or_default());
+                    println!(
+                        "approval token: {}",
+                        report.approval_token.as_deref().unwrap_or_default()
+                    );
                     println!(
                         "apply exactly this revision: cfetch maintain apply {} --approval-token {}",
                         report.proposal_id,
@@ -2303,9 +2017,16 @@ fn maintain_cmd(action: MaintainAction) -> anyhow::Result<()> {
         MaintainAction::Apply { id, approval_token } => {
             let proposal = maintenance::apply(&cfg, &id, &approval_token)?;
             if proposal.transition.changes_memory() {
-                println!("applied {} to {}", proposal.id, proposal.target.as_deref().unwrap_or_default());
+                println!(
+                    "applied {} to {}",
+                    proposal.id,
+                    proposal.target.as_deref().unwrap_or_default()
+                );
                 println!("reversible now: cfetch maintain revert {}", proposal.id);
-                println!("after committing the brain tree: cfetch maintain finalize {}", proposal.id);
+                println!(
+                    "after committing the brain tree: cfetch maintain finalize {}",
+                    proposal.id
+                );
             } else {
                 println!("applied decision {}", proposal.id);
                 println!("finalize it: cfetch maintain finalize {}", proposal.id);
@@ -2318,11 +2039,17 @@ fn maintain_cmd(action: MaintainAction) -> anyhow::Result<()> {
                 proposal.id,
                 proposal.target.as_deref().unwrap_or("no memory write")
             );
-            println!("reversible while exact bytes remain: cfetch maintain revert {}", proposal.id);
+            println!(
+                "reversible while exact bytes remain: cfetch maintain revert {}",
+                proposal.id
+            );
         }
         MaintainAction::Revert { id } => {
             let proposal = maintenance::revert(&cfg, &id)?;
-            println!("reverted {} (source candidates remain pending)", proposal.id);
+            println!(
+                "reverted {} (source candidates remain pending)",
+                proposal.id
+            );
         }
         MaintainAction::Reject { id } => {
             maintenance::reject(&cfg, &id)?;
@@ -2332,7 +2059,11 @@ fn maintain_cmd(action: MaintainAction) -> anyhow::Result<()> {
             let result = maintenance::finalize(&cfg, &id)?;
             println!(
                 "{} {} and settled {} source candidate(s)",
-                if result.already_finalized { "reconciled" } else { "finalized" },
+                if result.already_finalized {
+                    "reconciled"
+                } else {
+                    "finalized"
+                },
                 result.proposal_id,
                 result.candidate_ids.len()
             );
@@ -2431,10 +2162,16 @@ fn failures_cmd(query: &str, limit: usize, json: bool) -> anyhow::Result<()> {
     }
     if history.matches.is_empty() {
         if history.signatures == 0 {
-            println!("no failing command captured yet in {}", ex.logs_dir.display());
+            println!(
+                "no failing command captured yet in {}",
+                ex.logs_dir.display()
+            );
         } else if query.trim().is_empty() {
             // Everything matches an empty query, so only --limit 0 lands here.
-            println!("{} failing signature(s) captured, none asked for", history.signatures);
+            println!(
+                "{} failing signature(s) captured, none asked for",
+                history.signatures
+            );
         } else {
             println!(
                 "no match for \"{query}\" among {} failing signature(s)",
@@ -2517,25 +2254,25 @@ fn index_liveness_line(
     state: &std::path::Path,
     native: Option<&std::path::Path>,
 ) -> (heartbeat::Severity, String) {
-    if let Some(cs) = &cfg.client.serving {
-        // Opening a local index here would build the second, silently stale
-        // truth a none-tier host exists to avoid. Whether that host answers
-        // is the client-mode check's business, not this line's.
-        return (
-            heartbeat::Severity::Healthy,
-            format!("index: served by {} — this host holds no local catalog", cs.addr),
-        );
-    }
     let conn = match index::open(state) {
         Ok(c) => c,
-        Err(e) => return (heartbeat::Severity::Failing, format!("index: unavailable ({e})")),
+        Err(e) => {
+            return (
+                heartbeat::Severity::Failing,
+                format!("index: unavailable ({e})"),
+            );
+        }
     };
     let tree = index::tree_fingerprint(&cfg.brain_root, native, &cfg.rings());
     let verdict =
         heartbeat::observe_index_in(state, index::stored_fingerprint(&conn).as_deref(), &tree);
     let line = match verdict {
         heartbeat::IndexLiveness::NeverScanned => verdict.describe(),
-        _ => format!("{} (generation {})", verdict.describe(), index::generation(&conn)),
+        _ => format!(
+            "{} (generation {})",
+            verdict.describe(),
+            index::generation(&conn)
+        ),
     };
     (verdict.severity(), line)
 }
@@ -2599,7 +2336,11 @@ fn status() -> anyhow::Result<()> {
         println!(
             "ledger: {sessions} session(s) from {} host(s){} in {}",
             hosts.len(),
-            if hosts.is_empty() { String::new() } else { format!(" ({})", hosts.join(", ")) },
+            if hosts.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", hosts.join(", "))
+            },
             logs.display()
         );
         println!("  estimated: ~{injected} tokens injected by cfetch (chars/3.5 heuristic)");
@@ -2641,7 +2382,10 @@ fn status() -> anyhow::Result<()> {
         ),
         Some(t) => {
             let agent = agent_session::agent_source_for_path(&t).unwrap_or("unknown-agent");
-            println!("{}", delivery_status_line(agent, transcript::verified_injections(&t)));
+            println!(
+                "{}",
+                delivery_status_line(agent, transcript::verified_injections(&t))
+            );
         }
     }
     // Ring 5/6 live in the tree, so their figures are the fleet's, not this
@@ -2699,12 +2443,6 @@ fn status() -> anyhow::Result<()> {
     }
     let state = paths::state_dir();
     println!("{}", index_liveness_line(&cfg, &state, None).1);
-    // The identity is what a peer grants a slice TO, so an operator needs to
-    // be able to read it off the machine it belongs to.
-    match net::endpoint_id(&state) {
-        Ok(id) => println!("identity: {id}"),
-        Err(e) => println!("identity: unavailable ({e})"),
-    }
     let bytes: u64 = std::fs::read_dir(&state)
         .map(|rd| {
             rd.flatten()
@@ -2716,202 +2454,6 @@ fn status() -> anyhow::Result<()> {
         .unwrap_or(0);
     println!("state:  {} ({} KiB)", state.display(), bytes / 1024);
     Ok(())
-}
-
-/// Coverage of the configured embeddings spec, local cache and shared store
-/// side by side. A none-tier host reports the shared store alone — it holds
-/// no index to cover.
-/// Mints an invite to a slice and records it as pending on this host.
-///
-/// The ticket printed here is the only readable copy of its secret: the
-/// origin keeps a hash, so an invite that is lost is re-minted rather than
-/// recovered.
-fn invite(
-    slice: &str,
-    mode: &str,
-    expires_in_hours: Option<u64>,
-    json: bool,
-) -> anyhow::Result<()> {
-    let cfg = config::Config::load()?;
-    let model = cfg.slice_model()?;
-    // Granting access to a slice this host does not define would hand out a
-    // name that resolves to nothing.
-    anyhow::ensure!(
-        model.names().any(|n| n == slice),
-        "no slice named {slice:?} on this host (configured: {})",
-        if model.is_empty() { "none".into() } else { model.names().collect::<Vec<_>>().join(", ") }
-    );
-    let mode: grant::Mode = mode.parse()?;
-    anyhow::ensure!(
-        cfg.serve.enabled,
-        "serving is disabled; set serve.enabled=true and start the daemon before inviting a remote host"
-    );
-    let origin = daemon::iroh_addr()?;
-    let identity = net::endpoint_id(&paths::state_dir())?;
-    anyhow::ensure!(
-        origin.id == identity,
-        "running daemon identity does not match this host's endpoint key; restart the daemon"
-    );
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let expires_at = match expires_in_hours {
-        Some(hours) => Some(
-            hours
-                .checked_mul(3600)
-                .and_then(|seconds| now.checked_add(seconds))
-                .context("invite expiry is too far in the future")?,
-        ),
-        None => None,
-    };
-    let ticket = grant::invite(&cfg.brain_root, &origin, slice, mode, now, expires_at)?;
-    let text = ticket.encode();
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "ticket": text, "slice": slice, "mode": mode.as_str(),
-                "origin": origin.id.to_string(), "address": origin, "expires_at": expires_at,
-            })
-        );
-    } else {
-        println!("{text}");
-        eprintln!(
-            "cfetch invite: one-time {} invite to slice {slice:?}{}. \
-             The secret is not stored — re-mint if it is lost.",
-            mode.as_str(),
-            match expires_in_hours {
-                Some(h) => format!(", expiring in {h}h"),
-                None => String::new(),
-            }
-        );
-    }
-    Ok(())
-}
-
-/// Shows the grants this host has made, per slice.
-///
-/// Pending invites are listed too: an unused invite is a key someone still
-/// holds, and it should be as visible as a redeemed one.
-fn grants(json: bool) -> anyhow::Result<()> {
-    let cfg = config::Config::load()?;
-    let model = cfg.slice_model()?;
-    let mut rows = Vec::new();
-    for slice in model.names() {
-        for g in grant::read(&cfg.brain_root, slice)? {
-            rows.push(serde_json::json!({
-                "slice": g.slice,
-                "mode": g.mode.as_str(),
-                "peer": g.peer,
-                "state": if g.pending() { "pending" } else { "redeemed" },
-                "expires_at": g.expires_at,
-            }));
-        }
-    }
-    if json {
-        println!("{}", serde_json::json!({"grants": rows}));
-        return Ok(());
-    }
-    if rows.is_empty() {
-        println!("no slice has been granted to anyone from this host");
-        return Ok(());
-    }
-    for r in &rows {
-        let peer = r["peer"].as_str().unwrap_or("(unused invite)");
-        println!(
-            "{}: {} -> {} [{}]",
-            r["slice"].as_str().unwrap_or("?"),
-            r["mode"].as_str().unwrap_or("?"),
-            peer,
-            r["state"].as_str().unwrap_or("?")
-        );
-    }
-    Ok(())
-}
-
-/// Redeems an invite.
-///
-/// When the origin shares this host's tree — the ordinary case inside one
-/// storage group — redemption is a local operation on the grants file and no
-/// network is involved at all. The secret is what proves the invite came from
-/// this tree; the origin id in the ticket is only needed for dialling one
-/// that does not.
-fn join(ticket: &str, json: bool) -> anyhow::Result<()> {
-    let cfg = config::Config::load()?;
-    let t = grant::Ticket::decode(ticket)?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    anyhow::ensure!(!t.expired(now), "this invite has expired — ask the origin for a new one");
-
-    let me = net::endpoint_id(&paths::state_dir())?.to_string();
-    match grant::redeem(&cfg.brain_root, &t.slice, &t.secret, t.mode, &me, now) {
-        Ok(g) => {
-            if json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "slice": g.slice, "mode": g.mode.as_str(),
-                        "origin": t.origin.id.to_string(), "peer": me, "shared_tree": true,
-                    })
-                );
-            } else {
-                println!(
-                    "joined slice {:?} as {} (origin {}, redeemed on the shared tree)",
-                    g.slice,
-                    g.mode.as_str(),
-                    &t.origin.id.to_string()[..12]
-                );
-            }
-            Ok(())
-        }
-        // Only ONE failure is ambiguous from the outside: a secret this tree
-        // has never seen might belong to an origin that does not share the
-        // tree. Every other refusal — already redeemed, expired — is known
-        // precisely, and dressing it up with a maybe would mislead.
-        Err(e) if e.to_string().contains("not known to this host") => {
-            let g = daemon::redeem_iroh(&t).with_context(|| {
-                format!(
-                    "this tree has no local invite for slice {:?}; remote redemption at {} failed",
-                    t.slice, t.origin.id
-                )
-            })?;
-            anyhow::ensure!(g.slice == t.slice, "origin returned a grant for the wrong slice");
-            anyhow::ensure!(g.mode == t.mode, "origin returned a grant with the wrong mode");
-            anyhow::ensure!(g.peer == me, "origin bound the invite to a different endpoint");
-            grant::remember_membership(
-                &paths::state_dir(),
-                grant::Membership {
-                    network_major: embedding_profile::NETWORK_MAJOR,
-                    origin: t.origin.clone(),
-                    slice: g.slice.clone(),
-                    mode: g.mode,
-                    joined_at: now,
-                },
-            )?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "slice": g.slice, "mode": g.mode.as_str(),
-                        "origin": t.origin.id.to_string(), "peer": me,
-                        "shared_tree": false,
-                    })
-                );
-            } else {
-                println!(
-                    "joined slice {:?} as {} over iroh (origin {})",
-                    g.slice,
-                    g.mode.as_str(),
-                    &t.origin.id.to_string()[..12]
-                );
-            }
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
 }
 
 /// Lists the slices and what each one holds.
@@ -2966,12 +2508,7 @@ fn slices(json: bool) -> anyhow::Result<()> {
 fn semantic_status(cfg: &config::Config) -> anyhow::Result<String> {
     let spec = cfg.embeddings.spec();
     let shared = vectors::VectorStore::open(&cfg.brain_root, &spec)?.len();
-    if cfg.client.serving.is_some() {
-        return Ok(format!(
-            "semantic: no local index (none-tier) — shared store holds {shared} artifact(s) for {} at {} dims",
-            spec.model, spec.dim
-        ));
-    }
+
     let conn = index::open_ro(&paths::state_dir())?;
     let (embedded, total) = index::vector_coverage(&conn, &spec)?;
     Ok(embed::coverage_status_line(&spec, embedded, total, shared))
@@ -2988,80 +2525,77 @@ fn main() {
             .windows(2)
             .find(|pair| pair[0] == "--agent")
             .map(|pair| pair[1].as_str())
-            .or_else(|| {
-                argv.iter()
-                    .find_map(|arg| arg.strip_prefix("--agent="))
-            });
+            .or_else(|| argv.iter().find_map(|arg| arg.strip_prefix("--agent=")));
         hooks::run(&event, agent);
         return;
     }
     let cli = Cli::parse();
     match cli.command {
-            Command::Import { source } => match source {
-                ImportSource::Openwolf { path, dry_run } => {
-                    let brain = crate::paths::default_brain_root();
-                    if dry_run {
-                        println!("dry run — nothing will be written");
+        Command::Import { source } => match source {
+            ImportSource::Openwolf { path, dry_run } => {
+                let brain = crate::paths::default_brain_root();
+                if dry_run {
+                    println!("dry run — nothing will be written");
+                }
+                // One code path builds the report; the dry run simply
+                // does not execute it. Preview and act cannot disagree.
+                let outcome = if dry_run {
+                    import::plan_openwolf(&path, &brain)
+                } else {
+                    import::import_openwolf(&path, &brain)
+                };
+                let report = match outcome {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("cfetch import openwolf: {e:#}");
+                        std::process::exit(1);
                     }
-                    // One code path builds the report; the dry run simply
-                    // does not execute it. Preview and act cannot disagree.
-                    let outcome = if dry_run {
-                        import::plan_openwolf(&path, &brain)
-                    } else {
-                        import::import_openwolf(&path, &brain)
-                    };
-                    let report = match outcome {
-                        Ok(r) => r,
-                        Err(e) => {
-                            eprintln!("cfetch import openwolf: {e:#}");
-                            std::process::exit(1);
-                        }
-                    };
-                    println!();
-                    if !report.imported.is_empty() {
-                        println!("imported:");
-                        for (src, dest) in &report.imported {
-                            println!("  {} -> {}", src, dest);
-                        }
-                    }
-                    if !report.skipped.is_empty() {
-                        println!("skipped:");
-                        for (name, reason) in &report.skipped {
-                            println!("  {} ({})", name, reason);
-                        }
-                    }
-                    if !report.unrecognized.is_empty() {
-                        println!("found, not recognized — left in place:");
-                        for name in &report.unrecognized {
-                            println!("  {}", name);
-                        }
-                    }
-                    if !report.errors.is_empty() {
-                        println!("errors:");
-                        for (name, error) in &report.errors {
-                            println!("  {}: {}", name, error);
-                        }
-                    }
-                    if let Some(note) = &report.resident_note {
-                        println!();
-                        println!("{note}");
-                    }
-                    if report.imported.is_empty()
-                        && report.skipped.is_empty()
-                        && report.unrecognized.is_empty()
-                    {
-                        println!("nothing to import from {}", path.display());
-                    } else {
-                        println!();
-                        println!("run `cfetch scan` to index the imported content");
+                };
+                println!();
+                if !report.imported.is_empty() {
+                    println!("imported:");
+                    for (src, dest) in &report.imported {
+                        println!("  {} -> {}", src, dest);
                     }
                 }
-            },
-            Command::Hook { event, agent } => {
+                if !report.skipped.is_empty() {
+                    println!("skipped:");
+                    for (name, reason) in &report.skipped {
+                        println!("  {} ({})", name, reason);
+                    }
+                }
+                if !report.unrecognized.is_empty() {
+                    println!("found, not recognized — left in place:");
+                    for name in &report.unrecognized {
+                        println!("  {}", name);
+                    }
+                }
+                if !report.errors.is_empty() {
+                    println!("errors:");
+                    for (name, error) in &report.errors {
+                        println!("  {}: {}", name, error);
+                    }
+                }
+                if let Some(note) = &report.resident_note {
+                    println!();
+                    println!("{note}");
+                }
+                if report.imported.is_empty()
+                    && report.skipped.is_empty()
+                    && report.unrecognized.is_empty()
+                {
+                    println!("nothing to import from {}", path.display());
+                } else {
+                    println!();
+                    println!("run `cfetch scan` to index the imported content");
+                }
+            }
+        },
+        Command::Hook { event, agent } => {
             // Unreachable in practice (pre-dispatch above), kept for --help.
             hooks::run(&event, agent.as_deref());
         }
-            #[cfg(feature = "embedded-embeddings")]
+        #[cfg(feature = "embedded-embeddings")]
         Command::EmbedModel { model, action } => {
             println!("FastEmbed embeddings: diagnostic only; output is never stored or shared");
             match action {
@@ -3149,25 +2683,46 @@ fn main() {
                 let cfg = config::Config::load()?;
                 let roots = if roots.is_empty() {
                     cfg.git.roots.iter().map(|path| cfg.resolve(path)).collect()
-                } else { roots };
-                anyhow::ensure!(!roots.is_empty(), "provide repository roots or configure git.roots");
-                let statuses = repositories::run(&roots, sync, std::time::Duration::from_secs(cfg.git.timeout_secs))?;
-                if json { println!("{}", serde_json::to_string_pretty(&statuses)?); }
-                else {
+                } else {
+                    roots
+                };
+                anyhow::ensure!(
+                    !roots.is_empty(),
+                    "provide repository roots or configure git.roots"
+                );
+                let statuses = repositories::run(
+                    &roots,
+                    sync,
+                    std::time::Duration::from_secs(cfg.git.timeout_secs),
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&statuses)?);
+                } else {
                     for status in &statuses {
-                        println!("{}: {}{}", status.path.display(), status.state,
-                            status.detail.as_ref().map(|text| format!(" ({text})")).unwrap_or_default());
+                        println!(
+                            "{}: {}{}",
+                            status.path.display(),
+                            status.state,
+                            status
+                                .detail
+                                .as_ref()
+                                .map(|text| format!(" ({text})"))
+                                .unwrap_or_default()
+                        );
                     }
                 }
                 Ok(!sync || statuses.iter().all(|status| status.state == "synchronized"))
             })();
             match result {
-                Ok(true) => {},
+                Ok(true) => {}
                 Ok(false) => std::process::exit(1),
-                Err(error) => { eprintln!("cfetch repos: {error:#}"); std::process::exit(1); },
+                Err(error) => {
+                    eprintln!("cfetch repos: {error:#}");
+                    std::process::exit(1);
+                }
             }
         }
-            Command::Daemon { action } => {
+        Command::Daemon { action } => {
             let result = match action {
                 DaemonAction::Run => daemon::run(),
                 DaemonAction::Start => daemon::start(),
@@ -3199,24 +2754,6 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Command::Invite { slice, mode, expires_in_hours, json } => {
-            if let Err(e) = invite(&slice, &mode, expires_in_hours, json) {
-                eprintln!("cfetch invite: {e:#}");
-                std::process::exit(1);
-            }
-        }
-        Command::Join { ticket, json } => {
-            if let Err(e) = join(&ticket, json) {
-                eprintln!("cfetch join: {e:#}");
-                std::process::exit(1);
-            }
-        }
-        Command::Grants { json } => {
-            if let Err(e) = grants(json) {
-                eprintln!("cfetch grants: {e:#}");
-                std::process::exit(1);
-            }
-        }
         Command::Hardware { json } => {
             let found = hardware::detect();
             let release = variant::recommended_release();
@@ -3228,7 +2765,11 @@ fn main() {
                 }
             };
             let local_inference = local_plan.is_some();
-            let packaged_backend = if local_inference { "package-local" } else { "endpoint" };
+            let packaged_backend = if local_inference {
+                "package-local"
+            } else {
+                "endpoint"
+            };
             if json {
                 println!(
                     "{}",
@@ -3260,12 +2801,26 @@ fn main() {
                     }
                 }
                 println!("  discovery is not execution or backend admission");
-                println!("\nlocal inference:     {}", if local_inference { "included" } else { "not included" });
+                println!(
+                    "\nlocal inference:     {}",
+                    if local_inference {
+                        "included"
+                    } else {
+                        "not included"
+                    }
+                );
                 println!("embeddings backend:   {packaged_backend}");
-                println!("build variant:        {}", variant::build_id().unwrap_or("unidentified source build"));
+                println!(
+                    "build variant:        {}",
+                    variant::build_id().unwrap_or("unidentified source build")
+                );
                 match release {
                     Some(v) => println!("available release:    {}", v.id),
-                    None => println!("available release:    none for {} / {}", variant::os_token(), variant::arch_token()),
+                    None => println!(
+                        "available release:    none for {} / {}",
+                        variant::os_token(),
+                        variant::arch_token()
+                    ),
                 }
             }
         }
@@ -3285,7 +2840,10 @@ fn main() {
                 for v in &catalog.variants {
                     println!("  {:<36} {:<8} {:<8} {}", v.id, v.os, v.arch, v.backend);
                 }
-                println!("build variant: {}", variant::build_id().unwrap_or("unidentified source build"));
+                println!(
+                    "build variant: {}",
+                    variant::build_id().unwrap_or("unidentified source build")
+                );
             }
         }
         Command::EmbeddingProfile { json } => {
@@ -3349,20 +2907,20 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Command::RetrievalEval { corpus, representation, export, vectors } => {
-            if let Err(error) = memory_eval::run(&corpus, representation, export.as_deref(), vectors.as_deref()) {
+        Command::RetrievalEval {
+            corpus,
+            representation,
+            export,
+            vectors,
+        } => {
+            if let Err(error) = memory_eval::run(
+                &corpus,
+                representation,
+                export.as_deref(),
+                vectors.as_deref(),
+            ) {
                 eprintln!("cfetch retrieval-eval: {error:#}");
                 std::process::exit(1);
-            }
-        }
-        Command::Identity { json } => {
-            match net::endpoint_id(&paths::state_dir()) {
-                Ok(id) if json => println!("{}", serde_json::json!({"endpoint_id": id.to_string()})),
-                Ok(id) => println!("{id}"),
-                Err(e) => {
-                    eprintln!("cfetch identity: {e:#}");
-                    std::process::exit(1);
-                }
             }
         }
         Command::Slices { json } => {
@@ -3472,13 +3030,21 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Command::Find { query, limit, budget_tokens, json } => {
+        Command::Find {
+            query,
+            limit,
+            budget_tokens,
+            json,
+        } => {
             if let Err(e) = find(&query, limit, budget_tokens, json) {
                 eprintln!("cfetch find: {e}");
                 std::process::exit(1);
             }
         }
-        Command::Map { focus, budget_tokens } => {
+        Command::Map {
+            focus,
+            budget_tokens,
+        } => {
             if let Err(e) = map_cmd(focus.as_deref(), budget_tokens) {
                 eprintln!("cfetch map: {e}");
                 std::process::exit(1);
@@ -3490,27 +3056,58 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Command::GraphPath { from, to, depth, json } => {
+        Command::GraphPath {
+            from,
+            to,
+            depth,
+            json,
+        } => {
             let result = (|| -> anyhow::Result<()> {
                 let cfg = config::Config::load()?;
-                let conn = index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
+                let conn =
+                    index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
                 let route = knowledge_graph::trace(&conn, &from, &to, depth)?;
-                if json { println!("{}", serde_json::to_string_pretty(&route)?); }
-                else if route.found { println!("{}", route.paths.join(" ↔ ")); }
-                else if route.from_matches.len() != 1 || route.to_matches.len() != 1 {
-                    println!("endpoints must each identify one note; from: {:?}; to: {:?}", route.from_matches, route.to_matches);
-                } else { println!("no curated path within {depth} hops"); }
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&route)?);
+                } else if route.found {
+                    println!("{}", route.paths.join(" ↔ "));
+                } else if route.from_matches.len() != 1 || route.to_matches.len() != 1 {
+                    println!(
+                        "endpoints must each identify one note; from: {:?}; to: {:?}",
+                        route.from_matches, route.to_matches
+                    );
+                } else {
+                    println!("no curated path within {depth} hops");
+                }
                 Ok(())
             })();
-            if let Err(error) = result { eprintln!("cfetch graph-path: {error:#}"); std::process::exit(1); }
+            if let Err(error) = result {
+                eprintln!("cfetch graph-path: {error:#}");
+                std::process::exit(1);
+            }
         }
-        Command::Graph { focus, slice, limit, json } => {
+        Command::Graph {
+            focus,
+            slice,
+            limit,
+            json,
+        } => {
             if let Err(e) = graph_cmd(focus.as_deref(), slice.as_deref(), limit, json) {
                 eprintln!("cfetch graph: {e}");
                 std::process::exit(1);
             }
         }
-        Command::Recall { query, id, expand, semantic, hybrid, slice, limit, budget_tokens, json } => {
+        Command::Recall {
+            query,
+            id,
+            expand,
+            semantic,
+            hybrid,
+            slice,
+            limit,
+            budget_tokens,
+            json,
+        } => {
             if let Err(e) = recall(
                 &query.join(" "),
                 id.as_deref(),
@@ -3533,14 +3130,10 @@ fn main() {
             }
         }
         Command::EmbedIndex { batch } => {
-            let guard = config::Config::load().and_then(|c| none_tier_guard(&c, "embed-index"));
-            if let Err(e) = guard
-                .and_then(|()| embed::embed_index_cmd(batch))
-                .and_then(|()| {
-                    let _ = runtime_status::refresh_static()?;
-                    Ok(())
-                })
-            {
+            if let Err(e) = embed::embed_index_cmd(batch).and_then(|()| {
+                let _ = runtime_status::refresh_static()?;
+                Ok(())
+            }) {
                 eprintln!("cfetch embed-index: {e}");
                 std::process::exit(1);
             }
@@ -3559,7 +3152,10 @@ fn main() {
         }
         Command::Status { json, line } => {
             let result = if line {
-                println!("{}", runtime_status::render_line(&runtime_status::load_cached()));
+                println!(
+                    "{}",
+                    runtime_status::render_line(&runtime_status::load_cached())
+                );
                 Ok(())
             } else if json {
                 runtime_status::refresh_static().and_then(|snapshot| {
@@ -3586,7 +3182,10 @@ mod tests {
         let gap = delivery_status_line(agent_session::AGENT_CODEX, None);
         assert!(gap.contains("not measurable"), "{gap}");
         assert!(gap.contains("Codex"), "{gap}");
-        assert!(!gap.contains("format drift"), "absence alone does not prove schema drift: {gap}");
+        assert!(
+            !gap.contains("format drift"),
+            "absence alone does not prove schema drift: {gap}"
+        );
 
         let observed = delivery_status_line(agent_session::AGENT_CLAUDE, Some((6, 4)));
         assert!(observed.contains("6 hook firing(s) observed"), "{observed}");
@@ -3604,7 +3203,10 @@ mod tests {
         std::fs::create_dir_all(&brain).unwrap();
         std::fs::write(brain.join("note.md"), "# note\n\nbody\n").unwrap();
         let state = dir.path().join("state");
-        let cfg = config::Config { brain_root: brain.clone(), ..config::Config::default() };
+        let cfg = config::Config {
+            brain_root: brain.clone(),
+            ..config::Config::default()
+        };
 
         let (severity, line) = index_liveness_line(&cfg, &state, None);
         assert_eq!(severity, heartbeat::Severity::Unobserved);
@@ -3629,24 +3231,12 @@ mod tests {
         assert!(line.contains("stale for"), "{line}");
         // And the onset is now on record, which is the only way the age can
         // later grow past the warning threshold.
-        assert!(heartbeat::load_from(&state).index.unwrap().stale_since.is_some());
-    }
-
-    #[test]
-    fn a_none_tier_host_reports_its_serving_host_instead_of_a_local_catalog() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = dir.path().join("state");
-        let mut cfg =
-            config::Config { brain_root: dir.path().join("brain"), ..config::Config::default() };
-        cfg.client.serving = Some(config::ClientServingConfig {
-            addr: "198.51.100.7:9737".to_string(),
-            token_file: dir.path().join("absent-token"),
-        });
-        let (_, line) = index_liveness_line(&cfg, &state, None);
-        assert!(line.contains("198.51.100.7:9737"), "{line}");
         assert!(
-            !state.join("index.db").exists(),
-            "a none-tier host must not create a second, silently stale catalog"
+            heartbeat::load_from(&state)
+                .index
+                .unwrap()
+                .stale_since
+                .is_some()
         );
     }
 
@@ -3657,7 +3247,8 @@ mod tests {
     /// deliberately charged outside the budget, so the assertion has to price
     /// the two halves separately.
     fn split_note(out: &str) -> (&str, &str) {
-        out.rsplit_once('\n').expect("a truncated listing ends with its note")
+        out.rsplit_once('\n')
+            .expect("a truncated listing ends with its note")
     }
 
     #[test]
@@ -3677,10 +3268,22 @@ mod tests {
             })
             .collect();
         let narrow: Vec<String> = (0..8)
-            .map(|i| answer::find_entry(&format!("a{i}.rs"), Some("f"), Some("function_item"), 1, 2, 24))
+            .map(|i| {
+                answer::find_entry(
+                    &format!("a{i}.rs"),
+                    Some("f"),
+                    Some("function_item"),
+                    1,
+                    2,
+                    24,
+                )
+            })
             .collect();
         let ratio = wide.join("\n").len() as f64 / narrow.join("\n").len() as f64;
-        assert!(ratio > 4.0, "same count, {ratio:.1}x the cost — that is what a budget fixes");
+        assert!(
+            ratio > 4.0,
+            "same count, {ratio:.1}x the cost — that is what a budget fixes"
+        );
 
         let capped = answer::listing(wide.clone(), 200, answer::CLI_RECOVERY);
         let (results, note) = split_note(&capped);
@@ -3689,22 +3292,36 @@ mod tests {
             "results over budget: {} tok",
             estimate_tokens(results.len())
         );
-        assert!(note.contains("dropped by the 200-token answer budget"), "{note}");
-        assert!(note.contains("--budget-tokens 0"), "the note must name the way back: {note}");
+        assert!(
+            note.contains("dropped by the 200-token answer budget"),
+            "{note}"
+        );
+        assert!(
+            note.contains("--budget-tokens 0"),
+            "the note must name the way back: {note}"
+        );
         // Kept hits are the ranked prefix, in order, unmodified.
         assert!(capped.starts_with(&wide[0]), "the best hit must survive");
         assert!(!capped.contains(&wide[7]), "the tail is what gets dropped");
         // The cheap answer is not touched by the same budget.
-        assert_eq!(answer::listing(narrow.clone(), 200, answer::CLI_RECOVERY), narrow.join("\n"));
+        assert_eq!(
+            answer::listing(narrow.clone(), 200, answer::CLI_RECOVERY),
+            narrow.join("\n")
+        );
     }
 
     #[test]
     fn one_entry_always_survives_and_zero_lifts_the_cap() {
         let one = vec!["x".repeat(4000)];
         let starved = answer::listing(one.clone(), 1, answer::CLI_RECOVERY);
-        assert!(starved.starts_with(&one[0]), "an answer holding nothing answers nothing");
+        assert!(
+            starved.starts_with(&one[0]),
+            "an answer holding nothing answers nothing"
+        );
 
-        let many: Vec<String> = (0..40).map(|i| format!("entry {i} {}", "y".repeat(200))).collect();
+        let many: Vec<String> = (0..40)
+            .map(|i| format!("entry {i} {}", "y".repeat(200)))
+            .collect();
         assert_eq!(
             answer::listing(many.clone(), 0, answer::CLI_RECOVERY),
             many.join("\n"),
@@ -3730,7 +3347,10 @@ mod tests {
             .collect();
 
         let whole = answer::blocks(&blocks, 0);
-        assert!(estimate_tokens(whole.len()) > 3000, "uncapped, this is the bill");
+        assert!(
+            estimate_tokens(whole.len()) > 3000,
+            "uncapped, this is the bill"
+        );
 
         let capped = answer::blocks(&blocks, 300);
         // 300 for the bodies plus one truncation note per block; nowhere near
@@ -3743,13 +3363,22 @@ mod tests {
         for i in 0..3 {
             // Nothing vanishes: an unaffordable block is still named, with the
             // exact range that holds its text.
-            assert!(capped.contains(&format!("r2-abcdef{i}")), "block {i} lost its citation");
-            assert!(capped.contains(&format!("knowledge/big{i}.md:1-300")), "block {i} lost its range");
+            assert!(
+                capped.contains(&format!("r2-abcdef{i}")),
+                "block {i} lost its citation"
+            );
+            assert!(
+                capped.contains(&format!("knowledge/big{i}.md:1-300")),
+                "block {i} lost its range"
+            );
         }
         assert_eq!(capped.matches("not shown (answer budget)").count(), 3);
         // The first block gets the allowance, the last gets none of it.
         let parts: Vec<&str> = capped.split("\n\n").collect();
-        assert!(parts[0].len() > parts[2].len() * 4, "the budget is spent in rank order");
+        assert!(
+            parts[0].len() > parts[2].len() * 4,
+            "the budget is spent in rank order"
+        );
     }
 
     #[test]
@@ -3766,10 +3395,18 @@ mod tests {
             }],
             4,
         );
-        let body = clipped.strip_prefix("r3-deadbeef notes/x.md:4-6 (ring 3)\n").unwrap();
+        let body = clipped
+            .strip_prefix("r3-deadbeef notes/x.md:4-6 (ring 3)\n")
+            .unwrap();
         let (shown, note) = body.split_once("\n… ").expect("a clipped block says so");
-        assert!(text.starts_with(shown), "the clip must be a prefix of the block");
-        assert!(!shown.contains('\n'), "cut at the first line boundary that fits: {shown:?}");
+        assert!(
+            text.starts_with(shown),
+            "the clip must be a prefix of the block"
+        );
+        assert!(
+            !shown.contains('\n'),
+            "cut at the first line boundary that fits: {shown:?}"
+        );
         assert!(note.contains("read notes/x.md:4-6 for the rest"), "{note}");
 
         // A block that fits arrives whole, with no note at all.
@@ -3794,10 +3431,24 @@ mod tests {
             .map(|i| serde_json::json!({"cite": format!("r2-{i:08x}"), "snippet": "s".repeat(300)}))
             .collect();
         let (kept, dropped) = answer::fit_json(entries.clone(), 400);
-        assert_eq!(kept.len() + dropped, 30, "every entry is either kept or counted");
-        assert!(dropped > 0, "300-char snippets cannot all fit in 400 tokens");
+        assert_eq!(
+            kept.len() + dropped,
+            30,
+            "every entry is either kept or counted"
+        );
+        assert!(
+            dropped > 0,
+            "300-char snippets cannot all fit in 400 tokens"
+        );
         let cost: usize = kept.iter().map(|v| v.to_string().len() + 1).sum();
-        assert!(estimate_tokens(cost) <= 400, "priced on serialized bytes, not on prose");
-        assert_eq!(answer::fit_json(entries, 0).1, 0, "zero lifts the cap here too");
+        assert!(
+            estimate_tokens(cost) <= 400,
+            "priced on serialized bytes, not on prose"
+        );
+        assert_eq!(
+            answer::fit_json(entries, 0).1,
+            0,
+            "zero lifts the cap here too"
+        );
     }
 }

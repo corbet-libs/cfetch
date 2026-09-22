@@ -77,7 +77,10 @@ impl AdapterSupervisor {
     /// A child found dead is restarted once for this supervisor's lifetime.
     pub fn endpoint(&mut self) -> anyhow::Result<AdapterEndpoint> {
         if let Some(child) = &self.cleanup_pending {
-            anyhow::bail!("package-local adapter startup cleanup is incomplete for PID {}; refusing another launch", child.id());
+            anyhow::bail!(
+                "package-local adapter startup cleanup is incomplete for PID {}; refusing another launch",
+                child.id()
+            );
         }
         if self.child_exited()? {
             self.restart_once("package-local adapter exited")?;
@@ -104,7 +107,8 @@ impl AdapterSupervisor {
     pub fn restart_after_transport_failure(&mut self) -> anyhow::Result<AdapterEndpoint> {
         if !self.child_exited()? {
             self.restarted_after_crash = true;
-            self.stop().context("stop unresponsive package-local adapter after transport failure")?;
+            self.stop()
+                .context("stop unresponsive package-local adapter after transport failure")?;
             anyhow::bail!(
                 "package-local adapter transport failed while its supervised process remained alive; \
                  the owned process was stopped and further launches are disabled"
@@ -118,7 +122,11 @@ impl AdapterSupervisor {
         let Some(running) = self.running.as_mut() else {
             return Ok(false);
         };
-        match running.child.try_wait().context("inspect package-local adapter")? {
+        match running
+            .child
+            .try_wait()
+            .context("inspect package-local adapter")?
+        {
             Some(_) => {
                 self.running.take();
                 Ok(true)
@@ -174,16 +182,16 @@ fn validate_launch(launch: &AdapterLaunch) -> anyhow::Result<()> {
         "package-local adapter needs at least one admitted scope"
     );
     anyhow::ensure!(
-        launch.package_manifest.file_name().and_then(|name| name.to_str())
+        launch
+            .package_manifest
+            .file_name()
+            .and_then(|name| name.to_str())
             == Some("package-manifest.json")
             && launch.binary.parent() == launch.package_manifest.parent(),
         "package-local root manifest must be package-manifest.json beside the adapter"
     );
     validate_regular_file(&launch.binary, "package-local adapter")?;
-    validate_regular_file(
-        &launch.package_manifest,
-        "package-local root manifest",
-    )?;
+    validate_regular_file(&launch.package_manifest, "package-local root manifest")?;
     let actual = file_sha256(&launch.binary)?;
     anyhow::ensure!(
         actual == launch.sha256,
@@ -237,11 +245,14 @@ fn file_sha256(path: &Path) -> anyhow::Result<String> {
     Ok(crate::hashing::hex_lower(digest.finalize()))
 }
 
-fn spawn_adapter(launch: &AdapterLaunch, cleanup_pending: &mut Option<Child>) -> anyhow::Result<RunningAdapter> {
+fn spawn_adapter(
+    launch: &AdapterLaunch,
+    cleanup_pending: &mut Option<Child>,
+) -> anyhow::Result<RunningAdapter> {
     // Re-check immediately before execution. Construction and first use may
     // be separated by a long-running daemon's lifetime.
     validate_launch(launch)?;
-    let bearer = hex(&iroh::SecretKey::generate().to_bytes());
+    let bearer = hex(&rand::random::<[u8; 32]>());
     let mut child = std::process::Command::new(&launch.binary)
         .args([
             "serve",
@@ -259,11 +270,16 @@ fn spawn_adapter(launch: &AdapterLaunch, cleanup_pending: &mut Option<Child>) ->
     let startup: anyhow::Result<(ChildStdin, ReadyLine)> = (|| {
         let mut stdin = child.stdin.take().context("adapter stdin was not piped")?;
         let secret_line = serde_json::to_vec(&serde_json::json!({"bearer": bearer}))?;
-        stdin.write_all(&secret_line).context("write package-local adapter authentication")?;
+        stdin
+            .write_all(&secret_line)
+            .context("write package-local adapter authentication")?;
         stdin.write_all(b"\n")?;
         stdin.flush()?;
 
-        let stdout = child.stdout.take().context("adapter stdout was not piped")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("adapter stdout was not piped")?;
         let (sender, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let mut reader = std::io::BufReader::new(stdout);
@@ -301,7 +317,9 @@ fn spawn_adapter(launch: &AdapterLaunch, cleanup_pending: &mut Option<Child>) ->
         Err(error) => {
             if let Err(cleanup_error) = terminate(&mut child) {
                 *cleanup_pending = Some(child);
-                return Err(error).context(format!("package-local adapter startup cleanup failed: {cleanup_error:#}"));
+                return Err(error).context(format!(
+                    "package-local adapter startup cleanup failed: {cleanup_error:#}"
+                ));
             }
             Err(error)
         }
@@ -309,7 +327,10 @@ fn spawn_adapter(launch: &AdapterLaunch, cleanup_pending: &mut Option<Child>) ->
 }
 
 fn validate_ready_line(ready: &ReadyLine, expected_scopes: &[String]) -> anyhow::Result<()> {
-    anyhow::ensure!(ready.schema_version == 1, "unsupported adapter readiness schema");
+    anyhow::ensure!(
+        ready.schema_version == 1,
+        "unsupported adapter readiness schema"
+    );
     anyhow::ensure!(
         ready.scope_ids == expected_scopes,
         "package-local adapter readiness scopes do not exactly match its package plan"
@@ -321,24 +342,43 @@ fn validate_ready_line(ready: &ReadyLine, expected_scopes: &[String]) -> anyhow:
     let (port, path) = rest
         .split_once('/')
         .context("package-local adapter readiness URL has no path")?;
-    let port: u16 = port.parse().context("package-local adapter readiness port is invalid")?;
-    anyhow::ensure!(port != 0 && path == "v1", "package-local adapter readiness URL must end in /v1");
+    let port: u16 = port
+        .parse()
+        .context("package-local adapter readiness port is invalid")?;
+    anyhow::ensure!(
+        port != 0 && path == "v1",
+        "package-local adapter readiness URL must end in /v1"
+    );
     Ok(())
 }
 
 fn terminate(child: &mut Child) -> anyhow::Result<()> {
     let pid = child.id();
-    if child.try_wait().with_context(|| format!("inspect package-local adapter PID {pid} before termination"))?.is_some() {
+    if child
+        .try_wait()
+        .with_context(|| format!("inspect package-local adapter PID {pid} before termination"))?
+        .is_some()
+    {
         return Ok(());
     }
     if let Err(error) = child.kill() {
         // The process may have exited between inspection and the kill.
-        if child.try_wait().with_context(|| format!("inspect package-local adapter PID {pid} after failed termination"))?.is_some() {
+        if child
+            .try_wait()
+            .with_context(|| {
+                format!("inspect package-local adapter PID {pid} after failed termination")
+            })?
+            .is_some()
+        {
             return Ok(());
         }
-        return Err(error).with_context(|| format!("terminate package-local adapter PID {pid}; process may still be alive"));
+        return Err(error).with_context(|| {
+            format!("terminate package-local adapter PID {pid}; process may still be alive")
+        });
     }
-    wait_for_owned_exit(pid, TERMINATE_TIMEOUT, || child.try_wait().map(|status| status.is_some()))
+    wait_for_owned_exit(pid, TERMINATE_TIMEOUT, || {
+        child.try_wait().map(|status| status.is_some())
+    })
 }
 
 fn wait_for_owned_exit(
@@ -348,7 +388,9 @@ fn wait_for_owned_exit(
 ) -> anyhow::Result<()> {
     let deadline = Instant::now() + timeout;
     loop {
-        if exited().with_context(|| format!("inspect package-local adapter PID {pid} during termination"))? {
+        if exited().with_context(|| {
+            format!("inspect package-local adapter PID {pid} during termination")
+        })? {
             return Ok(());
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -381,7 +423,10 @@ mod tests {
         let error = wait_for_owned_exit(123, Duration::ZERO, || Ok(false)).unwrap_err();
         assert!(started.elapsed() < Duration::from_secs(1));
         let message = error.to_string();
-        assert!(message.contains("PID 123") && message.contains("timed out"), "{message}");
+        assert!(
+            message.contains("PID 123") && message.contains("timed out"),
+            "{message}"
+        );
         assert!(message.contains("process may still be alive"), "{message}");
     }
 
@@ -395,7 +440,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(inspections, 1);
         let message = format!("{error:#}");
-        assert!(message.contains("PID 123") && message.contains("fake inspection failure"), "{message}");
+        assert!(
+            message.contains("PID 123") && message.contains("fake inspection failure"),
+            "{message}"
+        );
     }
 
     #[cfg(unix)]
@@ -476,10 +524,21 @@ mod tests {
         supervisor.cleanup_pending = Some(idle_child());
         let pid = supervisor.cleanup_pending.as_ref().unwrap().id();
         let error = supervisor.endpoint().unwrap_err().to_string();
-        assert!(error.contains(&format!("PID {pid}")) && error.contains("refusing another launch"), "{error}");
+        assert!(
+            error.contains(&format!("PID {pid}")) && error.contains("refusing another launch"),
+            "{error}"
+        );
         assert!(supervisor.running.is_none());
         assert!(!supervisor.restarted_after_crash);
-        assert!(supervisor.cleanup_pending.as_mut().unwrap().try_wait().unwrap().is_none());
+        assert!(
+            supervisor
+                .cleanup_pending
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .unwrap()
+                .is_none()
+        );
         supervisor.stop().unwrap();
         assert!(supervisor.cleanup_pending.is_none());
     }
@@ -499,11 +558,18 @@ mod tests {
 
         for _ in 0..3 {
             let error = supervisor.endpoint().unwrap_err().to_string();
-            assert!(error.contains("one supervised restart was already consumed"), "{error}");
+            assert!(
+                error.contains("one supervised restart was already consumed"),
+                "{error}"
+            );
             assert!(supervisor.running.is_none());
         }
         let starts = std::fs::read_to_string(directory.path().join("fake-adapter.starts")).unwrap();
-        assert_eq!(starts.lines().count(), 2, "only the initial launch and one restart may run");
+        assert_eq!(
+            starts.lines().count(),
+            2,
+            "only the initial launch and one restart may run"
+        );
     }
 
     #[test]
@@ -529,7 +595,10 @@ mod tests {
                 url: url.into(),
                 scope_ids: scopes.clone(),
             };
-            assert!(validate_ready_line(&ready, &scopes).is_err(), "accepted {url}");
+            assert!(
+                validate_ready_line(&ready, &scopes).is_err(),
+                "accepted {url}"
+            );
         }
     }
 
@@ -553,11 +622,7 @@ mod tests {
             binary: adapter,
             package_manifest_sha256: file_sha256(&package_manifest).unwrap(),
             package_manifest,
-            ordered_scope_ids: vec![
-                "npu-scope".into(),
-                "gpu-scope".into(),
-                "cpu-scope".into(),
-            ],
+            ordered_scope_ids: vec!["npu-scope".into(), "gpu-scope".into(), "cpu-scope".into()],
         };
         let mut supervisor = AdapterSupervisor::new(launch).unwrap();
         let endpoint = supervisor.endpoint().unwrap();
@@ -568,13 +633,22 @@ mod tests {
         let started = Instant::now();
         let error = supervisor.restart_after_transport_failure().unwrap_err();
         assert!(error.to_string().contains("remained alive"));
-        assert!(error.to_string().contains("owned process was stopped"), "PID {pid}: {error}");
+        assert!(
+            error.to_string().contains("owned process was stopped"),
+            "PID {pid}: {error}"
+        );
         assert!(supervisor.restarted_after_crash);
         assert!(supervisor.running.is_none());
         assert!(supervisor.cleanup_pending.is_none());
         assert!(started.elapsed() < TERMINATE_TIMEOUT + Duration::from_secs(1));
         for _ in 0..3 {
-            assert!(supervisor.endpoint().unwrap_err().to_string().contains("restart was already consumed"));
+            assert!(
+                supervisor
+                    .endpoint()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("restart was already consumed")
+            );
             assert!(supervisor.running.is_none());
         }
         drop(supervisor);

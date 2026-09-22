@@ -124,7 +124,10 @@ impl SessionScope {
     }
 
     pub fn from_cwd(cwd: Option<&str>) -> SessionScope {
-        SessionScope { host: crate::paths::hostname(), repo: repo_name(cwd) }
+        SessionScope {
+            host: crate::paths::hostname(),
+            repo: repo_name(cwd),
+        }
     }
 
     /// For non-hook callers (selfcheck): this process's own working directory.
@@ -136,7 +139,10 @@ impl SessionScope {
 
 fn repo_name(cwd: Option<&str>) -> Option<String> {
     let trimmed = cwd?.trim_end_matches('/');
-    let name = Path::new(trimmed).file_name()?.to_string_lossy().to_string();
+    let name = Path::new(trimmed)
+        .file_name()?
+        .to_string_lossy()
+        .to_string();
     (!name.is_empty()).then_some(name)
 }
 
@@ -300,8 +306,10 @@ fn collect(cfg: &Config, scope: &SessionScope) -> (Vec<Section>, Vec<String>, Ve
 /// A path outside the tree has no catalog name and cannot be double-counted.
 fn doc_path(brain_root: &Path, abs: &Path) -> Option<String> {
     let rel = abs.strip_prefix(brain_root).ok()?;
-    let joined: Vec<String> =
-        rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+    let joined: Vec<String> = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
     (!joined.is_empty()).then(|| joined.join("/"))
 }
 
@@ -329,7 +337,12 @@ pub fn build(cfg: &Config, scope: &SessionScope) -> ResidentDigest {
 fn build_in(cfg: &Config, scope: &SessionScope, state_dir: &Path) -> ResidentDigest {
     let (sections, skipped_by_scope, missing) = collect(cfg, scope);
     if sections.is_empty() {
-        return ResidentDigest { text: String::new(), sources: Vec::new(), skipped_by_scope, missing };
+        return ResidentDigest {
+            text: String::new(),
+            sources: Vec::new(),
+            skipped_by_scope,
+            missing,
+        };
     }
 
     // The budget is a HARD cap on the whole digest: headers, index lines, clip
@@ -356,7 +369,12 @@ fn build_in(cfg: &Config, scope: &SessionScope, state_dir: &Path) -> ResidentDig
             sources = compact_sources;
         }
     }
-    ResidentDigest { text: text.trim_end().to_string(), sources, skipped_by_scope, missing }
+    ResidentDigest {
+        text: text.trim_end().to_string(),
+        sources,
+        skipped_by_scope,
+        missing,
+    }
 }
 
 /// Decides the disclosure level of every entry and renders the digest.
@@ -395,10 +413,13 @@ fn render(
         // The floor keeps every full entry represented even when the budget is
         // far too small for any of them: silence about a configured resident
         // file is the failure this whole path exists to avoid.
-        let usable =
-            budget.saturating_sub(fixed.saturating_add(headers)).max(full.len().saturating_mul(60));
-        let wants: Vec<(usize, f32)> =
-            full.iter().map(|i| (sections[*i].body.len(), sections[*i].weight)).collect();
+        let usable = budget
+            .saturating_sub(fixed.saturating_add(headers))
+            .max(full.len().saturating_mul(60));
+        let wants: Vec<(usize, f32)> = full
+            .iter()
+            .map(|i| (sections[*i].body.len(), sections[*i].weight))
+            .collect();
         let granted = allocate(&wants, usable);
         let victim = full
             .iter()
@@ -428,7 +449,11 @@ fn render(
         sources.push((s.label.clone(), clipped.len()));
     }
     if !lines.is_empty() {
-        let header = if compact_paths { COMPACT_INDEX_HEADER } else { INDEX_HEADER };
+        let header = if compact_paths {
+            COMPACT_INDEX_HEADER
+        } else {
+            INDEX_HEADER
+        };
         let _ = writeln!(text, "{header}");
         for (i, line) in &lines {
             let _ = writeln!(text, "{line}");
@@ -458,7 +483,11 @@ fn clip(body: &str, share: usize, label: &str) -> String {
         cut += 1;
     }
     if cut < body.len() {
-        format!("{}\n[clipped at {cut} of {} chars — full content: {label}]", &body[..cut], body.len())
+        format!(
+            "{}\n[clipped at {cut} of {} chars — full content: {label}]",
+            &body[..cut],
+            body.len()
+        )
     } else {
         body.to_string()
     }
@@ -474,7 +503,12 @@ fn index_line(s: &Section, summary: bool, compact_path: bool) -> String {
     if compact_path && s.doc.is_some() {
         let _ = write!(line, " — {}", fmt_tokens(s.body.len()));
     } else {
-        let _ = write!(line, " — {} — read {}", fmt_tokens(s.body.len()), s.path.display());
+        let _ = write!(
+            line,
+            " — {} — read {}",
+            fmt_tokens(s.body.len()),
+            s.path.display()
+        );
     }
     line
 }
@@ -519,11 +553,16 @@ fn first_prose_line(line: &str) -> Option<String> {
 /// frontmatter at all — the same fail-closed reading the index applies, so a
 /// mangled fence cannot make the whole file read as metadata.
 fn split_frontmatter(body: &str) -> (Option<&str>, &str) {
-    let Some(rest) = body.strip_prefix("---\n") else { return (None, body) };
+    let Some(rest) = body.strip_prefix("---\n") else {
+        return (None, body);
+    };
     match rest.find("\n---") {
         Some(end) => {
             let after = &rest[end + 4..];
-            (Some(&rest[..end]), after.strip_prefix('\n').unwrap_or(after))
+            (
+                Some(&rest[..end]),
+                after.strip_prefix('\n').unwrap_or(after),
+            )
         }
         None => (None, body),
     }
@@ -534,8 +573,7 @@ fn split_frontmatter(body: &str) -> (Option<&str>, &str) {
 fn frontmatter_value(frontmatter: &str, key: &str) -> Option<String> {
     frontmatter.lines().find_map(|line| {
         let (k, v) = line.trim().split_once(':')?;
-        (k.trim().eq_ignore_ascii_case(key) && !v.trim().is_empty())
-            .then(|| v.trim().to_string())
+        (k.trim().eq_ignore_ascii_case(key) && !v.trim().is_empty()).then(|| v.trim().to_string())
     })
 }
 
@@ -598,12 +636,18 @@ fn hard_rules(body: &str) -> Vec<String> {
 /// line that survives this is quoted verbatim as a rule.
 fn undecorate(line: &str) -> &str {
     const MARKS: [char; 10] = ['-', '*', '+', '>', '#', ' ', '\t', '`', '"', '_'];
-    let s = line.trim().trim_end_matches(['*', '_', '`', ' ', '\t']).trim_start_matches(MARKS);
+    let s = line
+        .trim()
+        .trim_end_matches(['*', '_', '`', ' ', '\t'])
+        .trim_start_matches(MARKS);
     let s = match s.split_once(' ') {
         Some((first, rest))
             if first.len() <= 3
                 && first.starts_with(|c: char| c.is_ascii_digit())
-                && first.trim_end_matches(['.', ')']).chars().all(|c| c.is_ascii_digit()) =>
+                && first
+                    .trim_end_matches(['.', ')'])
+                    .chars()
+                    .all(|c| c.is_ascii_digit()) =>
         {
             rest
         }
@@ -641,12 +685,9 @@ fn is_prohibition(text: &str) -> bool {
 /// or one that has never scanned) means NO line: "0 files" would state an
 /// absence nobody measured.
 fn recallable_tail(cfg: &Config, state_dir: &Path, injected: &[Section]) -> Vec<(u8, usize, u64)> {
-    if cfg.client.serving.is_some() {
-        // Opening a local catalog here would build the second, silently stale
-        // truth a none-tier host exists to avoid.
+    let Ok(conn) = crate::index::open_ro(state_dir) else {
         return Vec::new();
-    }
-    let Ok(conn) = crate::index::open_ro(state_dir) else { return Vec::new() };
+    };
     // A session start must never wait out someone else's write transaction;
     // an unpriced digest is a small loss, a stalled hook is a large one.
     let _ = conn.busy_timeout(std::time::Duration::from_millis(150));
@@ -656,7 +697,11 @@ fn recallable_tail(cfg: &Config, state_dir: &Path, injected: &[Section]) -> Vec<
         return Vec::new();
     };
     let Ok(rows) = stmt.query_map([], |r| {
-        Ok((r.get::<_, i64>(0)? as u8, r.get::<_, i64>(1)? as usize, r.get::<_, i64>(2)? as u64))
+        Ok((
+            r.get::<_, i64>(0)? as u8,
+            r.get::<_, i64>(1)? as usize,
+            r.get::<_, i64>(2)? as u64,
+        ))
     }) else {
         return Vec::new();
     };
@@ -665,9 +710,9 @@ fn recallable_tail(cfg: &Config, state_dir: &Path, injected: &[Section]) -> Vec<
     // — is not something to go and recall.
     if let Ok(mut one) = conn.prepare("SELECT ring, size FROM docs WHERE path = ?1") {
         for doc in injected.iter().filter_map(|s| s.doc.as_deref()) {
-            let Ok((ring, size)) = one
-                .query_row([doc], |r| Ok((r.get::<_, i64>(0)? as u8, r.get::<_, i64>(1)? as u64)))
-            else {
+            let Ok((ring, size)) = one.query_row([doc], |r| {
+                Ok((r.get::<_, i64>(0)? as u8, r.get::<_, i64>(1)? as u64))
+            }) else {
                 continue;
             };
             if let Some(e) = per_ring.iter_mut().find(|e| e.0 == ring) {
@@ -689,10 +734,16 @@ fn tail_line(per_ring: &[(u8, usize, u64)]) -> String {
     let priced: Vec<String> = per_ring
         .iter()
         .map(|(ring, files, chars)| {
-            format!("ring {ring} · {files} file(s) {}", fmt_tokens(*chars as usize))
+            format!(
+                "ring {ring} · {files} file(s) {}",
+                fmt_tokens(*chars as usize)
+            )
         })
         .collect();
-    format!("[not injected, recallable: {} — cfetch recall \"<topic>\"]", priced.join(" · "))
+    format!(
+        "[not injected, recallable: {} — cfetch recall \"<topic>\"]",
+        priced.join(" · ")
+    )
 }
 
 /// Cuts `text` to `max` chars on a char boundary, saying so when it cuts.
@@ -728,13 +779,19 @@ mod tests {
                 ResidentEntry {
                     path: PathBuf::from("on-host.md"),
                     ring: 1,
-                    scope: Scope { hosts: vec!["build-box".into()], ..Scope::default() },
+                    scope: Scope {
+                        hosts: vec!["build-box".into()],
+                        ..Scope::default()
+                    },
                     weight: None,
                 },
                 ResidentEntry {
                     path: PathBuf::from("in-repo.md"),
                     ring: 1,
-                    scope: Scope { repos: vec!["widget".into()], ..Scope::default() },
+                    scope: Scope {
+                        repos: vec!["widget".into()],
+                        ..Scope::default()
+                    },
                     weight: None,
                 },
                 ResidentEntry {
@@ -753,7 +810,12 @@ mod tests {
     }
 
     fn entry(path: &str, ring: u8, weight: Option<f32>) -> ResidentEntry {
-        ResidentEntry { path: PathBuf::from(path), ring, scope: Scope::default(), weight }
+        ResidentEntry {
+            path: PathBuf::from(path),
+            ring,
+            scope: Scope::default(),
+            weight,
+        }
     }
 
     /// Builds against a state dir that holds no catalog. The availability
@@ -773,15 +835,42 @@ mod tests {
         let cfg = Config {
             brain_root: dir.path().to_path_buf(),
             resident: vec![
-                ResidentEntry { path: "AGENT.md".into(), ring: 1, scope: Scope::default(), weight: None },
-                ResidentEntry { path: "knowledge/handoff.md".into(), ring: 0, scope: Scope::default(), weight: None },
+                ResidentEntry {
+                    path: "AGENT.md".into(),
+                    ring: 1,
+                    scope: Scope::default(),
+                    weight: None,
+                },
+                ResidentEntry {
+                    path: "knowledge/handoff.md".into(),
+                    ring: 0,
+                    scope: Scope::default(),
+                    weight: None,
+                },
             ],
             ..Config::default()
         };
-        let digest = build(&cfg, &SessionScope { host: "h".into(), repo: None });
-        assert!(digest.text.contains("[resident file missing:"), "session sees the placeholder");
-        assert!(digest.text.contains("real rules"), "the present entry still arrives");
-        assert_eq!(digest.missing.len(), 1, "the missing entry is reported: {:?}", digest.missing);
+        let digest = build(
+            &cfg,
+            &SessionScope {
+                host: "h".into(),
+                repo: None,
+            },
+        );
+        assert!(
+            digest.text.contains("[resident file missing:"),
+            "session sees the placeholder"
+        );
+        assert!(
+            digest.text.contains("real rules"),
+            "the present entry still arrives"
+        );
+        assert_eq!(
+            digest.missing.len(),
+            1,
+            "the missing entry is reported: {:?}",
+            digest.missing
+        );
         assert!(digest.missing[0].contains("knowledge/handoff.md"));
     }
 
@@ -800,14 +889,23 @@ mod tests {
             }],
             ..Config::default()
         };
-        let digest = build(&cfg, &SessionScope { host: "h".into(), repo: None });
+        let digest = build(
+            &cfg,
+            &SessionScope {
+                host: "h".into(),
+                repo: None,
+            },
+        );
         assert!(digest.missing.is_empty());
         assert!(!digest.text.contains("resident file missing"));
     }
 
     /// The index line the digest prints instead of a whole file.
     fn index_line_for(d: &ResidentDigest, name: &str) -> Option<String> {
-        d.text.lines().find(|l| l.starts_with("- ") && l.contains(name)).map(str::to_string)
+        d.text
+            .lines()
+            .find(|l| l.starts_with("- ") && l.contains(name))
+            .map(str::to_string)
     }
 
     /// Two entries, one tiny and one long. Under an equal split the tiny file
@@ -826,12 +924,27 @@ mod tests {
             ..Config::default()
         };
         let d = build(&cfg, &SessionScope::from_cwd(None));
-        let big = d.sources.iter().find(|(l, _)| l.contains("big.md")).unwrap().1;
+        let big = d
+            .sources
+            .iter()
+            .find(|(l, _)| l.contains("big.md"))
+            .unwrap()
+            .1;
         // An equal split caps this near half the usable budget, and a body
         // that does not fit its share is indexed rather than injected.
-        assert_eq!(big, 1500, "big.md arrived as {big} chars; the small entry's slack was not released");
-        assert!(d.text.contains(&"B".repeat(1500)), "big.md did not arrive whole");
-        assert!(d.text.len() <= 2000, "the budget is still a hard cap: {}", d.text.len());
+        assert_eq!(
+            big, 1500,
+            "big.md arrived as {big} chars; the small entry's slack was not released"
+        );
+        assert!(
+            d.text.contains(&"B".repeat(1500)),
+            "big.md did not arrive whole"
+        );
+        assert!(
+            d.text.len() <= 2000,
+            "the budget is still a hard cap: {}",
+            d.text.len()
+        );
     }
 
     /// The ring is the default statement of how load-bearing an entry is, so
@@ -849,16 +962,34 @@ mod tests {
             resident: vec![
                 entry("inv.md", 0, None),
                 ResidentEntry {
-                    scope: Scope { repos: vec!["widget".into()], ..Scope::default() },
+                    scope: Scope {
+                        repos: vec!["widget".into()],
+                        ..Scope::default()
+                    },
                     ..entry("beh.md", 2, None)
                 },
             ],
             ..Config::default()
         };
-        let d = build(&cfg, &SessionScope { host: "any-host".into(), repo: Some("widget".into()) });
-        assert!(d.text.contains(&"I".repeat(1200)), "the invariant did not arrive whole");
-        assert!(!d.text.contains(&"B".repeat(1200)), "both bodies fit — the budget was not the constraint");
-        assert!(index_line_for(&d, "beh.md").is_some(), "the behavior note lost its index line too");
+        let d = build(
+            &cfg,
+            &SessionScope {
+                host: "any-host".into(),
+                repo: Some("widget".into()),
+            },
+        );
+        assert!(
+            d.text.contains(&"I".repeat(1200)),
+            "the invariant did not arrive whole"
+        );
+        assert!(
+            !d.text.contains(&"B".repeat(1200)),
+            "both bodies fit — the budget was not the constraint"
+        );
+        assert!(
+            index_line_for(&d, "beh.md").is_some(),
+            "the behavior note lost its index line too"
+        );
     }
 
     #[test]
@@ -886,7 +1017,11 @@ mod tests {
         let cfg = Config {
             brain_root: dir.path().to_path_buf(),
             budget_chars: 200,
-            resident: vec![entry("a.md", 0, None), entry("b.md", 1, None), entry("c.md", 2, None)],
+            resident: vec![
+                entry("a.md", 0, None),
+                entry("b.md", 1, None),
+                entry("c.md", 2, None),
+            ],
             ..Config::default()
         };
         let d = build(&cfg, &SessionScope::from_cwd(None));
@@ -905,7 +1040,10 @@ mod tests {
         assert!(!scope.host.is_empty(), "the host is always known");
 
         let trailing: HookEvent = serde_json::from_str(r#"{"cwd":"/srv/work/widget/"}"#).unwrap();
-        assert_eq!(SessionScope::from_event(&trailing).repo.as_deref(), Some("widget"));
+        assert_eq!(
+            SessionScope::from_event(&trailing).repo.as_deref(),
+            Some("widget")
+        );
 
         let no_cwd: HookEvent = serde_json::from_str(r#"{"session_id":"s1"}"#).unwrap();
         assert!(SessionScope::from_event(&no_cwd).repo.is_none());
@@ -915,20 +1053,36 @@ mod tests {
     fn injection_selects_by_host_scope() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = scoped_cfg(dir.path());
-        let scope = SessionScope { host: "build-box".into(), repo: Some("sprocket".into()) };
+        let scope = SessionScope {
+            host: "build-box".into(),
+            repo: Some("sprocket".into()),
+        };
         let d = build(&cfg, &scope);
-        assert!(d.text.contains("body of everywhere.md"), "an unscoped entry is always in");
+        assert!(
+            d.text.contains("body of everywhere.md"),
+            "an unscoped entry is always in"
+        );
         assert!(d.text.contains("body of on-host.md"), "the host matches");
         assert!(!d.text.contains("body of in-repo.md"), "wrong repo");
-        assert!(!d.text.contains("body of elsewhere.md"), "neither host nor repo matches");
-        assert_eq!(d.skipped_by_scope.len(), 2, "skips are reported, never silent");
+        assert!(
+            !d.text.contains("body of elsewhere.md"),
+            "neither host nor repo matches"
+        );
+        assert_eq!(
+            d.skipped_by_scope.len(),
+            2,
+            "skips are reported, never silent"
+        );
     }
 
     #[test]
     fn injection_selects_by_repo_scope() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = scoped_cfg(dir.path());
-        let scope = SessionScope { host: "laptop".into(), repo: Some("widget".into()) };
+        let scope = SessionScope {
+            host: "laptop".into(),
+            repo: Some("widget".into()),
+        };
         let d = build(&cfg, &scope);
         assert!(d.text.contains("body of everywhere.md"));
         assert!(d.text.contains("body of in-repo.md"), "the repo matches");
@@ -940,7 +1094,10 @@ mod tests {
     fn a_session_matching_nothing_still_gets_the_unscoped_entries() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = scoped_cfg(dir.path());
-        let scope = SessionScope { host: "laptop".into(), repo: None };
+        let scope = SessionScope {
+            host: "laptop".into(),
+            repo: None,
+        };
         let d = build(&cfg, &scope);
         assert!(d.text.contains("body of everywhere.md"));
         assert_eq!(d.sources.len(), 1, "only the unscoped entry is booked");
@@ -959,9 +1116,25 @@ mod tests {
             std::fs::write(dir.path().join(name), "w".repeat(1500)).unwrap();
         }
         cfg.budget_chars = 2000;
-        let all = build(&cfg, &SessionScope { host: "build-box".into(), repo: Some("widget".into()) });
-        let one = build(&cfg, &SessionScope { host: "laptop".into(), repo: None });
-        assert_eq!(all.sources.len(), 3, "everywhere + host + repo; `elsewhere` matches neither");
+        let all = build(
+            &cfg,
+            &SessionScope {
+                host: "build-box".into(),
+                repo: Some("widget".into()),
+            },
+        );
+        let one = build(
+            &cfg,
+            &SessionScope {
+                host: "laptop".into(),
+                repo: None,
+            },
+        );
+        assert_eq!(
+            all.sources.len(),
+            3,
+            "everywhere + host + repo; `elsewhere` matches neither"
+        );
         assert_eq!(one.sources.len(), 1);
         assert!(one.text.len() <= 2000, "the budget is still a hard cap");
         assert!(
@@ -989,7 +1162,10 @@ mod tests {
 
     #[test]
     fn multiple_private_blocks() {
-        assert_eq!(strip_private("a<private>x</private>b<private>y</private>c"), "abc");
+        assert_eq!(
+            strip_private("a<private>x</private>b<private>y</private>c"),
+            "abc"
+        );
     }
 
     #[test]
@@ -1017,19 +1193,37 @@ mod tests {
             brain_root: dir.path().to_path_buf(),
             resident: ["a.md", "b.md", "c.md"]
                 .iter()
-                .map(|n| ResidentEntry { path: PathBuf::from(n), ring: 1, scope: Scope::default(), weight: None })
+                .map(|n| ResidentEntry {
+                    path: PathBuf::from(n),
+                    ring: 1,
+                    scope: Scope::default(),
+                    weight: None,
+                })
                 .collect(),
             code_roots: Vec::new(),
             budget_chars: 2000,
             ..Config::default()
         };
-        let d = build(&cfg, &SessionScope { host: "any-host".into(), repo: None });
-        assert!(d.text.len() <= 2000, "digest was {} chars for a 2000 budget", d.text.len());
+        let d = build(
+            &cfg,
+            &SessionScope {
+                host: "any-host".into(),
+                repo: None,
+            },
+        );
+        assert!(
+            d.text.len() <= 2000,
+            "digest was {} chars for a 2000 budget",
+            d.text.len()
+        );
         // Nothing arrives half-written to make the cap: the three of them are
         // indexed, and each is still named.
         assert_eq!(d.text.matches("[clipped at ").count(), 0);
         for name in ["a.md", "b.md", "c.md"] {
-            assert!(index_line_for(&d, name).is_some(), "{name} lost its index line");
+            assert!(
+                index_line_for(&d, name).is_some(),
+                "{name} lost its index line"
+            );
         }
     }
 
@@ -1067,17 +1261,29 @@ mod tests {
             resident: vec![ResidentEntry {
                 path: PathBuf::from("big.md"),
                 ring: 0,
-                scope: Scope { always: true, ..Scope::default() },
+                scope: Scope {
+                    always: true,
+                    ..Scope::default()
+                },
                 weight: None,
             }],
             code_roots: Vec::new(),
             budget_chars: 1000,
             ..Config::default()
         };
-        let d = build(&cfg, &SessionScope { host: "any-host".into(), repo: None });
+        let d = build(
+            &cfg,
+            &SessionScope {
+                host: "any-host".into(),
+                repo: None,
+            },
+        );
         assert!(d.text.len() < 1400, "digest was {} chars", d.text.len());
         assert!(d.text.contains("[clipped at "));
-        assert!(index_line_for(&d, "big.md").is_none(), "a pinned entry is never demoted");
+        assert!(
+            index_line_for(&d, "big.md").is_none(),
+            "a pinned entry is never demoted"
+        );
     }
 
     #[test]
@@ -1085,12 +1291,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cfg = Config {
             brain_root: dir.path().to_path_buf(),
-            resident: vec![ResidentEntry { path: PathBuf::from("absent.md"), ring: 1, scope: Scope::default(), weight: None }],
+            resident: vec![ResidentEntry {
+                path: PathBuf::from("absent.md"),
+                ring: 1,
+                scope: Scope::default(),
+                weight: None,
+            }],
             code_roots: Vec::new(),
             budget_chars: 1000,
             ..Config::default()
         };
-        let d = build(&cfg, &SessionScope { host: "any-host".into(), repo: None });
+        let d = build(
+            &cfg,
+            &SessionScope {
+                host: "any-host".into(),
+                repo: None,
+            },
+        );
         assert!(d.text.contains("resident file missing"));
     }
 
@@ -1108,17 +1325,34 @@ mod tests {
             ..Config::default()
         };
         let d = build(&cfg, &SessionScope::from_cwd(None));
-        assert!(!d.text.contains("prose prose"), "the body was injected anyway:\n{}", d.text);
-        assert!(!d.text.contains("[clipped at "), "half a file is not a disclosure level");
+        assert!(
+            !d.text.contains("prose prose"),
+            "the body was injected anyway:\n{}",
+            d.text
+        );
+        assert!(
+            !d.text.contains("[clipped at "),
+            "half a file is not a disclosure level"
+        );
         let line = index_line_for(&d, "AGENT.md").expect("no index line");
-        assert!(line.contains("The operating contract"), "the line does not say what it is: {line}");
-        assert!(line.contains("~6.9k tok"), "the line does not price the file: {line}");
+        assert!(
+            line.contains("The operating contract"),
+            "the line does not say what it is: {line}"
+        );
+        assert!(
+            line.contains("~6.9k tok"),
+            "the line does not price the file: {line}"
+        );
         assert!(
             line.contains(dir.path().join("AGENT.md").to_str().unwrap()),
             "the line does not say where the rest is: {line}"
         );
         assert_eq!(
-            d.sources.iter().find(|(l, _)| l.contains("AGENT.md")).unwrap().1,
+            d.sources
+                .iter()
+                .find(|(l, _)| l.contains("AGENT.md"))
+                .unwrap()
+                .1,
             line.len(),
             "an indexed entry is booked for what it actually cost"
         );
@@ -1146,12 +1380,25 @@ mod tests {
             ..Config::default()
         };
         let d = build(&cfg, &SessionScope::from_cwd(None));
-        assert!(d.text.contains("NEVER FORCE OFF VMs"), "the first hard rule was lost:\n{}", d.text);
+        assert!(
+            d.text.contains("NEVER FORCE OFF VMs"),
+            "the first hard rule was lost:\n{}",
+            d.text
+        );
         assert!(d.text.contains("Never rsync between two ZFS pools"));
         assert!(d.text.contains("No force-pushes to the default branch"));
-        assert!(!d.text.contains("Do not enable dedup"), "only the top few rules travel");
-        assert!(!d.text.contains("Prefer Rust"), "a preference is not a prohibition");
-        assert!(!d.text.contains("filler filler"), "the file itself was injected anyway");
+        assert!(
+            !d.text.contains("Do not enable dedup"),
+            "only the top few rules travel"
+        );
+        assert!(
+            !d.text.contains("Prefer Rust"),
+            "a preference is not a prohibition"
+        );
+        assert!(
+            !d.text.contains("filler filler"),
+            "the file itself was injected anyway"
+        );
         assert!(
             index_line_for(&d, "rules.md").is_some_and(|l| l.contains("how this host is run")),
             "the index line lost the file's own description"
@@ -1176,9 +1423,18 @@ mod tests {
 
     #[test]
     fn a_prohibition_too_long_for_the_line_is_dropped_not_truncated() {
-        let long = format!("- Never delete {} unless the mirror is verified", "x".repeat(140));
-        assert!(hard_rules(&long).is_empty(), "a truncated rule would state a broader one");
-        assert_eq!(hard_rules("- Never delete the pool\n"), vec!["Never delete the pool"]);
+        let long = format!(
+            "- Never delete {} unless the mirror is verified",
+            "x".repeat(140)
+        );
+        assert!(
+            hard_rules(&long).is_empty(),
+            "a truncated rule would state a broader one"
+        );
+        assert_eq!(
+            hard_rules("- Never delete the pool\n"),
+            vec!["Never delete the pool"]
+        );
         assert_eq!(
             hard_rules("1. **NO UNSUPERVISED INSTALLS**\n"),
             vec!["NO UNSUPERVISED INSTALLS"]
@@ -1187,7 +1443,10 @@ mod tests {
             hard_rules("---\ndescription: never do this\n---\nbody\n").is_empty(),
             "frontmatter is a label, not a rule"
         );
-        assert!(hard_rules("The rule is: do not do that\n").is_empty(), "only the opener decides");
+        assert!(
+            hard_rules("The rule is: do not do that\n").is_empty(),
+            "only the opener decides"
+        );
     }
 
     #[test]
@@ -1198,12 +1457,22 @@ mod tests {
         // measure what the operator reads.
         let rule = format!("never {} gravierend", "ä".repeat(100));
         assert_eq!(rule.chars().count(), 117);
-        assert!(rule.len() > 140, "the fixture must be over the cap in bytes");
-        assert_eq!(hard_rules(&rule), vec![rule], "a readable-length rule survives");
+        assert!(
+            rule.len() > 140,
+            "the fixture must be over the cap in bytes"
+        );
+        assert_eq!(
+            hard_rules(&rule),
+            vec![rule],
+            "a readable-length rule survives"
+        );
         // And the cap itself still holds, in chars.
         let over = format!("never {}", "x".repeat(140));
         assert!(over.chars().count() > 140);
-        assert!(hard_rules(&over).is_empty(), "past the cap in chars it drops, whatever its byte length");
+        assert!(
+            hard_rules(&over).is_empty(),
+            "past the cap in chars it drops, whatever its byte length"
+        );
     }
 
     /// A brain whose catalog holds far more than any digest could carry. The
@@ -1241,13 +1510,19 @@ mod tests {
         assert!(tail.contains("ring 2 · 1 file(s) ~1.0k tok"), "{tail}");
         assert!(tail.contains("ring 3 · 2 file(s) ~2.0k tok"), "{tail}");
         assert!(tail.contains("ring 4 · 1 file(s) ~1.0k tok"), "{tail}");
-        assert!(tail.contains("cfetch recall"), "the price without the way to pay it: {tail}");
+        assert!(
+            tail.contains("cfetch recall"),
+            "the price without the way to pay it: {tail}"
+        );
         assert!(
             !tail.contains("ring 1"),
             "the only ring-1 file was just injected; advertising it asks for it twice: {tail}"
         );
         assert_eq!(
-            d.sources.iter().filter(|(l, _)| l == "availability index").count(),
+            d.sources
+                .iter()
+                .filter(|(l, _)| l == "availability index")
+                .count(),
             1,
             "the advertisement costs tokens too and is booked like any other source"
         );
@@ -1265,7 +1540,11 @@ mod tests {
             ..Config::default()
         };
         let d = build_in(&cfg, &SessionScope::from_cwd(None), state.path());
-        assert!(!d.text.contains("not injected, recallable"), "priced from nothing:\n{}", d.text);
+        assert!(
+            !d.text.contains("not injected, recallable"),
+            "priced from nothing:\n{}",
+            d.text
+        );
     }
 
     /// A none-tier host answers recall from its serving host. Pricing a local
@@ -1291,17 +1570,6 @@ mod tests {
                 .contains("not injected, recallable"),
             "the catalog is there to be priced"
         );
-
-        cfg.client.serving = Some(crate::config::ClientServingConfig {
-            addr: "storage.example:9737".into(),
-            token_file: PathBuf::from("/var/empty/token"),
-        });
-        let d = build_in(&cfg, &SessionScope::from_cwd(None), state.path());
-        assert!(
-            !d.text.contains("not injected, recallable"),
-            "a client priced a local catalog:\n{}",
-            d.text
-        );
     }
 
     /// The index has to fit its own budget. When it cannot, the summaries go —
@@ -1319,7 +1587,10 @@ mod tests {
             let name = format!("file-{i:02}.md");
             std::fs::write(
                 brain_root.join(&name),
-                format!("# a title long enough to matter for entry {i}\n{}", "x".repeat(4000)),
+                format!(
+                    "# a title long enough to matter for entry {i}\n{}",
+                    "x".repeat(4000)
+                ),
             )
             .unwrap();
             resident.push(entry(&name, 1, None));
@@ -1331,16 +1602,27 @@ mod tests {
             ..Config::default()
         };
         let d = build(&cfg, &SessionScope::from_cwd(None));
-        assert!(d.text.len() <= 1600, "digest was {} chars for a 1600 budget", d.text.len());
-        assert!(!d.text.contains("a title long enough"), "the summaries survived the squeeze");
         assert!(
-            d.text.contains("paths are relative to the configured brain root"),
+            d.text.len() <= 1600,
+            "digest was {} chars for a 1600 budget",
+            d.text.len()
+        );
+        assert!(
+            !d.text.contains("a title long enough"),
+            "the summaries survived the squeeze"
+        );
+        assert!(
+            d.text
+                .contains("paths are relative to the configured brain root"),
             "the crowded index kept repeating its absolute root:\n{}",
             d.text
         );
         for i in 0..20 {
             let name = format!("file-{i:02}.md");
-            assert!(index_line_for(&d, &name).is_some(), "{name} was dropped, not summarized");
+            assert!(
+                index_line_for(&d, &name).is_some(),
+                "{name} was dropped, not summarized"
+            );
         }
     }
 
@@ -1351,7 +1633,10 @@ mod tests {
             Some("how this host is run")
         );
         assert_eq!(summarize("# Title\n\nbody\n").as_deref(), Some("Title"));
-        assert_eq!(summarize("just prose\nmore\n").as_deref(), Some("just prose"));
+        assert_eq!(
+            summarize("just prose\nmore\n").as_deref(),
+            Some("just prose")
+        );
         assert_eq!(summarize("\n\n").as_deref(), None);
         let long = summarize(&format!("# {}", "word ".repeat(40))).unwrap();
         assert!(long.chars().count() <= SUMMARY_MAX_CHARS, "{long}");

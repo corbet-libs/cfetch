@@ -40,7 +40,9 @@ const STOPWORDS: &[&str] = &[
 /// tokens; treating it here as one term no block can carry would drop a hit
 /// retrieval had every right to find.
 fn tokens(text: &str) -> impl Iterator<Item = String> {
-    text.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()).map(str::to_lowercase)
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(str::to_lowercase)
 }
 
 /// The query's distinct topical terms, in order — what a hit is measured
@@ -66,7 +68,10 @@ fn covered(hit: &Hit, terms: &[String]) -> usize {
     // The snippet carries the context and the body carries the evidence past
     // the snippet's 160-character cap; both are needed, neither alone.
     let words: Vec<String> = tokens(&hit.snippet).chain(tokens(&hit.text)).collect();
-    terms.iter().filter(|t| words.iter().any(|w| w.starts_with(t.as_str()))).count()
+    terms
+        .iter()
+        .filter(|t| words.iter().any(|w| w.starts_with(t.as_str())))
+        .count()
 }
 
 /// Drops hits carrying fewer than `floor` of the query's terms, and reports
@@ -237,19 +242,12 @@ pub fn ranked(
         degraded,
     );
     crate::runtime_status::record_memory_answer(
-        if cfg.serve.enabled {
-            crate::runtime_status::MemoryRoute::Serving
-        } else {
-            crate::runtime_status::MemoryRoute::Local
-        },
+        crate::runtime_status::MemoryRoute::Local,
         Some(index::generation(conn)),
         None,
         true,
     );
-    Ok(Ranked {
-        hits,
-        note,
-    })
+    Ok(Ranked { hits, note })
 }
 
 #[cfg(test)]
@@ -264,10 +262,20 @@ mod tests {
         let brain = tempfile::tempdir().unwrap();
         let p = brain.path().join("knowledge/a.md");
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, "- item one\n- item two\n- item three\n- item four\n- item five\n").unwrap();
+        std::fs::write(
+            p,
+            "- item one\n- item two\n- item three\n- item four\n- item five\n",
+        )
+        .unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = index::open(state.path()).unwrap();
-        index::scan(&mut conn, brain.path(), None, &crate::config::RingRules::default()).unwrap();
+        index::scan(
+            &mut conn,
+            brain.path(),
+            None,
+            &crate::config::RingRules::default(),
+        )
+        .unwrap();
         (brain, state, conn)
     }
 
@@ -307,19 +315,34 @@ mod tests {
         let out = ranked(&cfg, &conn, "item", 2, false, false, None).unwrap();
         assert!(out.note.is_none(), "{:?}", out.note);
         let sent: serde_json::Value = serde_json::from_str(&bodies.lock().unwrap()[0]).unwrap();
-        assert_eq!(sent["documents"].as_array().unwrap().len(), 5, "the window is what gets sent");
+        assert_eq!(
+            sent["documents"].as_array().unwrap().len(),
+            5,
+            "the window is what gets sent"
+        );
         assert_eq!(out.hits.len(), 2, "the caller asked for 2");
-        assert!(out.hits[0].snippet.contains("five"), "last by retrieval, first by rerank: {:?}", out.hits[0]);
+        assert!(
+            out.hits[0].snippet.contains("five"),
+            "last by retrieval, first by rerank: {:?}",
+            out.hits[0]
+        );
     }
 
     #[test]
     fn without_a_reranker_retrieval_never_widens() {
         let (brain, _state, conn) = five_block_index();
-        let cfg = Config { brain_root: brain.path().to_path_buf(), ..Config::default() };
+        let cfg = Config {
+            brain_root: brain.path().to_path_buf(),
+            ..Config::default()
+        };
         let out = ranked(&cfg, &conn, "item", 2, false, false, None).unwrap();
         assert_eq!(out.hits.len(), 2);
         assert!(out.note.is_none());
-        assert!(out.hits[0].snippet.contains("one"), "plain retrieval order: {:?}", out.hits[0]);
+        assert!(
+            out.hits[0].snippet.contains("one"),
+            "plain retrieval order: {:?}",
+            out.hits[0]
+        );
     }
 
     #[test]
@@ -327,7 +350,11 @@ mod tests {
         let (brain, _state, conn) = five_block_index();
         let cfg = cfg_with_rerank(brain.path(), "http://127.0.0.1:1/v1", 5);
         let out = ranked(&cfg, &conn, "item", 3, false, false, None).unwrap();
-        assert_eq!(out.hits.len(), 3, "the answer survives the second stage failing");
+        assert_eq!(
+            out.hits.len(),
+            3,
+            "the answer survives the second stage failing"
+        );
         let note = out.note.expect("degradation is never silent");
         assert!(note.contains("rerank unavailable"), "{note}");
     }
@@ -341,7 +368,9 @@ mod tests {
         cfg.rerank.model = String::new();
         let out = ranked(&cfg, &conn, "item", 3, false, false, None).unwrap();
         assert_eq!(out.hits.len(), 3);
-        let note = out.note.expect("a misconfiguration must reach the operator");
+        let note = out
+            .note
+            .expect("a misconfiguration must reach the operator");
         assert!(note.contains("rerank misconfigured"), "{note}");
         assert!(!note.contains('\n'), "one line: {note}");
     }
@@ -362,7 +391,13 @@ mod tests {
         }
         let state = tempfile::tempdir().unwrap();
         let mut conn = index::open(state.path()).unwrap();
-        index::scan(&mut conn, brain.path(), None, &crate::config::RingRules::default()).unwrap();
+        index::scan(
+            &mut conn,
+            brain.path(),
+            None,
+            &crate::config::RingRules::default(),
+        )
+        .unwrap();
         (brain, state, conn)
     }
 
@@ -400,16 +435,30 @@ mod tests {
         let outer = ranked(&cfg, &conn, "item", 10, false, false, Some("work")).unwrap();
         let mut got = paths_of(&outer);
         got.sort();
-        assert_eq!(got, vec!["knowledge/hosts/server.md", "knowledge/world/vendor.md"]);
-        assert!(!got.iter().any(|p| p.starts_with("mind/")), "the slice is a boundary");
+        assert_eq!(
+            got,
+            vec!["knowledge/hosts/server.md", "knowledge/world/vendor.md"]
+        );
+        assert!(
+            !got.iter().any(|p| p.starts_with("mind/")),
+            "the slice is a boundary"
+        );
     }
 
     #[test]
     fn the_root_slice_is_the_whole_tree_and_matches_no_filter_at_all() {
         let (brain, _state, conn) = two_slice_index();
         let cfg = sliced_cfg(brain.path());
-        let root = ranked(&cfg, &conn, "item", 10, false, false, Some(crate::config::ROOT_SLICE))
-            .unwrap();
+        let root = ranked(
+            &cfg,
+            &conn,
+            "item",
+            10,
+            false,
+            false,
+            Some(crate::config::ROOT_SLICE),
+        )
+        .unwrap();
         let unfiltered = ranked(&cfg, &conn, "item", 10, false, false, None).unwrap();
         assert_eq!(paths_of(&root), paths_of(&unfiltered));
         assert_eq!(root.hits.len(), 3);
@@ -421,16 +470,24 @@ mod tests {
         // leaks; refuse instead.
         let (brain, _state, conn) = two_slice_index();
         let cfg = sliced_cfg(brain.path());
-        let e = ranked(&cfg, &conn, "item", 10, false, false, Some("hsots")).unwrap_err().to_string();
+        let e = ranked(&cfg, &conn, "item", 10, false, false, Some("hsots"))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("no slice named"), "{e}");
-        assert!(e.contains("work") && e.contains("hosts"), "the real names are offered: {e}");
+        assert!(
+            e.contains("work") && e.contains("hosts"),
+            "the real names are offered: {e}"
+        );
     }
 
     #[test]
     fn a_brain_with_no_slices_answers_exactly_as_it_did_before() {
         // The S1 acceptance test: a single-slice brain is byte-identical.
         let (brain, _state, conn) = two_slice_index();
-        let plain = Config { brain_root: brain.path().to_path_buf(), ..Config::default() };
+        let plain = Config {
+            brain_root: brain.path().to_path_buf(),
+            ..Config::default()
+        };
         let before = index::recall(&conn, "item", 10).unwrap();
         let after = ranked(&plain, &conn, "item", 10, false, false, None).unwrap();
         assert_eq!(
@@ -438,7 +495,11 @@ mod tests {
             before.iter().map(|h| h.path.clone()).collect::<Vec<_>>()
         );
         assert_eq!(
-            after.hits.iter().map(|h| h.cite.clone()).collect::<Vec<_>>(),
+            after
+                .hits
+                .iter()
+                .map(|h| h.cite.clone())
+                .collect::<Vec<_>>(),
             before.iter().map(|h| h.cite.clone()).collect::<Vec<_>>()
         );
     }
@@ -446,7 +507,9 @@ mod tests {
     // ---- the precision gate
 
     /// A brain of one-line files, scanned into a fresh index.
-    fn brain_of(files: &[(&str, &str)]) -> (tempfile::TempDir, tempfile::TempDir, rusqlite::Connection) {
+    fn brain_of(
+        files: &[(&str, &str)],
+    ) -> (tempfile::TempDir, tempfile::TempDir, rusqlite::Connection) {
         let brain = tempfile::tempdir().unwrap();
         for (rel, body) in files {
             let p = brain.path().join(rel);
@@ -455,7 +518,13 @@ mod tests {
         }
         let state = tempfile::tempdir().unwrap();
         let mut conn = index::open(state.path()).unwrap();
-        index::scan(&mut conn, brain.path(), None, &crate::config::RingRules::default()).unwrap();
+        index::scan(
+            &mut conn,
+            brain.path(),
+            None,
+            &crate::config::RingRules::default(),
+        )
+        .unwrap();
         (brain, state, conn)
     }
 
@@ -474,27 +543,62 @@ mod tests {
     /// word with it — the shape `index::fts_query`'s OR-join retrieves and
     /// nothing else refuses.
     const MIXED: &[(&str, &str)] = &[
-        ("knowledge/storage.md", "- zfs snapshot retention runs nightly\n"),
-        ("knowledge/people.md", "- policy on contributor onboarding\n"),
+        (
+            "knowledge/storage.md",
+            "- zfs snapshot retention runs nightly\n",
+        ),
+        (
+            "knowledge/people.md",
+            "- policy on contributor onboarding\n",
+        ),
     ];
 
     #[test]
     fn the_gate_is_off_by_default_and_the_weak_hit_still_comes_back() {
         let (brain, _state, conn) = brain_of(MIXED);
-        let cfg = Config { brain_root: brain.path().to_path_buf(), ..Config::default() };
-        let out = ranked(&cfg, &conn, "zfs snapshot retention policy", 10, false, false, None).unwrap();
+        let cfg = Config {
+            brain_root: brain.path().to_path_buf(),
+            ..Config::default()
+        };
+        let out = ranked(
+            &cfg,
+            &conn,
+            "zfs snapshot retention policy",
+            10,
+            false,
+            false,
+            None,
+        )
+        .unwrap();
         let mut got = paths_of(&out);
         got.sort();
         assert_eq!(got, vec!["knowledge/people.md", "knowledge/storage.md"]);
-        assert!(out.note.is_none(), "an unarmed gate says nothing: {:?}", out.note);
+        assert!(
+            out.note.is_none(),
+            "an unarmed gate says nothing: {:?}",
+            out.note
+        );
     }
 
     #[test]
     fn an_armed_gate_drops_the_one_word_hit_and_names_the_drop() {
         let (brain, _state, conn) = brain_of(MIXED);
         let cfg = gated_cfg(brain.path(), 2);
-        let out = ranked(&cfg, &conn, "zfs snapshot retention policy", 10, false, false, None).unwrap();
-        assert_eq!(paths_of(&out), vec!["knowledge/storage.md"], "one shared word is not evidence");
+        let out = ranked(
+            &cfg,
+            &conn,
+            "zfs snapshot retention policy",
+            10,
+            false,
+            false,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            paths_of(&out),
+            vec!["knowledge/storage.md"],
+            "one shared word is not evidence"
+        );
         let note = out.note.expect("a removal is never silent");
         assert!(note.contains("precision gate dropped 1 hit"), "{note}");
         assert!(note.contains("under 2 of the query's 4 term(s)"), "{note}");
@@ -506,13 +610,33 @@ mod tests {
         // tell a gate from an empty brain is worse off than one holding a
         // weak hit they can dismiss themselves.
         let (brain, _state, conn) = brain_of(&[
-            ("knowledge/people.md", "- policy on contributor onboarding\n"),
+            (
+                "knowledge/people.md",
+                "- policy on contributor onboarding\n",
+            ),
             ("knowledge/pools.md", "- the zfs pool layout diagram\n"),
         ]);
         let cfg = gated_cfg(brain.path(), 2);
-        let out = ranked(&cfg, &conn, "zfs snapshot retention policy", 10, false, false, None).unwrap();
-        assert_eq!(out.hits.len(), 1, "the best-ranked hit survives whatever it scores");
-        assert!(out.note.expect("still said out loud").contains("precision gate dropped 1 hit"));
+        let out = ranked(
+            &cfg,
+            &conn,
+            "zfs snapshot retention policy",
+            10,
+            false,
+            false,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            out.hits.len(),
+            1,
+            "the best-ranked hit survives whatever it scores"
+        );
+        assert!(
+            out.note
+                .expect("still said out loud")
+                .contains("precision gate dropped 1 hit")
+        );
     }
 
     #[test]
@@ -559,16 +683,43 @@ mod tests {
                 format!("- zfs snapshot retention on pool {i}\n"),
             ));
         }
-        let refs: Vec<(&str, &str)> =
-            files.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        let refs: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
         let (brain, _state, conn) = brain_of(&refs);
 
-        let plain = Config { brain_root: brain.path().to_path_buf(), ..Config::default() };
-        let ungated = ranked(&plain, &conn, "zfs snapshot retention policy", 1, false, false, None).unwrap();
-        assert_eq!(paths_of(&ungated), vec!["knowledge/people.md"], "the weak hit outranks");
+        let plain = Config {
+            brain_root: brain.path().to_path_buf(),
+            ..Config::default()
+        };
+        let ungated = ranked(
+            &plain,
+            &conn,
+            "zfs snapshot retention policy",
+            1,
+            false,
+            false,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            paths_of(&ungated),
+            vec!["knowledge/people.md"],
+            "the weak hit outranks"
+        );
 
         let cfg = gated_cfg(brain.path(), 2);
-        let out = ranked(&cfg, &conn, "zfs snapshot retention policy", 1, false, false, None).unwrap();
+        let out = ranked(
+            &cfg,
+            &conn,
+            "zfs snapshot retention policy",
+            1,
+            false,
+            false,
+            None,
+        )
+        .unwrap();
         assert_eq!(out.hits.len(), 1, "the caller's limit is still filled");
         assert!(
             out.hits[0].path.starts_with("knowledge/storage-"),
@@ -587,15 +738,30 @@ mod tests {
         let (url, _bodies, _) = spawn_server(|_, body| reverse_scores(body));
         let mut cfg = cfg_with_rerank(brain.path(), &url, 5);
         cfg.recall.gate.min_terms = 2;
-        let out = ranked(&cfg, &conn, "zfs snapshot retention policy", 10, false, false, None).unwrap();
+        let out = ranked(
+            &cfg,
+            &conn,
+            "zfs snapshot retention policy",
+            10,
+            false,
+            false,
+            None,
+        )
+        .unwrap();
         assert_eq!(out.hits.len(), 2, "nothing is dropped behind a reranker");
         let note = out.note.expect("standing down is a fact the caller needs");
-        assert!(note.contains("precision gate (min_terms 2) not applied"), "{note}");
+        assert!(
+            note.contains("precision gate (min_terms 2) not applied"),
+            "{note}"
+        );
     }
 
     #[test]
     fn content_terms_keeps_only_what_a_hit_can_be_measured_against() {
-        assert_eq!(content_terms("how do I configure the rerank endpoint"), vec!["configure", "rerank", "endpoint"]);
+        assert_eq!(
+            content_terms("how do I configure the rerank endpoint"),
+            vec!["configure", "rerank", "endpoint"]
+        );
         // Hyphens split, matching FTS5's tokenizer rather than `fts_query`'s
         // term splitter, so a term no block could ever carry is never counted.
         assert_eq!(content_terms("cross-encoder"), vec!["cross", "encoder"]);

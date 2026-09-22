@@ -212,7 +212,9 @@ fn owned_claude_status_line(exe: &str) -> Value {
 }
 
 fn exact_owned_status_line(value: &Value) -> bool {
-    let Some(object) = value.as_object() else { return false };
+    let Some(object) = value.as_object() else {
+        return false;
+    };
     object.len() == 3
         && object.get("type").and_then(Value::as_str) == Some("command")
         && object.get("refreshInterval").and_then(Value::as_u64) == Some(5)
@@ -735,10 +737,7 @@ fn install_agent_selected(
         && supports_scope(integration.supported_scopes(), scope)
     {
         for registration in native_hooks(agent, scope) {
-            tracker.record(integration.install(
-                scope,
-                &hook_spec(agent, exe, *registration)?,
-            )?)?;
+            tracker.record(integration.install(scope, &hook_spec(agent, exe, *registration)?)?)?;
             installed.hooks += 1;
         }
     }
@@ -1010,40 +1009,6 @@ fn install_lock(agent: &str) -> anyhow::Result<crate::lockfile::Lock> {
         .ok_or_else(|| anyhow::anyhow!("timed out waiting for {}", path.display()))
 }
 
-/// Runs the one-time capture-store conversion outside every hook deadline.
-/// The database is per-host local state, so each machine performs its own
-/// conversion while the shared tree receives host-keyed records.
-fn migrate_legacy_capture(
-    state_dir: &Path,
-    cfg: &crate::config::Config,
-) -> anyhow::Result<Option<crate::migrate::Report>> {
-    if !cfg.capture.enabled || !crate::migrate::legacy_exhaust_pending(state_dir) {
-        return Ok(None);
-    }
-    let locks = state_dir.join("locks");
-    std::fs::create_dir_all(&locks)?;
-    let lock_path = locks.join("migrate-legacy-exhaust.lock");
-    let _lock = crate::lockfile::acquire(&lock_path, 2_000, 0)
-        .ok_or_else(|| anyhow::anyhow!("timed out waiting for {}", lock_path.display()))?;
-    // Another installer may have completed while this process waited.
-    if !crate::migrate::legacy_exhaust_pending(state_dir) {
-        return Ok(None);
-    }
-    crate::migrate::import_legacy_exhaust(
-        state_dir,
-        &crate::exhaust::Exhaust::from_config(cfg),
-    )
-}
-
-fn migrate_legacy_capture_from_config() -> anyhow::Result<Option<crate::migrate::Report>> {
-    let state_dir = paths::state_dir();
-    if !crate::migrate::legacy_exhaust_pending(&state_dir) {
-        return Ok(None);
-    }
-    let cfg = crate::config::Config::load()?;
-    migrate_legacy_capture(&state_dir, &cfg)
-}
-
 fn codex_toml_without_mcp(content: &str) -> anyhow::Result<Option<String>> {
     let mut document: toml_edit::DocumentMut = content
         .parse()
@@ -1204,17 +1169,6 @@ pub fn configure(
             );
         }
     }
-    if scope.local_root().is_none()
-        && !remove
-        && let Some(report) = migrate_legacy_capture_from_config()?
-    {
-        println!(
-            "cfetch: imported {} legacy capture event(s) and {} staged candidate(s) from {}",
-            report.events,
-            report.staged,
-            report.db.display()
-        );
-    }
     if !remove {
         let _ = crate::runtime_status::refresh_static();
     }
@@ -1332,18 +1286,22 @@ mod tests {
         let (replaced, result) =
             merge_claude_for_exe_with_status(merged, "/usr/bin/cfetch", true).unwrap();
         assert_eq!(result, ClaudeStatusLineResult::Replaced);
-        assert_eq!(replaced["statusLine"], owned_claude_status_line("/usr/bin/cfetch"));
+        assert_eq!(
+            replaced["statusLine"],
+            owned_claude_status_line("/usr/bin/cfetch")
+        );
     }
 
     #[test]
     fn claude_removal_removes_only_the_exact_cfetch_status_line() {
-        let (owned, _) = merge_claude_for_exe_with_status(Value::Null, "/usr/bin/cfetch", false)
-            .unwrap();
+        let (owned, _) =
+            merge_claude_for_exe_with_status(Value::Null, "/usr/bin/cfetch", false).unwrap();
         let (removed, result) = unmerge_legacy_with_status(owned).unwrap();
         assert_eq!(result, ClaudeStatusLineResult::Removed);
         assert!(removed.get("statusLine").is_none());
 
-        let foreign = json!({"type": "command", "command": "cfetch status --line", "refreshInterval": 9});
+        let foreign =
+            json!({"type": "command", "command": "cfetch status --line", "refreshInterval": 9});
         let (preserved, result) =
             unmerge_legacy_with_status(json!({"statusLine": foreign.clone()})).unwrap();
         assert_eq!(result, ClaudeStatusLineResult::Absent);
@@ -1395,44 +1353,6 @@ mod tests {
         assert!(commands.contains(&"keep-me"));
         assert!(!commands.contains(&"'/old/bin/cfetch' hook stop"));
         assert!(!commands.contains(&r#""C:\Program Files\cfetch.exe" hook stop"#));
-    }
-
-    #[test]
-    fn install_time_capture_migration_is_idempotent() {
-        let state = tempfile::tempdir().unwrap();
-        let brain = tempfile::tempdir().unwrap();
-        let legacy = state.path().join("exhaust.db");
-        let conn = rusqlite::Connection::open(&legacy).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE events(
-               id INTEGER PRIMARY KEY,
-               session_id TEXT NOT NULL,
-               ts INTEGER NOT NULL,
-               kind TEXT NOT NULL,
-               payload TEXT NOT NULL,
-               flag INTEGER NOT NULL DEFAULT 0,
-               flag_reason TEXT,
-               consumed INTEGER NOT NULL DEFAULT 0);
-             INSERT INTO events(session_id, ts, kind, payload)
-             VALUES ('old-session', 1000, 'bash', '{\"command\":\"old\"}');",
-        )
-        .unwrap();
-        drop(conn);
-        let cfg = crate::config::Config {
-            brain_root: brain.path().to_path_buf(),
-            capture: crate::config::CaptureConfig { enabled: true },
-            ..Default::default()
-        };
-
-        let report = migrate_legacy_capture(state.path(), &cfg)
-            .unwrap()
-            .expect("the explicit install imports pending state");
-        assert_eq!(report.events, 1);
-        assert!(state.path().join("exhaust-db-imported").is_file());
-        assert!(
-            migrate_legacy_capture(state.path(), &cfg).unwrap().is_none(),
-            "the completion marker makes every later install a no-op"
-        );
     }
 
     #[test]

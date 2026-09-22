@@ -242,14 +242,8 @@ fn snapshot_path_in(state_dir: &Path) -> PathBuf {
     state_dir.join(SNAPSHOT_FILE)
 }
 
-fn route_for(cfg: &Config) -> MemoryRoute {
-    if cfg.client.serving.is_some() {
-        MemoryRoute::Remote
-    } else if cfg.serve.enabled {
-        MemoryRoute::Serving
-    } else {
-        MemoryRoute::Local
-    }
+fn route_for(_cfg: &Config) -> MemoryRoute {
+    MemoryRoute::Local
 }
 
 fn origin_label(route: MemoryRoute) -> String {
@@ -299,9 +293,8 @@ fn apply_config(status: &mut RuntimeStatusV1, cfg: &Config) {
         };
     }
     let local_plan = crate::local_inference::selected_local_package_plan();
-    let local_plan_invalid = cfg.embeddings.enabled
-        && cfg.embeddings.endpoint.is_empty()
-        && local_plan.is_err();
+    let local_plan_invalid =
+        cfg.embeddings.enabled && cfg.embeddings.endpoint.is_empty() && local_plan.is_err();
     let packaged_local_embedding = cfg.embeddings.enabled
         && cfg.embeddings.endpoint.is_empty()
         && local_plan.as_ref().is_ok_and(|plan| plan.is_some());
@@ -461,10 +454,7 @@ fn normalize(status: &mut RuntimeStatusV1) {
     }
     if let Some(selected) = &mut status.inference.selected {
         selected.backend = safe_backend_label(&selected.backend);
-        selected.device_class = selected
-            .device_class
-            .as_deref()
-            .and_then(safe_device_label);
+        selected.device_class = selected.device_class.as_deref().and_then(safe_device_label);
     }
     if let Some(last) = &mut status.inference.last_used {
         last.backend = safe_backend_label(&last.backend);
@@ -637,7 +627,7 @@ pub fn refresh_static() -> anyhow::Result<RuntimeStatusV1> {
                     "inspect cfetch maintain history",
                 );
             }
-            if cfg.client.serving.is_none() {
+            {
                 status.memory_route.generation = None;
                 if cfg.embeddings.enabled {
                     status.retrieval.vector_coverage = VectorCoverageState::Unknown;
@@ -680,15 +670,14 @@ pub fn refresh_static() -> anyhow::Result<RuntimeStatusV1> {
 fn set_vector_coverage(status: &mut RuntimeStatusV1, embedded: u64, total: u64) {
     status.retrieval.embedded = Some(embedded);
     status.retrieval.total = Some(total);
-    status.retrieval.vector_coverage = if (total == 0 && embedded == 0)
-        || (total > 0 && embedded >= total)
-    {
-        VectorCoverageState::Complete
-    } else if embedded > 0 {
-        VectorCoverageState::Partial
-    } else {
-        VectorCoverageState::None
-    };
+    status.retrieval.vector_coverage =
+        if (total == 0 && embedded == 0) || (total > 0 && embedded >= total) {
+            VectorCoverageState::Complete
+        } else if embedded > 0 {
+            VectorCoverageState::Partial
+        } else {
+            VectorCoverageState::None
+        };
     remove_failure(status, "vector_coverage_partial");
     remove_failure(status, "vector_coverage_none");
     match status.retrieval.vector_coverage {
@@ -905,22 +894,11 @@ pub fn record_inference_attempt(
     let backend = safe_backend_label(backend);
     let device_class = device_class.and_then(safe_device_label);
     let _ = update(|status| {
-        apply_inference_attempt(
-            status,
-            configured,
-            route,
-            backend,
-            device_class,
-            success,
-        )
+        apply_inference_attempt(status, configured, route, backend, device_class, success)
     });
 }
 
-pub fn record_maintenance_attempt(
-    route: InferenceRoute,
-    activity: &str,
-    success: bool,
-) {
+pub fn record_maintenance_attempt(route: InferenceRoute, activity: &str, success: bool) {
     let activity = safe_maintenance_activity(activity);
     let _ = update(|status| apply_maintenance_attempt(status, route, activity, success));
 }
@@ -1064,13 +1042,9 @@ fn inference_label(status: &RuntimeStatusV1) -> String {
         InferenceMode::Disabled => "embed:off".to_string(),
         InferenceMode::Local | InferenceMode::Endpoint => {
             if let Some(last) = &status.inference.last_used {
-                let selected = status
-                    .inference
-                    .selected
-                    .as_ref()
-                    .filter(|selected| {
-                        selected.backend == last.backend && selected.route == Some(last.route)
-                    });
+                let selected = status.inference.selected.as_ref().filter(|selected| {
+                    selected.backend == last.backend && selected.route == Some(last.route)
+                });
                 let device = selected
                     .and_then(|selected| selected.device_class.as_deref())
                     .and_then(safe_device_label);
@@ -1079,11 +1053,7 @@ fn inference_label(status: &RuntimeStatusV1) -> String {
                     InferenceRoute::Remote => "remote",
                 });
                 let result = if last.success { "used" } else { "failed" };
-                let selected = if selected.is_some() {
-                    " selected,"
-                } else {
-                    ""
-                };
+                let selected = if selected.is_some() { " selected," } else { "" };
                 format!(
                     "embed:{where_}{selected} {result} {}",
                     age(last.observed_at)
@@ -1094,10 +1064,7 @@ fn inference_label(status: &RuntimeStatusV1) -> String {
                         "embed:{} selected",
                         safe_device_label(device).as_deref().unwrap_or("local")
                     ),
-                    None => format!(
-                        "embed:{} selected",
-                        safe_backend_label(&selected.backend)
-                    ),
+                    None => format!("embed:{} selected", safe_backend_label(&selected.backend)),
                 }
             } else {
                 match (
@@ -1557,15 +1524,22 @@ mod tests {
         normalize(&mut status);
 
         assert_eq!(status.inference.configured, InferenceMode::Disabled);
-        assert_eq!(status.maintenance.last_model_activity.as_deref(), Some("proposal"));
+        assert_eq!(
+            status.maintenance.last_model_activity.as_deref(),
+            Some("proposal")
+        );
         assert_eq!(status.maintenance.last_model_success, Some(false));
-        assert!(status
-            .failures
-            .iter()
-            .any(|failure| failure.code == "maintenance_model_unavailable"));
-        assert!(adaptation_context(&status)
-            .unwrap()
-            .contains("Markdown is unchanged"));
+        assert!(
+            status
+                .failures
+                .iter()
+                .any(|failure| failure.code == "maintenance_model_unavailable")
+        );
+        assert!(
+            adaptation_context(&status)
+                .unwrap()
+                .contains("Markdown is unchanged")
+        );
 
         apply_maintenance_attempt(
             &mut status,
@@ -1574,12 +1548,17 @@ mod tests {
             true,
         );
         normalize(&mut status);
-        assert_eq!(status.maintenance.last_model_activity.as_deref(), Some("review"));
+        assert_eq!(
+            status.maintenance.last_model_activity.as_deref(),
+            Some("review")
+        );
         assert_eq!(status.maintenance.last_model_success, Some(true));
-        assert!(!status
-            .failures
-            .iter()
-            .any(|failure| failure.code == "maintenance_model_unavailable"));
+        assert!(
+            !status
+                .failures
+                .iter()
+                .any(|failure| failure.code == "maintenance_model_unavailable")
+        );
     }
 
     #[test]
@@ -1591,13 +1570,7 @@ mod tests {
             observed_at: Some(123),
         };
 
-        apply_memory_answer(
-            &mut status,
-            MemoryRoute::Remote,
-            Some(42),
-            None,
-            false,
-        );
+        apply_memory_answer(&mut status, MemoryRoute::Remote, Some(42), None, false);
         normalize(&mut status);
 
         assert_eq!(status.memory_route.generation, Some(41));
@@ -1802,9 +1775,11 @@ mod tests {
             FailureSeverity::Warning,
             "ignored",
         );
-        assert!(adaptation_context(&status)
-            .unwrap()
-            .contains("no stale Markdown was overwritten"));
+        assert!(
+            adaptation_context(&status)
+                .unwrap()
+                .contains("no stale Markdown was overwritten")
+        );
 
         remove_failure(&mut status, "maintenance_exception");
         upsert_failure(
@@ -1813,9 +1788,11 @@ mod tests {
             FailureSeverity::Warning,
             "ignored",
         );
-        assert!(adaptation_context(&status)
-            .unwrap()
-            .contains("not being folded into Markdown automatically"));
+        assert!(
+            adaptation_context(&status)
+                .unwrap()
+                .contains("not being folded into Markdown automatically")
+        );
     }
 
     #[test]

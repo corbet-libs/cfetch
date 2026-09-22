@@ -39,14 +39,9 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.29.0"
 ignore = "0.4"
-iroh = "1.0.3"
-# BLAKE3-verified, resumable artifact transfer over the daemon's existing
-# authenticated iroh endpoint. We use only the in-memory store and wire
-# protocol; cfetch's packed vector store remains the durable record.
-iroh-blobs = { version = "=0.103.0", default-features = false }
-# Drives iroh-blobs' progress stream so artifact downloads can be stopped at
-# the exact profile-derived byte boundary.
-n0-future = "0.3"
+# Scope attestation and local bearer nonces; no peer transport.
+ed25519-dalek = "3"
+rand = "0.10"
 notify = "8"
 # Optional: embedded embedding + reranking via fastembed (ONNX Runtime).
 # Zero external dependencies at runtime — models run inside the cfetch binary.

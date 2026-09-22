@@ -250,11 +250,27 @@ fn tool_defs() -> Vec<Tool> {
 /// serving protocol owns one, the index the other), so each answer kind gets
 /// one adapter per shape and exactly one renderer.
 fn recall_entry(h: &serve::WireHit) -> String {
-    answer::hit_entry(&h.cite, &h.path, h.ring, h.start_line, h.end_line, &h.snippet, &h.mirrors)
+    answer::hit_entry(
+        &h.cite,
+        &h.path,
+        h.ring,
+        h.start_line,
+        h.end_line,
+        &h.snippet,
+        &h.mirrors,
+    )
 }
 
 fn local_recall_entry(h: &index::Hit) -> String {
-    answer::hit_entry(&h.cite, &h.path, h.ring, h.start_line, h.end_line, &h.snippet, &h.mirrors)
+    answer::hit_entry(
+        &h.cite,
+        &h.path,
+        h.ring,
+        h.start_line,
+        h.end_line,
+        &h.snippet,
+        &h.mirrors,
+    )
 }
 
 fn expand_entry(b: &serve::WireBlock) -> answer::BlockIn {
@@ -295,138 +311,6 @@ fn served_footer(resp: &crate::daemon::Response) -> String {
     }
 }
 
-/// none-tier routing: every tool answered by the remote serving host; no
-/// local index is opened. Unreachable = explicit error naming the host.
-fn run_tool_remote(
-    cs: &crate::config::ClientServingConfig,
-    name: &str,
-    args: &Value,
-    limit: usize,
-) -> anyhow::Result<String> {
-    let body = match name {
-        "cfetch_recall" => json!({
-            "op": "recall",
-            "query": args.get("query").and_then(Value::as_str).unwrap_or(""),
-            "limit": if limit == 0 { 8 } else { limit },
-        }),
-        "cfetch_expand" => json!({
-            "op": "expand",
-            "cite": args.get("cite").and_then(Value::as_str).unwrap_or(""),
-        }),
-        "cfetch_find" => json!({
-            "op": "find",
-            "query": args.get("query").and_then(Value::as_str).unwrap_or(""),
-            "limit": if limit == 0 { 10 } else { limit },
-        }),
-        "cfetch_code_path" => json!({
-            "op": "code-path",
-            "from_path": args.get("from").and_then(Value::as_str).unwrap_or(""),
-            "to_path": args.get("to").and_then(Value::as_str).unwrap_or(""),
-            "depth": args.get("depth").and_then(Value::as_u64)
-                .unwrap_or(graph::DEFAULT_PATH_DEPTH as u64),
-        }),
-        "cfetch_code_impact" => json!({
-            "op": "code-impact",
-            "path": args.get("target").and_then(Value::as_str).unwrap_or(""),
-            "depth": args.get("depth").and_then(Value::as_u64)
-                .unwrap_or(graph::DEFAULT_IMPACT_DEPTH as u64),
-            "limit": if limit == 0 { graph::DEFAULT_IMPACT_LIMIT } else { limit },
-        }),
-        "cfetch_code_context" => json!({
-            "op": "code-context",
-            "path": args.get("target").and_then(Value::as_str).unwrap_or(""),
-            "depth": args.get("depth").and_then(Value::as_u64)
-                .unwrap_or(graph::DEFAULT_CONTEXT_DEPTH as u64),
-            "limit": if limit == 0 { graph::DEFAULT_CONTEXT_LIMIT } else { limit },
-        }),
-        "cfetch_code_symbol" => json!({
-            "op": "code-symbol",
-            "query": args.get("query").and_then(Value::as_str).unwrap_or(""),
-            "limit": if limit == 0 { graph::DEFAULT_SYMBOL_LIMIT } else { limit },
-        }),
-        other => anyhow::bail!("unknown tool: {other}"),
-    };
-    let resp = serve::client_call(cs, body, serve::QUERY_TIMEOUT)?;
-    let text = match name {
-        "cfetch_recall" => {
-            let hits = resp.hits.clone().unwrap_or_default();
-            if hits.is_empty() {
-                "no hits".to_string()
-            } else {
-                answer::listing(
-                    hits.iter().map(recall_entry).collect(),
-                    answer::RECALL_BUDGET_TOKENS,
-                    answer::MCP_RECOVERY,
-                )
-            }
-        }
-        "cfetch_expand" => {
-            let blocks = resp.blocks.clone().unwrap_or_default();
-            if blocks.is_empty() {
-                "no block with that citation".to_string()
-            } else {
-                answer::blocks(
-                    &blocks.iter().map(expand_entry).collect::<Vec<_>>(),
-                    answer::RECALL_BUDGET_TOKENS,
-                )
-            }
-        }
-        "cfetch_find" => {
-            let hits = resp.code_hits.clone().unwrap_or_default();
-            if hits.is_empty() {
-                "no hits".to_string()
-            } else {
-                answer::listing(
-                    hits.iter()
-                        .map(|h| {
-                            answer::find_entry(
-                                &h.path,
-                                h.name.as_deref(),
-                                h.kind.as_deref(),
-                                h.start_line,
-                                h.end_line,
-                                h.token_estimate,
-                            )
-                        })
-                        .collect(),
-                    answer::FIND_BUDGET_TOKENS,
-                    answer::MCP_RECOVERY,
-                )
-            }
-        }
-        "cfetch_code_path" => {
-            let path = resp
-                .dependency_path
-                .as_ref()
-                .context("serving host returned no dependency path")?;
-            graph::render_dependency_path(path)
-        }
-        "cfetch_code_impact" => {
-            let impact = resp
-                .dependency_impact
-                .as_ref()
-                .context("serving host returned no dependency impact")?;
-            graph::render_dependency_impact(impact)
-        }
-        "cfetch_code_context" => {
-            let context = resp
-                .dependency_context
-                .as_ref()
-                .context("serving host returned no dependency context")?;
-            graph::render_dependency_context(context)
-        }
-        "cfetch_code_symbol" => {
-            let context = resp
-                .symbol_context
-                .as_ref()
-                .context("serving host returned no symbol context")?;
-            graph::render_symbol_context(context)
-        }
-        other => anyhow::bail!("unknown tool: {other}"),
-    };
-    Ok(format!("{text}{}", served_footer(&resp)))
-}
-
 fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     if name == "cfetch_runtime_status" {
         return crate::runtime_status::mcp_json();
@@ -435,25 +319,45 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(0) as usize;
     match name {
         "cfetch_graph" | "cfetch_graph_path" => {
-            let conn = index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
+            let conn =
+                index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
             if name == "cfetch_graph" {
                 let focus = args.get("focus").and_then(Value::as_str);
-                let graph = crate::knowledge_graph::build(&conn, focus, if limit == 0 { 40 } else { limit })?;
+                let graph = crate::knowledge_graph::build(
+                    &conn,
+                    focus,
+                    if limit == 0 { 40 } else { limit },
+                )?;
                 return Ok(serde_json::to_string_pretty(&graph)?);
             }
-            let from = args.get("from").and_then(Value::as_str).context("from must name a note")?;
-            let to = args.get("to").and_then(Value::as_str).context("to must name a note")?;
+            let from = args
+                .get("from")
+                .and_then(Value::as_str)
+                .context("from must name a note")?;
+            let to = args
+                .get("to")
+                .and_then(Value::as_str)
+                .context("to must name a note")?;
             let depth = args.get("depth").and_then(Value::as_u64).unwrap_or(6);
-            let depth = usize::try_from(depth).context("graph depth exceeds this platform's bounds")?;
-            return Ok(serde_json::to_string_pretty(&crate::knowledge_graph::trace(&conn, from, to, depth)?)?);
+            let depth =
+                usize::try_from(depth).context("graph depth exceeds this platform's bounds")?;
+            return Ok(serde_json::to_string_pretty(
+                &crate::knowledge_graph::trace(&conn, from, to, depth)?,
+            )?);
         }
         "cfetch_maintenance_packet" => {
-            let candidate_id = args.get("candidate_id").and_then(Value::as_str).unwrap_or("");
+            let candidate_id = args
+                .get("candidate_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             let packet = maintenance::packet(&cfg, candidate_id)?;
             return Ok(serde_json::to_string_pretty(&packet)?);
         }
         "cfetch_maintenance_show" => {
-            let proposal_id = args.get("proposal_id").and_then(Value::as_str).unwrap_or("");
+            let proposal_id = args
+                .get("proposal_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             let (state, proposal) = maintenance::get(&cfg, proposal_id)?;
             let review = maintenance::get_review(&cfg, proposal_id)?;
             return Ok(serde_json::to_string_pretty(&json!({
@@ -469,13 +373,20 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
             let _ = crate::runtime_status::refresh_static();
             return Ok(format!(
                 "{} {} in ring-5 quarantine; inspect with `cfetch maintain verify {}`. This MCP tool cannot apply or finalize it.",
-                if submitted.created { "submitted" } else { "already recorded" },
+                if submitted.created {
+                    "submitted"
+                } else {
+                    "already recorded"
+                },
                 submitted.proposal.id,
                 submitted.proposal.id,
             ));
         }
         "cfetch_maintenance_review" => {
-            let proposal_id = args.get("proposal_id").and_then(Value::as_str).unwrap_or("");
+            let proposal_id = args
+                .get("proposal_id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             let mut review_args = args.clone();
             if let Value::Object(object) = &mut review_args {
                 object.remove("proposal_id");
@@ -485,7 +396,11 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
             let (review, created) = maintenance::submit_review(&cfg, proposal_id, input)?;
             return Ok(format!(
                 "{} {} for {} with verdict {:?}; deterministic verification and application remain outside this MCP tool.",
-                if created { "recorded" } else { "already recorded" },
+                if created {
+                    "recorded"
+                } else {
+                    "already recorded"
+                },
                 review.id,
                 review.proposal_id,
                 review.verdict,
@@ -493,18 +408,12 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
         }
         _ => {}
     }
-    if let Some(cs) = &cfg.client.serving {
-        return run_tool_remote(cs, name, args, limit);
-    }
+
     match name {
         "cfetch_recall" => {
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
-                let conn = index::ensure_fresh(
-                &paths::state_dir(),
-                &cfg.brain_root,
-                None,
-                &cfg.rings(),
-            )?;
+            let conn =
+                index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
             let hits = index::recall(&conn, query, if limit == 0 { 8 } else { limit })?;
             if hits.is_empty() {
                 return Ok(format!("no hits for \"{query}\""));
@@ -517,12 +426,8 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
         }
         "cfetch_expand" => {
             let cite = args.get("cite").and_then(Value::as_str).unwrap_or("");
-                let conn = index::ensure_fresh(
-                &paths::state_dir(),
-                &cfg.brain_root,
-                None,
-                &cfg.rings(),
-            )?;
+            let conn =
+                index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
             let blocks = index::expand(&conn, cite)?;
             if blocks.is_empty() {
                 return Ok(format!("no block with citation {cite}"));
@@ -566,13 +471,7 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
                 .and_then(Value::as_u64)
                 .unwrap_or(graph::DEFAULT_PATH_DEPTH as u64) as usize;
             let conn = index::open(&paths::state_dir())?;
-            let path = graph::dependency_path(
-                &conn,
-                &cfg.effective_code_roots(),
-                from,
-                to,
-                depth,
-            )?;
+            let path = graph::dependency_path(&conn, &cfg.effective_code_roots(), from, to, depth)?;
             Ok(graph::render_dependency_path(&path))
         }
         "cfetch_code_impact" => {
@@ -581,15 +480,14 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
                 .get("depth")
                 .and_then(Value::as_u64)
                 .unwrap_or(graph::DEFAULT_IMPACT_DEPTH as u64) as usize;
-            let limit = if limit == 0 { graph::DEFAULT_IMPACT_LIMIT } else { limit };
+            let limit = if limit == 0 {
+                graph::DEFAULT_IMPACT_LIMIT
+            } else {
+                limit
+            };
             let conn = index::open(&paths::state_dir())?;
-            let impact = graph::dependency_impact(
-                &conn,
-                &cfg.effective_code_roots(),
-                target,
-                depth,
-                limit,
-            )?;
+            let impact =
+                graph::dependency_impact(&conn, &cfg.effective_code_roots(), target, depth, limit)?;
             Ok(graph::render_dependency_impact(&impact))
         }
         "cfetch_code_context" => {
@@ -598,7 +496,11 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
                 .get("depth")
                 .and_then(Value::as_u64)
                 .unwrap_or(graph::DEFAULT_CONTEXT_DEPTH as u64) as usize;
-            let limit = if limit == 0 { graph::DEFAULT_CONTEXT_LIMIT } else { limit };
+            let limit = if limit == 0 {
+                graph::DEFAULT_CONTEXT_LIMIT
+            } else {
+                limit
+            };
             let conn = index::open(&paths::state_dir())?;
             let context = graph::dependency_context(
                 &conn,
@@ -611,14 +513,13 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
         }
         "cfetch_code_symbol" => {
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
-            let limit = if limit == 0 { graph::DEFAULT_SYMBOL_LIMIT } else { limit };
+            let limit = if limit == 0 {
+                graph::DEFAULT_SYMBOL_LIMIT
+            } else {
+                limit
+            };
             let conn = index::open(&paths::state_dir())?;
-            let context = graph::symbol_context(
-                &conn,
-                &cfg.effective_code_roots(),
-                query,
-                limit,
-            )?;
+            let context = graph::symbol_context(&conn, &cfg.effective_code_roots(), query, limit)?;
             Ok(graph::render_symbol_context(&context))
         }
         other => anyhow::bail!("unknown tool: {other}"),
@@ -627,7 +528,10 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
 
 fn call_tool(name: &str, args: &Value) -> Result<CallToolResult, McpError> {
     if !TOOL_NAMES.contains(&name) {
-        return Err(McpError::invalid_params(format!("unknown tool: {name}"), None));
+        return Err(McpError::invalid_params(
+            format!("unknown tool: {name}"),
+            None,
+        ));
     }
     Ok(match run_tool(name, args) {
         Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
@@ -665,12 +569,17 @@ impl ServerHandler for CfetchMcp {
     ) -> Result<CallToolResponse, McpError> {
         let name = request.name.into_owned();
         if !TOOL_NAMES.contains(&name.as_str()) {
-            return Err(McpError::invalid_params(format!("unknown tool: {name}"), None));
+            return Err(McpError::invalid_params(
+                format!("unknown tool: {name}"),
+                None,
+            ));
         }
         let args = Value::Object(request.arguments.unwrap_or_default());
         let result = tokio::task::spawn_blocking(move || call_tool(&name, &args))
             .await
-            .map_err(|error| McpError::internal_error(format!("tool worker failed: {error}"), None))??;
+            .map_err(|error| {
+                McpError::internal_error(format!("tool worker failed: {error}"), None)
+            })??;
         Ok(result.into())
     }
 }
@@ -711,7 +620,9 @@ mod tests {
             )
         }) {
             assert_eq!(
-                tool.annotations.as_ref().and_then(|annotations| annotations.read_only_hint),
+                tool.annotations
+                    .as_ref()
+                    .and_then(|annotations| annotations.read_only_hint),
                 Some(true),
                 "{} must stay read-only",
                 tool.name
@@ -723,12 +634,18 @@ mod tests {
             .unwrap();
         assert_eq!(proposal.name, "cfetch_maintenance_propose");
         assert_eq!(
-            proposal.annotations.as_ref().and_then(|annotations| annotations.read_only_hint),
+            proposal
+                .annotations
+                .as_ref()
+                .and_then(|annotations| annotations.read_only_hint),
             Some(false),
             "the quarantine write must be declared honestly"
         );
         assert_eq!(
-            proposal.annotations.as_ref().and_then(|annotations| annotations.destructive_hint),
+            proposal
+                .annotations
+                .as_ref()
+                .and_then(|annotations| annotations.destructive_hint),
             Some(false),
             "a proposal cannot edit trusted memory"
         );
@@ -738,7 +655,10 @@ mod tests {
             .unwrap();
         assert_eq!(review.name, "cfetch_maintenance_review");
         assert_eq!(
-            review.annotations.as_ref().and_then(|annotations| annotations.destructive_hint),
+            review
+                .annotations
+                .as_ref()
+                .and_then(|annotations| annotations.destructive_hint),
             Some(false),
             "a review cannot edit trusted memory"
         );
@@ -762,7 +682,8 @@ mod tests {
             .find(|tool| tool.name == "cfetch_runtime_status")
             .unwrap();
         assert_eq!(
-            tool.annotations.and_then(|annotations| annotations.read_only_hint),
+            tool.annotations
+                .and_then(|annotations| annotations.read_only_hint),
             Some(true)
         );
         let text = run_tool("cfetch_runtime_status", &json!({})).unwrap();
@@ -778,7 +699,12 @@ mod tests {
         // A cap the caller cannot see reads as a broken index: the model
         // re-asks the same question instead of following the file:line
         // pointer the truncated answer already handed it.
-        for tool in tool_defs().into_iter().filter(|tool| matches!(tool.name.as_ref(), "cfetch_recall" | "cfetch_expand" | "cfetch_find")) {
+        for tool in tool_defs().into_iter().filter(|tool| {
+            matches!(
+                tool.name.as_ref(),
+                "cfetch_recall" | "cfetch_expand" | "cfetch_find"
+            )
+        }) {
             let description = tool.description.as_deref().unwrap_or_default();
             assert!(
                 description.contains("token budget"),

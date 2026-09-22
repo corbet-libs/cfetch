@@ -204,7 +204,9 @@ fn session_start(event: &HookEvent, agent_hint: Option<&str>) -> anyhow::Result<
     sink.book(
         event.session(),
         "resident-digest",
-        emitted.saturating_sub(recap_chars).saturating_sub(runtime_chars),
+        emitted
+            .saturating_sub(recap_chars)
+            .saturating_sub(runtime_chars),
     );
     // The config failure still counts as a hook failure for the heartbeat.
     cfg.map(|_| ())
@@ -237,20 +239,18 @@ fn user_prompt_drain(
     let reminders = session_state::update(state_dir, event.session(), |st| st.drain_reminders())
         .unwrap_or_default();
     let mut emit = Emit::new("UserPromptSubmit");
-    let runtime_chars = add_codex_runtime_notice(
-        &mut emit,
-        state_dir,
-        event,
-        agent_hint,
-        false,
-    );
+    let runtime_chars = add_codex_runtime_notice(&mut emit, state_dir, event, agent_hint, false);
     for r in reminders {
         emit.add_context(r);
     }
     // ONE JSON object regardless of how many reminders were queued.
     let emitted = emit.finish();
     sink.book(event.session(), "runtime-status", runtime_chars);
-    sink.book(event.session(), "reminders", emitted.saturating_sub(runtime_chars));
+    sink.book(
+        event.session(),
+        "reminders",
+        emitted.saturating_sub(runtime_chars),
+    );
     Ok(())
 }
 
@@ -354,7 +354,9 @@ fn prune_condensed_outputs(dir: &Path, keep: &Path, max_bytes: u64) -> anyhow::R
         let metadata = entry.metadata()?;
         total = total.saturating_add(metadata.len());
         files.push((
-            metadata.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+            metadata
+                .modified()
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
             entry.path(),
             metadata.len(),
         ));
@@ -406,7 +408,11 @@ fn object_condensed_output(
     if event.turn_id.is_some() || event.tool_name.as_deref() != Some("Bash") {
         return Ok(None);
     }
-    let Some(response) = event.tool_response.as_ref().and_then(serde_json::Value::as_object) else {
+    let Some(response) = event
+        .tool_response
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+    else {
         return Ok(None);
     };
     let Some(stdout) = response.get("stdout").and_then(serde_json::Value::as_str) else {
@@ -427,11 +433,17 @@ fn object_condensed_output(
         return Ok(None);
     };
     let mut replacement = response.clone();
-    replacement.insert("stdout".to_string(), serde_json::Value::String(rewrite.text));
+    replacement.insert(
+        "stdout".to_string(),
+        serde_json::Value::String(rewrite.text),
+    );
     // The original size travels with the replacement: once emitted, the
     // original is gone, and a savings figure reconstructed later is a ratio
     // rather than a measurement.
-    Ok(Some((serde_json::Value::Object(replacement), rewrite.original_chars)))
+    Ok(Some((
+        serde_json::Value::Object(replacement),
+        rewrite.original_chars,
+    )))
 }
 
 /// Condenses a completed Codex Bash result and preserves the full original in
@@ -451,7 +463,11 @@ fn codex_condensed_output(state_dir: &Path, event: &HookEvent) -> anyhow::Result
     else {
         return Ok(None);
     };
-    let Some(output) = event.tool_response.as_ref().and_then(serde_json::Value::as_str) else {
+    let Some(output) = event
+        .tool_response
+        .as_ref()
+        .and_then(serde_json::Value::as_str)
+    else {
         return Ok(None);
     };
     if u64::try_from(output.len()).unwrap_or(u64::MAX) > CONDENSED_OUTPUT_MAX_BYTES {
@@ -565,10 +581,14 @@ fn is_shell_write(command: &str) -> bool {
     // conjunctions `and`/`or` as well as `&&`/`||`, but both reduce to
     // whitespace-separated segments once split on these.
     command.split(['|', ';', '\n', '&']).any(|segment| {
-        let Some((prog, mut words)) = condense::leading_program(segment) else { return false };
+        let Some((prog, mut words)) = condense::leading_program(segment) else {
+            return false;
+        };
         match prog {
             "tee" | "cp" | "mv" | "rm" | "rmdir" | "mkdir" | "touch" | "install" | "dd"
-            | "truncate" | "ln" | "chmod" | "chown" | "patch" | "rsync" | "shred" | "unlink" => true,
+            | "truncate" | "ln" | "chmod" | "chown" | "patch" | "rsync" | "shred" | "unlink" => {
+                true
+            }
             // In-place only: a plain `sed`/`perl` filters to stdout.
             "sed" | "perl" => words.any(|w| w == "-i" || w.starts_with("-i.") || w == "--in-place"),
             _ => false,
@@ -601,7 +621,10 @@ fn read_invocation(event: &HookEvent) -> Option<(String, bool)> {
     let tool = event.tool_name.as_deref()?;
     let input = event.tool_input.as_ref()?;
     if tool == "Read" {
-        return Some((resolve_event_path(event, read_target(input)?), is_ranged(input)));
+        return Some((
+            resolve_event_path(event, read_target(input)?),
+            is_ranged(input),
+        ));
     }
     if tool != "Bash" {
         return None;
@@ -609,9 +632,9 @@ fn read_invocation(event: &HookEvent) -> Option<(String, bool)> {
     let command = input.get("command")?.as_str()?;
     let words = exhaust::shell_words(command);
     if words.len() < 2
-        || words.iter().any(|w| {
-            w.contains([';', '|', '>', '<', '`']) || w.contains("&&") || w.contains("$(")
-        })
+        || words
+            .iter()
+            .any(|w| w.contains([';', '|', '>', '<', '`']) || w.contains("&&") || w.contains("$("))
     {
         return None;
     }
@@ -622,10 +645,7 @@ fn read_invocation(event: &HookEvent) -> Option<(String, bool)> {
     }
     let ranged = match program {
         "cat" => {
-            if !words[1..words.len() - 1]
-                .iter()
-                .all(|w| w.starts_with('-'))
-            {
+            if !words[1..words.len() - 1].iter().all(|w| w.starts_with('-')) {
                 return None;
             }
             false
@@ -697,24 +717,15 @@ pub(crate) fn symbol_slices(db: &Path, file_path: &str, limit: usize) -> Vec<Str
         return Vec::new();
     };
     stmt.query_map(rusqlite::params![file_path, limit as i64], |r| {
-        Ok(format!("{} {}-{}", r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+        Ok(format!(
+            "{} {}-{}",
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, i64>(2)?
+        ))
     })
     .map(|rows| rows.filter_map(Result::ok).collect())
     .unwrap_or_default()
-}
-
-/// Serving-host probe for slice hints: shorter read budget than a full
-/// query — an advisory must not stall the interactive path.
-fn remote_slices(
-    cs: &crate::config::ClientServingConfig,
-    path: &str,
-    limit: usize,
-) -> Vec<String> {
-    let body = serde_json::json!({"op": "slices", "path": path, "limit": limit});
-    crate::serve::client_call(cs, body, Duration::from_secs(2))
-        .ok()
-        .and_then(|r| r.slices)
-        .unwrap_or_default()
 }
 
 /// Meets a whole-file read of an oversized brain file with the cheap path,
@@ -735,7 +746,11 @@ fn brain_read_redirect(
     if budget == 0 {
         return None;
     }
-    let name = Path::new(path).strip_prefix(&cfg.brain_root).ok()?.display().to_string();
+    let name = Path::new(path)
+        .strip_prefix(&cfg.brain_root)
+        .ok()?
+        .display()
+        .to_string();
     let len = std::fs::metadata(path).ok()?.len();
     let tokens = crate::hook_io::estimate_tokens(usize::try_from(len).unwrap_or(usize::MAX));
     if tokens <= budget {
@@ -770,7 +785,10 @@ fn pending_content(event: &HookEvent) -> Option<String> {
         "apply_patch" => "command",
         _ => return None,
     };
-    input.get(field).and_then(serde_json::Value::as_str).map(str::to_string)
+    input
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
 }
 
 /// Names a declared prohibition the pending call would violate, at the moment
@@ -814,8 +832,7 @@ fn pre_tool(event: &HookEvent) -> anyhow::Result<()> {
     }
     let cfg_for_rules = Config::load().ok();
     let state_dir_for_rules = paths::state_dir();
-    if let Some(warning) =
-        prohibition_warning(cfg_for_rules.as_ref(), &state_dir_for_rules, event)
+    if let Some(warning) = prohibition_warning(cfg_for_rules.as_ref(), &state_dir_for_rules, event)
     {
         let mut emit = Emit::new("PreToolUse");
         emit.add_context(warning);
@@ -823,7 +840,9 @@ fn pre_tool(event: &HookEvent) -> anyhow::Result<()> {
         LedgerSink::of(cfg_for_rules.as_ref()).book(event.session(), "prohibition", emitted);
         return Ok(());
     }
-    let Some((path, ranged)) = read_invocation(event) else { return Ok(()) };
+    let Some((path, ranged)) = read_invocation(event) else {
+        return Ok(());
+    };
     if ranged {
         return Ok(());
     }
@@ -833,10 +852,7 @@ fn pre_tool(event: &HookEvent) -> anyhow::Result<()> {
     let mut emit = Emit::new("PreToolUse");
     let mtime = session_state::file_mtime(Path::new(&path));
     let hints = if is_large_file(Path::new(&path)) {
-        match cfg.as_ref().and_then(|c| c.client.serving.as_ref()) {
-            Some(cs) => remote_slices(cs, &path, MAX_SLICE_HINTS),
-            None => symbol_slices(&state_dir.join("index.db"), &path, MAX_SLICE_HINTS),
-        }
+        symbol_slices(&state_dir.join("index.db"), &path, MAX_SLICE_HINTS)
     } else {
         Vec::new()
     };
@@ -933,7 +949,12 @@ fn post_tool(event: &HookEvent) -> anyhow::Result<()> {
         // the pointer line rides along and is part of the bill.
         let entered = emit.finish();
         let cfg = Config::load().ok();
-        book_rewrite(&LedgerSink::of(cfg.as_ref()), event.session(), original_chars, entered);
+        book_rewrite(
+            &LedgerSink::of(cfg.as_ref()),
+            event.session(),
+            original_chars,
+            entered,
+        );
     }
     match first_err {
         Some(e) => Err(e),
@@ -981,8 +1002,11 @@ fn post_tool_budget(state_dir: &Path, cfg: &Config, event: &HookEvent) -> anyhow
         if !Path::new(&path).starts_with(&cfg.brain_root) {
             continue;
         }
-        let Ok(meta) = std::fs::metadata(&path) else { continue };
-        let tokens = crate::hook_io::estimate_tokens(usize::try_from(meta.len()).unwrap_or(usize::MAX));
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let tokens =
+            crate::hook_io::estimate_tokens(usize::try_from(meta.len()).unwrap_or(usize::MAX));
         if tokens <= budget {
             continue;
         }
@@ -1016,14 +1040,21 @@ fn post_tool_self_read(sink: &LedgerSink, cfg: &Config, event: &HookEvent) {
     if event.is_subagent() {
         return;
     }
-    let Some((path, ranged)) = read_invocation(event) else { return };
+    let Some((path, ranged)) = read_invocation(event) else {
+        return;
+    };
     if ranged || !Path::new(&path).starts_with(&cfg.brain_root) {
         return;
     }
     // The file's size at post-tool time, estimated the way every other ledger
     // line is: a metadata stat, never a read.
-    let Ok(meta) = std::fs::metadata(&path) else { return };
-    sink.book_self_read(event.session(), usize::try_from(meta.len()).unwrap_or(usize::MAX));
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return;
+    };
+    sink.book_self_read(
+        event.session(),
+        usize::try_from(meta.len()).unwrap_or(usize::MAX),
+    );
 }
 
 fn post_tool_track(event: &HookEvent) -> anyhow::Result<()> {
@@ -1046,11 +1077,15 @@ fn post_tool_track(event: &HookEvent) -> anyhow::Result<()> {
                     st.record_shell_write();
                 });
             }
-            let Some((path, ranged)) = read_invocation(event) else { return Ok(()) };
+            let Some((path, ranged)) = read_invocation(event) else {
+                return Ok(());
+            };
             if ranged {
                 return Ok(());
             }
-            let Some(mtime) = session_state::file_mtime(Path::new(&path)) else { return Ok(()) };
+            let Some(mtime) = session_state::file_mtime(Path::new(&path)) else {
+                return Ok(());
+            };
             let _ = session_state::update(&state_dir, event.session(), |st| {
                 st.record_read(&path, mtime);
             });
@@ -1118,8 +1153,12 @@ fn stop_measure(sink: &LedgerSink, event: &HookEvent) -> anyhow::Result<()> {
     if event.is_subagent() {
         return Ok(());
     }
-    let Some(tp) = event.transcript_path.as_deref() else { return Ok(()) };
-    let Some(usage) = transcript::scan(Path::new(tp)) else { return Ok(()) };
+    let Some(tp) = event.transcript_path.as_deref() else {
+        return Ok(());
+    };
+    let Some(usage) = transcript::scan(Path::new(tp)) else {
+        return Ok(());
+    };
     sink.book_measured(event.session(), &ledger::MeasuredUsage::from(&usage));
     Ok(())
 }
@@ -1170,7 +1209,9 @@ fn compact_recap(st: &session_state::SessionState, cwd: Option<&str>) -> Option<
     }
     if st.shell_writes > 0 {
         let shell = st.shell_writes;
-        text.push_str(&format!("\n- plus {shell} shell write(s), targets not recorded"));
+        text.push_str(&format!(
+            "\n- plus {shell} shell write(s), targets not recorded"
+        ));
     }
     Some(text)
 }
@@ -1186,7 +1227,10 @@ fn compact_recap_for(
     if start != session_state::StartKind::Compact {
         return None;
     }
-    compact_recap(&session_state::load(state_dir, event.session()), event.cwd.as_deref())
+    compact_recap(
+        &session_state::load(state_dir, event.session()),
+        event.cwd.as_deref(),
+    )
 }
 
 /// PreCompact: after compaction the model no longer remembers its earlier
@@ -1233,7 +1277,10 @@ mod tests {
     #[test]
     fn the_replacement_mirrors_every_field_and_changes_only_stdout() {
         let state = tempfile::tempdir().unwrap();
-        let flood = (0..400).map(|i| format!("src/f{i}.rs:{i}: hit")).collect::<Vec<_>>().join("\n");
+        let flood = (0..400)
+            .map(|i| format!("src/f{i}.rs:{i}: hit"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let event: HookEvent = serde_json::from_value(serde_json::json!({
             "session_id": "s-obj",
             "tool_name": "Bash",
@@ -1246,10 +1293,17 @@ mod tests {
                 "isImage": false,
                 "some_future_field": {"nested": 1}
             }
-        })).unwrap();
+        }))
+        .unwrap();
 
-        let (out, original) = object_condensed_output(state.path(), &event).unwrap().expect("condensed");
-        assert_eq!(original, flood.len(), "the original size travels with the replacement");
+        let (out, original) = object_condensed_output(state.path(), &event)
+            .unwrap()
+            .expect("condensed");
+        assert_eq!(
+            original,
+            flood.len(),
+            "the original size travels with the replacement"
+        );
         let obj = out.as_object().unwrap();
         // Only stdout changed.
         assert_ne!(obj["stdout"].as_str().unwrap(), flood);
@@ -1274,8 +1328,13 @@ mod tests {
             "tool_name": "Bash",
             "tool_input": {"command": "grep -rn x ."},
             "tool_response": "x".repeat(60_000),
-        })).unwrap();
-        assert!(object_condensed_output(state.path(), &event).unwrap().is_none());
+        }))
+        .unwrap();
+        assert!(
+            object_condensed_output(state.path(), &event)
+                .unwrap()
+                .is_none()
+        );
     }
 
     /// The program parser selects the condensation strategy, so a prefix it
@@ -1283,7 +1342,7 @@ mod tests {
     /// the forms zsh and fish users actually type.
     #[test]
     fn shell_prefixes_beyond_bash_still_find_the_program() {
-        use crate::condense::{classify, Family};
+        use crate::condense::{Family, classify};
         // zsh
         assert_eq!(classify("noglob cargo test"), Family::Verification);
         assert_eq!(classify("nocorrect cargo build"), Family::Verification);
@@ -1331,7 +1390,10 @@ mod tests {
         let big = brain.path().join("knowledge/huge.md");
         std::fs::create_dir_all(big.parent().unwrap()).unwrap();
         std::fs::write(&big, "x".repeat(40_000)).unwrap();
-        let cfg = Config { brain_root: brain.path().to_path_buf(), ..Config::default() };
+        let cfg = Config {
+            brain_root: brain.path().to_path_buf(),
+            ..Config::default()
+        };
         let event = budget_event("s-budget", &big);
 
         post_tool_budget(state.path(), &cfg, &event).unwrap();
@@ -1344,8 +1406,16 @@ mod tests {
         });
         assert_eq!(texts.len(), 1, "exactly one warning: {texts:?}");
         assert!(texts[0].contains("knowledge/huge.md"), "{}", texts[0]);
-        assert!(texts[0].contains("tokens"), "the size must be stated: {}", texts[0]);
-        assert!(texts[0].contains("split it or distil it"), "a remedy is required: {}", texts[0]);
+        assert!(
+            texts[0].contains("tokens"),
+            "the size must be stated: {}",
+            texts[0]
+        );
+        assert!(
+            texts[0].contains("split it or distil it"),
+            "a remedy is required: {}",
+            texts[0]
+        );
 
         // Same file again in the same session must not warn twice.
         post_tool_budget(state.path(), &cfg, &event).unwrap();
@@ -1353,26 +1423,40 @@ mod tests {
         let _ = crate::session_state::update(state.path(), "s-budget", |st| {
             again = st.drain_reminders();
         });
-        assert!(again.is_empty(), "the warning fired twice for one file: {again:?}");
+        assert!(
+            again.is_empty(),
+            "the warning fired twice for one file: {again:?}"
+        );
     }
 
     #[test]
     fn a_small_file_and_a_file_outside_the_brain_are_both_silent() {
         let brain = tempfile::tempdir().unwrap();
         let state = tempfile::tempdir().unwrap();
-        let cfg = Config { brain_root: brain.path().to_path_buf(), ..Config::default() };
+        let cfg = Config {
+            brain_root: brain.path().to_path_buf(),
+            ..Config::default()
+        };
 
         let small = brain.path().join("small.md");
         std::fs::write(&small, "x".repeat(100)).unwrap();
         post_tool_budget(state.path(), &cfg, &budget_event("s-small", &small)).unwrap();
-        assert!(crate::session_state::load(state.path(), "s-small").drain_reminders().is_empty());
+        assert!(
+            crate::session_state::load(state.path(), "s-small")
+                .drain_reminders()
+                .is_empty()
+        );
 
         // cfetch governs what it will be asked to load, not the user's source.
         let outside = tempfile::tempdir().unwrap();
         let theirs = outside.path().join("vendor.rs");
         std::fs::write(&theirs, "x".repeat(40_000)).unwrap();
         post_tool_budget(state.path(), &cfg, &budget_event("s-out", &theirs)).unwrap();
-        assert!(crate::session_state::load(state.path(), "s-out").drain_reminders().is_empty());
+        assert!(
+            crate::session_state::load(state.path(), "s-out")
+                .drain_reminders()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1390,7 +1474,11 @@ mod tests {
             ..Config::default()
         };
         post_tool_budget(state.path(), &cfg, &budget_event("s-zero", &big)).unwrap();
-        assert!(crate::session_state::load(state.path(), "s-zero").drain_reminders().is_empty());
+        assert!(
+            crate::session_state::load(state.path(), "s-zero")
+                .drain_reminders()
+                .is_empty()
+        );
     }
 
     fn start_event(session: &str, reason: &str) -> HookEvent {
@@ -1421,11 +1509,17 @@ mod tests {
         session_start_state(state.path(), &start_event("s-clear", "clear"));
 
         let mut st = session_state::load(state.path(), "s-clear");
-        assert!(st.reads.is_empty(), "the read history belongs to the conversation that is gone");
+        assert!(
+            st.reads.is_empty(),
+            "the read history belongs to the conversation that is gone"
+        );
         assert!(st.written.is_empty(), "so does the write history");
         assert_eq!(st.tool_events, 0);
         assert!(!st.compacted, "the new conversation has not been compacted");
-        assert!(st.queue_reminder("status", "nudge"), "the spent caps are returned");
+        assert!(
+            st.queue_reminder("status", "nudge"),
+            "the spent caps are returned"
+        );
     }
 
     #[test]
@@ -1436,9 +1530,19 @@ mod tests {
             session_start_state(state.path(), &start_event("s", reason));
 
             let mut st = session_state::load(state.path(), "s");
-            assert_eq!(st.reads.len(), 1, "{reason} must not forget what was already read");
-            assert!(st.compacted, "{reason} must not re-arm what compaction disarmed");
-            assert!(!st.queue_reminder("status", "nudge"), "{reason} keeps spent caps spent");
+            assert_eq!(
+                st.reads.len(),
+                1,
+                "{reason} must not forget what was already read"
+            );
+            assert!(
+                st.compacted,
+                "{reason} must not re-arm what compaction disarmed"
+            );
+            assert!(
+                !st.queue_reminder("status", "nudge"),
+                "{reason} keeps spent caps spent"
+            );
         }
     }
 
@@ -1464,13 +1568,28 @@ mod tests {
         // the file list is the only thing left that can.
         let mut st = session_state::load(state.path(), "s-recap");
         st.record_read("/work/repo/src/a.rs", 100);
-        assert!(!st.should_warn_repeat_read("/work/repo/src/a.rs", 100), "compaction disarms it");
+        assert!(
+            !st.should_warn_repeat_read("/work/repo/src/a.rs", 100),
+            "compaction disarms it"
+        );
 
         let recap = compact_recap_for(state.path(), &event, start).expect("compaction is recapped");
-        assert!(recap.contains("src/a.rs"), "the written file must be named: {recap}");
-        assert!(!recap.contains("/work/repo/src/a.rs"), "the shared prefix is not repeated");
-        assert!(recap.contains("/elsewhere/vendored.rs"), "outside cwd stays absolute: {recap}");
-        assert!(recap.contains("1 shell write"), "unnamed writes are counted: {recap}");
+        assert!(
+            recap.contains("src/a.rs"),
+            "the written file must be named: {recap}"
+        );
+        assert!(
+            !recap.contains("/work/repo/src/a.rs"),
+            "the shared prefix is not repeated"
+        );
+        assert!(
+            recap.contains("/elsewhere/vendored.rs"),
+            "outside cwd stays absolute: {recap}"
+        );
+        assert!(
+            recap.contains("1 shell write"),
+            "unnamed writes are counted: {recap}"
+        );
     }
 
     #[test]
@@ -1507,7 +1626,10 @@ mod tests {
             "one header, the capped names, one overflow line: {recap}"
         );
         assert!(recap.contains("f00.rs") && recap.contains("f11.rs"));
-        assert!(!recap.contains("f12.rs"), "past the cap the count carries the rest");
+        assert!(
+            !recap.contains("f12.rs"),
+            "past the cap the count carries the rest"
+        );
         assert!(recap.contains("(+3 more)"), "{recap}");
     }
 
@@ -1523,7 +1645,10 @@ mod tests {
         st.record_shell_write();
         let recap = compact_recap(&st, None).expect("unnamed activity is still activity");
         assert!(recap.contains("2 shell write(s)"), "{recap}");
-        assert!(recap.contains("targets not recorded"), "the gap is stated, not papered over");
+        assert!(
+            recap.contains("targets not recorded"),
+            "the gap is stated, not papered over"
+        );
     }
 
     #[test]
@@ -1549,7 +1674,9 @@ mod tests {
         };
         session_start_state(state.path(), &event);
         assert!(
-            session_state::load(state.path(), "s-legacy").reads.is_empty(),
+            session_state::load(state.path(), "s-legacy")
+                .reads
+                .is_empty(),
             "the older field spelling names the same start"
         );
     }
@@ -1579,7 +1706,11 @@ mod tests {
 
     /// Books straight into a tempdir, standing in for the tree's logs dir.
     fn test_sink(dir: &Path) -> LedgerSink {
-        LedgerSink { dir: dir.to_path_buf(), host: "test-host".into(), cap: 1 << 20 }
+        LedgerSink {
+            dir: dir.to_path_buf(),
+            host: "test-host".into(),
+            cap: 1 << 20,
+        }
     }
 
     fn bash_event(cmd: &str) -> HookEvent {
@@ -1622,7 +1753,10 @@ mod tests {
             crate::jsonl::read_all(&paths::logs_dir(brain.path()), exhaust::STREAM).records;
         assert_eq!(records.len(), 1, "one tool call, one appended line");
         assert_eq!(records[0].kind(), "bash");
-        assert_eq!(records[0].value("payload").unwrap()["command"], "cargo build");
+        assert_eq!(
+            records[0].value("payload").unwrap()["command"],
+            "cargo build"
+        );
     }
 
     #[test]
@@ -1648,7 +1782,11 @@ mod tests {
         assert!(rewrite.text.contains("line 0 with enough content"));
         assert!(rewrite.text.contains("line 199 with enough content"));
         assert!(!rewrite.text.contains("line 100 with enough content"));
-        assert!(rewrite.text.contains("full uncondensed output preserved at"));
+        assert!(
+            rewrite
+                .text
+                .contains("full uncondensed output preserved at")
+        );
         // The savings pair is only defensible if the original side is the
         // actual result that was replaced, taken at the rewrite itself.
         assert_eq!(rewrite.original_chars, output.len());
@@ -1661,30 +1799,43 @@ mod tests {
         assert_eq!(files.len(), 1);
         let preserved = std::fs::read_to_string(files[0].path()).unwrap();
         assert!(preserved.contains("line 100 with enough content"));
-        assert!(!preserved.contains("not-a-real-secret"), "the command header is redacted");
+        assert!(
+            !preserved.contains("not-a-real-secret"),
+            "the command header is redacted"
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
-            assert_eq!(files[0].metadata().unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                files[0].metadata().unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
     }
 
     #[test]
     fn condensation_is_codex_only_and_never_rewrites_verification() {
         let state = tempfile::tempdir().unwrap();
-        let output = (0..200).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let output = (0..200)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
 
         let mut event = bash_event("rg needle .");
         event.tool_response = Some(json!(output));
         assert!(
-            codex_condensed_output(state.path(), &event).unwrap().is_none(),
+            codex_condensed_output(state.path(), &event)
+                .unwrap()
+                .is_none(),
             "an event without Codex's turn_id must not receive continue:false"
         );
 
         event.turn_id = Some("turn-1".into());
         event.tool_input = Some(json!({"command": "cargo test --all"}));
         assert!(
-            codex_condensed_output(state.path(), &event).unwrap().is_none(),
+            codex_condensed_output(state.path(), &event)
+                .unwrap()
+                .is_none(),
             "test output is never rewritten"
         );
         assert!(!state.path().join("condensed-output").exists());
@@ -1702,12 +1853,18 @@ mod tests {
 
         prune_condensed_outputs(dir.path(), &keep, 15).unwrap();
 
-        assert!(keep.exists(), "the path emitted to the model must survive pruning");
+        assert!(
+            keep.exists(),
+            "the path emitted to the model must survive pruning"
+        );
         let bytes: u64 = std::fs::read_dir(dir.path())
             .unwrap()
             .map(|entry| entry.unwrap().metadata().unwrap().len())
             .sum();
-        assert!(bytes <= 15, "old artifacts must be removed until the cap holds");
+        assert!(
+            bytes <= 15,
+            "old artifacts must be removed until the cap holds"
+        );
     }
 
     #[test]
@@ -1726,7 +1883,11 @@ mod tests {
         }
         stop_capture(&cfg, &bash_event("done")).unwrap();
         let staged = crate::staging::list(&paths::staging_dir(brain.path()));
-        assert_eq!(staged.len(), 1, "the hot-file trap staged a ring-5 candidate");
+        assert_eq!(
+            staged.len(),
+            1,
+            "the hot-file trap staged a ring-5 candidate"
+        );
         assert_eq!(staged[0].reason, "hot-file");
     }
 
@@ -1760,13 +1921,12 @@ mod tests {
             !state.path().join("exhaust-db-imported").exists(),
             "a latency-critical Stop hook must never start an upgrade migration"
         );
-        let records = crate::jsonl::read_all(
-            &paths::logs_dir(brain.path()),
-            crate::exhaust::STREAM,
-        )
-        .records;
+        let records =
+            crate::jsonl::read_all(&paths::logs_dir(brain.path()), crate::exhaust::STREAM).records;
         assert!(
-            records.iter().all(|record| record.str("session") != "old-session"),
+            records
+                .iter()
+                .all(|record| record.str("session") != "old-session"),
             "legacy rows must be absent from the Stop-side append"
         );
         assert!(
@@ -1783,12 +1943,18 @@ mod tests {
         assert!(st.queue_reminder("staging", "look at staging"));
         session_state::store(dir.path(), "s1", &st);
 
-        let event = HookEvent { session_id: Some("s1".into()), ..Default::default() };
+        let event = HookEvent {
+            session_id: Some("s1".into()),
+            ..Default::default()
+        };
         let sink = test_sink(dir.path());
         user_prompt_drain(dir.path(), &sink, &event, None).unwrap();
 
         let back = session_state::load(dir.path(), "s1");
-        assert!(back.queued_reminders.is_empty(), "delivery must empty the queue");
+        assert!(
+            back.queued_reminders.is_empty(),
+            "delivery must empty the queue"
+        );
         assert!(back.shown_keys.contains("status") && back.shown_keys.contains("staging"));
         let ledger = ledger::load_from(dir.path());
         let booked = &ledger.sessions["s1"].by_source["reminders"];
@@ -1815,8 +1981,15 @@ mod tests {
         };
         user_prompt_drain(dir.path(), &test_sink(dir.path()), &sub, None).unwrap();
         let back = session_state::load(dir.path(), "s1");
-        assert_eq!(back.queued_reminders.len(), 1, "a subagent must not consume the queue");
-        assert!(ledger::load_from(dir.path()).sessions.is_empty(), "and books nothing");
+        assert_eq!(
+            back.queued_reminders.len(),
+            1,
+            "a subagent must not consume the queue"
+        );
+        assert!(
+            ledger::load_from(dir.path()).sessions.is_empty(),
+            "and books nothing"
+        );
     }
 
     /// Config with governance settings and a tempdir brain holding one ring-0
@@ -1835,7 +2008,11 @@ mod tests {
                 scope: crate::config::Scope::default(),
                 weight: None,
             }],
-            governance: crate::config::GovernanceConfig { enabled, reinject_every, ..Default::default() },
+            governance: crate::config::GovernanceConfig {
+                enabled,
+                reinject_every,
+                ..Default::default()
+            },
             ..Config::default()
         }
     }
@@ -1853,12 +2030,17 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let brain = tempfile::tempdir().unwrap();
         brain_writes(state.path(), "s1", brain.path(), 3);
-        let event = HookEvent { session_id: Some("s1".into()), ..Default::default() };
+        let event = HookEvent {
+            session_id: Some("s1".into()),
+            ..Default::default()
+        };
 
         let off = govern_cfg(brain.path(), false, 25);
         stop_govern(state.path(), &off, &event).unwrap();
         assert!(
-            session_state::load(state.path(), "s1").queued_reminders.is_empty(),
+            session_state::load(state.path(), "s1")
+                .queued_reminders
+                .is_empty(),
             "disabled governance must queue nothing"
         );
 
@@ -1881,7 +2063,11 @@ mod tests {
         };
         let cfg = govern_cfg(brain.path(), true, 25);
         stop_govern(state.path(), &cfg, &sub).unwrap();
-        assert!(session_state::load(state.path(), "s1").queued_reminders.is_empty());
+        assert!(
+            session_state::load(state.path(), "s1")
+                .queued_reminders
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1896,9 +2082,21 @@ mod tests {
         }
         let st = session_state::load(state.path(), "s1");
         assert_eq!(st.tool_events, 4);
-        let keys: Vec<&str> = st.queued_reminders.iter().map(|(k, _)| k.as_str()).collect();
-        assert_eq!(keys, vec!["rules-2", "rules-4"], "fires at exactly N and 2N");
-        assert!(st.queued_reminders[0].1.starts_with("[cfetch rule refresh]"));
+        let keys: Vec<&str> = st
+            .queued_reminders
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect();
+        assert_eq!(
+            keys,
+            vec!["rules-2", "rules-4"],
+            "fires at exactly N and 2N"
+        );
+        assert!(
+            st.queued_reminders[0]
+                .1
+                .starts_with("[cfetch rule refresh]")
+        );
         assert!(st.queued_reminders[0].1.contains("never force off VMs"));
     }
 
@@ -1935,8 +2133,11 @@ mod tests {
         // Real index: hints come back largest-slice-first as `name start-end`.
         let code = tempfile::tempdir().unwrap();
         let f = code.path().join("big.rs");
-        std::fs::write(&f, "fn one() {\n}\nfn two() {\n    let a = 1;\n    let b = 2;\n}\n")
-            .unwrap();
+        std::fs::write(
+            &f,
+            "fn one() {\n}\nfn two() {\n    let a = 1;\n    let b = 2;\n}\n",
+        )
+        .unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = crate::index::open(state.path()).unwrap();
         crate::code::scan_code(&mut conn, &[code.path().to_path_buf()]).unwrap();
@@ -1944,7 +2145,10 @@ mod tests {
         let path = f.to_string_lossy().to_string();
         let hints = symbol_slices(&state.path().join("index.db"), &path, 5);
         assert_eq!(hints, vec!["two 3-6".to_string(), "one 1-2".to_string()]);
-        assert_eq!(symbol_slices(&state.path().join("index.db"), &path, 1).len(), 1);
+        assert_eq!(
+            symbol_slices(&state.path().join("index.db"), &path, 1).len(),
+            1
+        );
         assert!(symbol_slices(&state.path().join("index.db"), "/absent.rs", 5).is_empty());
     }
 
@@ -1983,15 +2187,33 @@ mod tests {
         };
         assert_eq!(
             read_invocation(&event("cat 'file with spaces.rs'")),
-            Some((cwd.path().join("file with spaces.rs").to_string_lossy().into_owned(), false))
+            Some((
+                cwd.path()
+                    .join("file with spaces.rs")
+                    .to_string_lossy()
+                    .into_owned(),
+                false
+            ))
         );
         assert_eq!(
             read_invocation(&event("head -n 20 src/main.rs")),
-            Some((cwd.path().join("src/main.rs").to_string_lossy().into_owned(), true))
+            Some((
+                cwd.path()
+                    .join("src/main.rs")
+                    .to_string_lossy()
+                    .into_owned(),
+                true
+            ))
         );
         assert_eq!(
             read_invocation(&event("sed -n '10,30p' src/main.rs")),
-            Some((cwd.path().join("src/main.rs").to_string_lossy().into_owned(), true))
+            Some((
+                cwd.path()
+                    .join("src/main.rs")
+                    .to_string_lossy()
+                    .into_owned(),
+                true
+            ))
         );
         for unsafe_command in [
             "cat a.rs b.rs",
@@ -1999,7 +2221,11 @@ mod tests {
             "cat a.rs > copy.rs",
             "cat $(secret-path)",
         ] {
-            assert_eq!(read_invocation(&event(unsafe_command)), None, "{unsafe_command}");
+            assert_eq!(
+                read_invocation(&event(unsafe_command)),
+                None,
+                "{unsafe_command}"
+            );
         }
 
         let windows = HookEvent {
@@ -2036,7 +2262,10 @@ mod tests {
 
     /// Config whose brain tree is a tempdir, for the self-read paths.
     fn brain_cfg(brain: &Path) -> Config {
-        Config { brain_root: brain.to_path_buf(), ..Config::default() }
+        Config {
+            brain_root: brain.to_path_buf(),
+            ..Config::default()
+        }
     }
 
     fn read_event(session: &str, path: &Path) -> HookEvent {
@@ -2121,8 +2350,14 @@ mod tests {
         let advice = brain_read_redirect(Some(&cfg), state.path(), &event, &path)
             .expect("an oversized brain file must be redirected");
         assert!(advice.contains("knowledge/huge.md"), "{advice}");
-        assert!(advice.contains("cfetch recall"), "the cheap path must be named: {advice}");
-        assert!(advice.contains("--id"), "expanding one statement is the other half: {advice}");
+        assert!(
+            advice.contains("cfetch recall"),
+            "the cheap path must be named: {advice}"
+        );
+        assert!(
+            advice.contains("--id"),
+            "expanding one statement is the other half: {advice}"
+        );
 
         // Once per session, not per file: a second oversized file in the same
         // session says nothing further.
@@ -2135,8 +2370,7 @@ mod tests {
         );
         // A different session gets its own single shot.
         assert!(
-            brain_read_redirect(Some(&cfg), state.path(), &read_event("s2", &big), &path)
-                .is_some()
+            brain_read_redirect(Some(&cfg), state.path(), &read_event("s2", &big), &path).is_some()
         );
     }
 
@@ -2174,14 +2408,12 @@ mod tests {
             ..brain_cfg(brain.path())
         };
         assert!(
-            brain_read_redirect(Some(&off), state.path(), &event, &big.to_string_lossy())
-                .is_none(),
+            brain_read_redirect(Some(&off), state.path(), &event, &big.to_string_lossy()).is_none(),
             "zero budget is the off switch for both ends of the policy"
         );
         // The silent cases must not have burned the session's one shot.
         assert!(
-            brain_read_redirect(Some(&cfg), state.path(), &event, &big.to_string_lossy())
-                .is_some()
+            brain_read_redirect(Some(&cfg), state.path(), &event, &big.to_string_lossy()).is_some()
         );
     }
 }

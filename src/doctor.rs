@@ -16,13 +16,11 @@ use serde::Serialize;
 
 use crate::config::Config;
 use crate::{
-    daemon, embed, embedding_profile, grant, hardware, heartbeat, index, maintenance,
-    maintenance_model, net, paths, rerank, retrieval_fixture, runtime_status, variant, vectors,
+    daemon, embed, embedding_profile, hardware, heartbeat, index, maintenance, maintenance_model,
+    paths, rerank, retrieval_fixture, runtime_status, variant, vectors,
 };
 
 pub const SCHEMA_VERSION: u32 = 1;
-const PEER_PROBE_TIMEOUT: Duration = Duration::from_millis(1_500);
-const MAX_PROBED_PEERS: usize = 16;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportV1 {
@@ -36,7 +34,7 @@ pub struct ReportV1 {
     pub memory: MemoryDiagnostic,
     pub inference: InferenceDiagnostic,
     pub hardware: Vec<HardwareDiagnostic>,
-    pub topology: TopologyDiagnostic,
+    pub repositories: Vec<crate::repositories::RepositoryStatus>,
     pub integrations: IntegrationDiagnostic,
     pub runtime: runtime_status::RuntimeStatusV1,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -86,10 +84,6 @@ pub struct DaemonDiagnostic {
     pub state: DaemonState,
     pub version: Option<String>,
     pub version_matches_cli: Option<bool>,
-    pub endpoint_id: Option<String>,
-    /// A running daemon owns the one persistent iroh endpoint. This says the
-    /// endpoint is bound, not that any particular remote peer is connected.
-    pub network_endpoint_bound: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -106,15 +100,6 @@ pub struct MemoryDiagnostic {
     pub generation: Option<u64>,
     pub vector_coverage: CoverageDiagnostic,
     pub shared_vector_artifacts: Option<usize>,
-    pub peer_artifacts: PeerArtifactDiagnostic,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PeerArtifactDiagnostic {
-    pub transport: String,
-    pub state: String,
-    pub authorized_routes: usize,
-    pub route_order: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -215,41 +200,6 @@ pub enum DeviceUtilizationState {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct TopologyDiagnostic {
-    pub local_endpoint_id: Option<String>,
-    pub joined_origins: Vec<JoinedOriginDiagnostic>,
-    pub granted_peers: Vec<GrantedPeerDiagnostic>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct JoinedOriginDiagnostic {
-    pub endpoint_id: String,
-    pub slice: String,
-    pub mode: String,
-    pub joined_at: u64,
-    pub reachability: Reachability,
-    pub generation: Option<u64>,
-    pub detail: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Reachability {
-    Reachable,
-    Unreachable,
-    NotProbed,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct GrantedPeerDiagnostic {
-    pub endpoint_id: Option<String>,
-    pub slice: String,
-    pub mode: String,
-    pub state: String,
-    pub expires_at: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct IntegrationDiagnostic {
     pub hooks: Vec<HookDiagnostic>,
     pub summary: String,
@@ -322,8 +272,7 @@ pub fn gather_deep(probe_network: bool, show_vectors: bool) -> ReportV1 {
     let state_dir = paths::state_dir();
     match Config::load() {
         Ok(cfg) => {
-            let retrieval_probe =
-                retrieval_fixture::gather_with_config(&cfg, show_vectors);
+            let retrieval_probe = retrieval_fixture::gather_with_config(&cfg, show_vectors);
             let mut report = gather_with(&cfg, &state_dir, None, probe_network);
             match retrieval_probe {
                 Ok(probe) => report.retrieval_probe = Some(probe),
@@ -334,9 +283,7 @@ pub fn gather_deep(probe_network: bool, show_vectors: bool) -> ReportV1 {
                         code: "deep_retrieval_check_failed".into(),
                         severity: FindingSeverity::Warning,
                         summary: error,
-                        action: Some(
-                            "inspect the error and retry cfetch doctor --deep".into(),
-                        ),
+                        action: Some("inspect the error and retry cfetch doctor --deep".into()),
                     });
                 }
             }
@@ -380,7 +327,7 @@ fn gather_inner(
     config_error: Option<String>,
     state_dir: &Path,
     supplied_daemon_probe: Option<&daemon::Response>,
-    probe_network: bool,
+    _probe_network: bool,
 ) -> ReportV1 {
     let owned_probe;
     let daemon_probe = match supplied_daemon_probe {
@@ -393,22 +340,6 @@ fn gather_inner(
     let daemon_running = daemon_probe.is_some_and(|probe| probe.ok);
     let daemon_version = daemon_probe.and_then(|probe| probe.version.clone());
     let mut findings = Vec::new();
-    let local_endpoint = match net::existing_endpoint_id(state_dir) {
-        Ok(endpoint) => endpoint.map(|id| id.to_string()),
-        Err(error) => {
-            findings.push(Finding {
-                code: "network_identity_unreadable".into(),
-                severity: FindingSeverity::Critical,
-                summary: short_error(&error.to_string()),
-                action: Some(
-                    "repair the identity key deliberately; replacing it changes this host's identity"
-                        .into(),
-                ),
-            });
-            None
-        }
-    };
-
     let build_backend = compiled_backend();
     let mut runtime = runtime_status::load_cached_in(state_dir);
     runtime_status::apply_daemon_observation(&mut runtime, daemon_running);
@@ -465,7 +396,10 @@ fn gather_inner(
     // index, and doctor reported `0 critical` through all of it.
     let catalog = match cfg {
         Some(cfg) => catalog_diagnostic(cfg, state_dir, &mut findings),
-        None => CatalogDiagnostic { state: "unavailable".into(), detail: Some("config did not load".into()) },
+        None => CatalogDiagnostic {
+            state: "unavailable".into(),
+            detail: Some("config did not load".into()),
+        },
     };
 
     let memory = memory_diagnostic(cfg, state_dir, &runtime, daemon_running, &mut findings);
@@ -483,14 +417,28 @@ fn gather_inner(
     } else {
         "platform_native"
     };
-    let topology = topology_diagnostic(
-        cfg,
-        state_dir,
-        local_endpoint.clone(),
-        daemon_running,
-        probe_network,
-        &mut findings,
-    );
+    let repositories = if let Some(cfg) = cfg {
+        let roots = cfg
+            .git
+            .roots
+            .iter()
+            .map(|p| cfg.resolve(p))
+            .collect::<Vec<_>>();
+        match crate::repositories::run(&roots, false, Duration::from_secs(cfg.git.timeout_secs)) {
+            Ok(repos) => repos,
+            Err(error) => {
+                findings.push(Finding {
+                    code: "repositories_unavailable".into(),
+                    severity: FindingSeverity::Warning,
+                    summary: short_error(&error.to_string()),
+                    action: Some("inspect cfetch repos".into()),
+                });
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
     let integrations = integration_diagnostic(state_dir, &mut findings);
 
     for failure in &runtime.failures {
@@ -543,13 +491,11 @@ fn gather_inner(
             version_matches_cli: daemon_version
                 .as_deref()
                 .map(|version| version == env!("CARGO_PKG_VERSION")),
-            endpoint_id: local_endpoint,
-            network_endpoint_bound: daemon_running,
         },
         memory,
         inference,
         hardware,
-        topology,
+        repositories,
         integrations,
         runtime,
         retrieval_probe: None,
@@ -585,14 +531,12 @@ fn catalog_diagnostic(
             summary: format!("brain root {} does not exist", cfg.brain_root.display()),
             action: Some("create the tree (cfetch init) or fix the brain root".into()),
         });
-        return CatalogDiagnostic { state: "unavailable".into(), detail: Some("brain root missing".into()) };
+        return CatalogDiagnostic {
+            state: "unavailable".into(),
+            detail: Some("brain root missing".into()),
+        };
     }
-    if let Some(cs) = &cfg.client.serving {
-        // A none-tier client holds no local catalog by design; opening one
-        // here would build the second, silently stale truth it exists to
-        // avoid.
-        return CatalogDiagnostic { state: "remote".into(), detail: Some(format!("served by {}", cs.addr)) };
-    }
+
     // A diagnostic must not be the thing that first writes an index: the
     // existence check comes first, and the open is READ-ONLY (no
     // delete-and-rebuild on a corrupt file — that recovery belongs to the
@@ -604,7 +548,10 @@ fn catalog_diagnostic(
             summary: "no catalog has ever been committed; every recall answers from nothing".into(),
             action: Some("run cfetch scan".into()),
         });
-        return CatalogDiagnostic { state: "never_scanned".into(), detail: None };
+        return CatalogDiagnostic {
+            state: "never_scanned".into(),
+            detail: None,
+        };
     }
     let conn = match index::open_read_only(state_dir) {
         Ok(conn) => conn,
@@ -616,11 +563,13 @@ fn catalog_diagnostic(
                 summary: format!("the index database does not open: {detail}"),
                 action: Some("delete the state index and run cfetch scan to rebuild".into()),
             });
-            return CatalogDiagnostic { state: "unavailable".into(), detail: Some(detail) };
+            return CatalogDiagnostic {
+                state: "unavailable".into(),
+                detail: Some(detail),
+            };
         }
     };
-    let tree =
-        index::tree_fingerprint(&cfg.brain_root, Some(&crate::paths::native_projects_root()), &cfg.rings());
+    let tree = index::tree_fingerprint(&cfg.brain_root, None, &cfg.rings());
     let stored = match index::stored_fingerprint(&conn) {
         Some(fp) => fp,
         None => {
@@ -629,10 +578,15 @@ fn catalog_diagnostic(
             findings.push(Finding {
                 code: "index_unopenable".into(),
                 severity: FindingSeverity::Critical,
-                summary: "the index database is present but unreadable (empty or not a cfetch catalog)".into(),
+                summary:
+                    "the index database is present but unreadable (empty or not a cfetch catalog)"
+                        .into(),
                 action: Some("delete the state index and run cfetch scan to rebuild".into()),
             });
-            return CatalogDiagnostic { state: "unavailable".into(), detail: Some("unreadable catalog".into()) };
+            return CatalogDiagnostic {
+                state: "unavailable".into(),
+                detail: Some("unreadable catalog".into()),
+            };
         }
     };
     let verdict = heartbeat::observe_index_in(state_dir, Some(stored.as_str()), &tree);
@@ -645,10 +599,14 @@ fn catalog_diagnostic(
             findings.push(Finding {
                 code: "index_never_scanned".into(),
                 severity: FindingSeverity::Warning,
-                summary: "no catalog has ever been committed; every recall answers from nothing".into(),
+                summary: "no catalog has ever been committed; every recall answers from nothing"
+                    .into(),
                 action: Some("run cfetch scan".into()),
             });
-            CatalogDiagnostic { state: "never_scanned".into(), detail: Some(verdict.describe()) }
+            CatalogDiagnostic {
+                state: "never_scanned".into(),
+                detail: Some(verdict.describe()),
+            }
         }
         heartbeat::IndexLiveness::Stale { .. } => {
             findings.push(Finding {
@@ -657,7 +615,10 @@ fn catalog_diagnostic(
                 summary: format!("index: {}", verdict.describe()),
                 action: Some("run cfetch scan".into()),
             });
-            CatalogDiagnostic { state: "stale".into(), detail: Some(verdict.describe()) }
+            CatalogDiagnostic {
+                state: "stale".into(),
+                detail: Some(verdict.describe()),
+            }
         }
     }
 }
@@ -665,10 +626,10 @@ fn catalog_diagnostic(
 fn memory_diagnostic(
     cfg: Option<&Config>,
     state_dir: &Path,
-        runtime: &runtime_status::RuntimeStatusV1,
-        daemon_running: bool,
-        findings: &mut Vec<Finding>,
-    ) -> MemoryDiagnostic {
+    runtime: &runtime_status::RuntimeStatusV1,
+    daemon_running: bool,
+    findings: &mut Vec<Finding>,
+) -> MemoryDiagnostic {
     let Some(cfg) = cfg else {
         return MemoryDiagnostic {
             route: "unknown".into(),
@@ -681,22 +642,10 @@ fn memory_diagnostic(
                 detail: Some("configuration unavailable".into()),
             },
             shared_vector_artifacts: None,
-            peer_artifacts: PeerArtifactDiagnostic {
-                transport: "iroh-blobs".into(),
-                state: "configuration_unavailable".into(),
-                authorized_routes: 0,
-                route_order: "shared_store_then_authorized_peers_then_configured_endpoint".into(),
-            },
         };
     };
 
-    let (route, origin) = if let Some(serving) = &cfg.client.serving {
-        ("remote", serving.addr.clone())
-    } else if cfg.serve.enabled {
-        ("serving", crate::serve::origin_of(cfg))
-    } else {
-        ("local", "this host".into())
-    };
+    let (route, origin) = ("local", crate::serve::origin_of(cfg));
 
     let shared_vector_artifacts =
         match vectors::VectorStore::open(&cfg.brain_root, &cfg.embeddings.spec()) {
@@ -730,13 +679,6 @@ fn memory_diagnostic(
             total: None,
             detail: Some(error.clone()),
         }
-    } else if cfg.client.serving.is_some() {
-        CoverageDiagnostic {
-            state: "reported_by_serving_host_on_query".into(),
-            embedded: runtime.retrieval.embedded,
-            total: runtime.retrieval.total,
-            detail: Some("this none-tier host intentionally has no local index".into()),
-        }
     } else {
         match index::open_ro(state_dir)
             .and_then(|conn| index::vector_coverage(&conn, &cfg.embeddings.spec()))
@@ -763,38 +705,12 @@ fn memory_diagnostic(
         }
     };
 
-    let authorized_routes = grant::memberships(state_dir)
-        .map(|memberships| {
-            memberships
-                .into_iter()
-                .filter(|membership| {
-                    membership.network_major == embedding_profile::NETWORK_MAJOR
-                })
-                .count()
-        })
-        .unwrap_or(0);
-    let peer_artifact_state = if production_unavailable.is_some() {
-        "profile_inactive"
-    } else if authorized_routes == 0 {
-        "no_joined_routes"
-    } else if daemon_running {
-        "ready"
-    } else {
-        "daemon_stopped"
-    };
-
     MemoryDiagnostic {
         route: route.into(),
         origin,
         generation: runtime.memory_route.generation,
         vector_coverage,
         shared_vector_artifacts,
-        peer_artifacts: PeerArtifactDiagnostic {
-            transport: "iroh-blobs".into(),
-            state: peer_artifact_state.into(),
-            authorized_routes,
-            route_order: "shared_store_then_authorized_peers_then_configured_endpoint".into(),
-        },
     }
 }
 
@@ -894,16 +810,13 @@ fn inference_diagnostic(
                 } else {
                     "disabled".into()
                 },
-                route: cfg
-                    .embeddings
-                    .enabled
-                    .then(|| {
-                        if cfg.embeddings.endpoint.is_empty() && build_backend == "local" {
-                            "local".into()
-                        } else {
-                            route_name(runtime_status::endpoint_route(&cfg.embeddings.endpoint))
-                        }
-                    }),
+                route: cfg.embeddings.enabled.then(|| {
+                    if cfg.embeddings.endpoint.is_empty() && build_backend == "local" {
+                        "local".into()
+                    } else {
+                        route_name(runtime_status::endpoint_route(&cfg.embeddings.endpoint))
+                    }
+                }),
                 model: cfg.embeddings.model.clone(),
                 model_revision: profile.model_revision.into(),
                 artifact_policy: admission_policy.artifact_policy.into(),
@@ -944,9 +857,10 @@ fn inference_diagnostic(
                     "idle"
                 }
                 .into(),
-                route: cfg.maintenance.configured().then(|| {
-                    route_name(runtime_status::endpoint_route(&cfg.maintenance.endpoint))
-                }),
+                route: cfg
+                    .maintenance
+                    .configured()
+                    .then(|| route_name(runtime_status::endpoint_route(&cfg.maintenance.endpoint))),
                 proposal_model: cfg
                     .maintenance
                     .configured()
@@ -1088,228 +1002,6 @@ fn hardware_diagnostics(
         .collect()
 }
 
-fn topology_diagnostic(
-    cfg: Option<&Config>,
-    state_dir: &Path,
-    local_endpoint_id: Option<String>,
-    daemon_running: bool,
-    probe_network: bool,
-    findings: &mut Vec<Finding>,
-) -> TopologyDiagnostic {
-    let memberships = match grant::memberships(state_dir) {
-        Ok(memberships) => memberships,
-        Err(error) => {
-            findings.push(Finding {
-                code: "memberships_unreadable".into(),
-                severity: FindingSeverity::Critical,
-                summary: short_error(&error.to_string()),
-                action: Some("repair the per-host memberships document".into()),
-            });
-            Vec::new()
-        }
-    };
-
-    let mut joined_origins: Vec<JoinedOriginDiagnostic> = memberships
-        .iter()
-        .map(|membership| JoinedOriginDiagnostic {
-            endpoint_id: membership.origin.id.to_string(),
-            slice: membership.slice.clone(),
-            mode: membership.mode.as_str().into(),
-            joined_at: membership.joined_at,
-            reachability: Reachability::NotProbed,
-            generation: None,
-            detail: Some(if !probe_network {
-                "network probes disabled".into()
-            } else if !daemon_running {
-                "local daemon is stopped".into()
-            } else if membership.network_major != embedding_profile::NETWORK_MAJOR {
-                format!(
-                    "membership is network major {}, this build requires {}",
-                    membership.network_major,
-                    embedding_profile::NETWORK_MAJOR
-                )
-            } else {
-                "probe not run".into()
-            }),
-        })
-        .collect();
-
-    for membership in &memberships {
-        if membership.network_major != embedding_profile::NETWORK_MAJOR {
-            findings.push(Finding {
-                code: "membership_network_incompatible".into(),
-                severity: FindingSeverity::Critical,
-                summary: format!(
-                    "joined slice {:?} belongs to network major {}, this build requires {}",
-                    membership.slice,
-                    membership.network_major,
-                    embedding_profile::NETWORK_MAJOR
-                ),
-                action: Some("rejoin the slice through a compatible origin".into()),
-            });
-        }
-    }
-
-    if probe_network && daemon_running {
-        let mut probes = Vec::new();
-        for (index, membership) in memberships
-            .iter()
-            .take(MAX_PROBED_PEERS)
-            .cloned()
-            .enumerate()
-        {
-            if membership.network_major != embedding_profile::NETWORK_MAJOR {
-                continue;
-            }
-            probes.push((
-                index,
-                std::thread::spawn(move || {
-                    daemon::probe_iroh(&membership.origin, &membership.slice, PEER_PROBE_TIMEOUT)
-                        .map_err(|error| short_error(&error.to_string()))
-                }),
-            ));
-        }
-        for (index, probe) in probes {
-            match probe.join() {
-                Ok(Ok(response)) if response.iroh_connected == Some(true) && response.ok => {
-                    joined_origins[index].reachability = Reachability::Reachable;
-                    joined_origins[index].generation = response.generation;
-                    joined_origins[index].detail = response.fresh.map(|fresh| {
-                        if fresh {
-                            "serving path is fresh"
-                        } else {
-                            "serving path answered stale"
-                        }
-                        .into()
-                    });
-                }
-                Ok(Ok(response)) if response.iroh_connected == Some(true) => {
-                    let error = response
-                        .error
-                        .as_deref()
-                        .map(short_error)
-                        .unwrap_or_else(|| "serving path refused without a reason".into());
-                    joined_origins[index].reachability = Reachability::Reachable;
-                    joined_origins[index].detail = Some(format!(
-                        "transport connected, but the authorized serving path is unavailable: {error}"
-                    ));
-                    findings.push(Finding {
-                        code: "joined_origin_unusable".into(),
-                        severity: FindingSeverity::Warning,
-                        summary: format!(
-                            "joined origin {} for slice {:?} connected but could not serve: {error}",
-                            short_id(&joined_origins[index].endpoint_id),
-                            joined_origins[index].slice
-                        ),
-                        action: Some("check serving mode, network major, and the slice grant".into()),
-                    });
-                }
-                Ok(Ok(response)) => {
-                    let error = response
-                        .error
-                        .as_deref()
-                        .map(short_error)
-                        .unwrap_or_else(|| "transport did not complete".into());
-                    joined_origins[index].reachability = Reachability::Unreachable;
-                    joined_origins[index].detail = Some(error.clone());
-                    findings.push(Finding {
-                        code: "joined_origin_unreachable".into(),
-                        severity: FindingSeverity::Warning,
-                        summary: format!(
-                            "joined origin {} for slice {:?} did not answer: {error}",
-                            short_id(&joined_origins[index].endpoint_id),
-                            joined_origins[index].slice
-                        ),
-                        action: Some("check both daemons and network routes".into()),
-                    });
-                }
-                Ok(Err(error)) => {
-                    joined_origins[index].reachability = Reachability::Unreachable;
-                    joined_origins[index].detail = Some(error.clone());
-                    findings.push(Finding {
-                        code: "joined_origin_unreachable".into(),
-                        severity: FindingSeverity::Warning,
-                        summary: format!(
-                            "joined origin {} for slice {:?} did not answer: {error}",
-                            short_id(&joined_origins[index].endpoint_id),
-                            joined_origins[index].slice
-                        ),
-                        action: Some(
-                            "check both daemons, network routes, and the slice grant".into(),
-                        ),
-                    });
-                }
-                Err(_) => {
-                    joined_origins[index].reachability = Reachability::Unreachable;
-                    joined_origins[index].detail = Some("diagnostic probe worker failed".into());
-                }
-            }
-        }
-        if memberships.len() > MAX_PROBED_PEERS {
-            for peer in joined_origins.iter_mut().skip(MAX_PROBED_PEERS) {
-                peer.detail = Some(format!(
-                    "not probed: one report is capped at {MAX_PROBED_PEERS} peers"
-                ));
-            }
-        }
-    }
-
-    let now = runtime_status::now();
-    let mut granted_peers = Vec::new();
-    if let Some(cfg) = cfg {
-        match cfg.slice_model() {
-            Ok(model) => {
-                for slice in model.names() {
-                    match grant::read(&cfg.brain_root, slice) {
-                        Ok(grants) => {
-                            granted_peers.extend(grants.into_iter().map(|grant| {
-                                let state =
-                                    if grant.expires_at.is_some_and(|expires| now >= expires) {
-                                        "expired"
-                                    } else if grant.pending() {
-                                        "pending_invite"
-                                    } else {
-                                        "authorized"
-                                    };
-                                GrantedPeerDiagnostic {
-                                    endpoint_id: grant.peer,
-                                    slice: grant.slice,
-                                    mode: grant.mode.as_str().into(),
-                                    state: state.into(),
-                                    expires_at: grant.expires_at,
-                                }
-                            }));
-                        }
-                        Err(error) => findings.push(Finding {
-                            code: format!("grants_unreadable_{slice}"),
-                            severity: FindingSeverity::Critical,
-                            summary: short_error(&error.to_string()),
-                            action: Some(format!("repair the grants record for slice {slice:?}")),
-                        }),
-                    }
-                }
-            }
-            Err(error) => findings.push(Finding {
-                code: "slice_model_unusable".into(),
-                severity: FindingSeverity::Critical,
-                summary: short_error(&error.to_string()),
-                action: Some("repair the configured slice rules".into()),
-            }),
-        }
-    }
-    granted_peers.sort_by(|a, b| {
-        a.slice
-            .cmp(&b.slice)
-            .then_with(|| a.endpoint_id.cmp(&b.endpoint_id))
-    });
-
-    TopologyDiagnostic {
-        local_endpoint_id,
-        joined_origins,
-        granted_peers,
-    }
-}
-
 fn integration_diagnostic(state_dir: &Path, findings: &mut Vec<Finding>) -> IntegrationDiagnostic {
     let liveness = heartbeat::liveness_in(state_dir);
     let summary = liveness.summary();
@@ -1418,14 +1110,7 @@ pub fn display_lines(report: &ReportV1) -> Vec<DisplayLine> {
             DisplayTone::Warning
         },
         match &report.daemon.version {
-            Some(version) => format!(
-                "  daemon running v{version} — network endpoint {}",
-                if report.daemon.network_endpoint_bound {
-                    "bound"
-                } else {
-                    "not bound"
-                }
-            ),
+            Some(version) => format!("  local daemon running v{version}"),
             None => "  daemon stopped — direct fallbacks remain available".into(),
         },
     ));
@@ -1505,20 +1190,6 @@ pub fn display_lines(report: &ReportV1) -> Vec<DisplayLine> {
             format!("    {detail}"),
         ));
     }
-    lines.push(DisplayLine::new(
-        match report.memory.peer_artifacts.state.as_str() {
-            "ready" => DisplayTone::Good,
-            "daemon_stopped" => DisplayTone::Warning,
-            _ => DisplayTone::Muted,
-        },
-        format!(
-            "  peer artifacts {} — {} · {} authorized route(s)",
-            report.memory.peer_artifacts.transport,
-            report.memory.peer_artifacts.state,
-            report.memory.peer_artifacts.authorized_routes,
-        ),
-    ));
-
     lines.push(DisplayLine::new(DisplayTone::Heading, "Inference"));
     let embedding_config_error = report.findings.iter().any(|finding| {
         matches!(
@@ -1563,16 +1234,14 @@ pub fn display_lines(report: &ReportV1) -> Vec<DisplayLine> {
         DisplayTone::Muted,
         format!(
             "    output: {} dimensions, {}",
-            report.inference.embeddings.dimensions,
-            report.inference.embeddings.vector_encoding,
+            report.inference.embeddings.dimensions, report.inference.embeddings.vector_encoding,
         ),
     ));
     lines.push(DisplayLine::new(
         DisplayTone::Muted,
         format!(
             "    profile: {} · artifact rule: {}",
-            report.inference.embeddings.profile_id,
-            report.inference.embeddings.artifact_policy,
+            report.inference.embeddings.profile_id, report.inference.embeddings.artifact_policy,
         ),
     ));
     let reranker_config_error = report
@@ -1806,70 +1475,11 @@ pub fn display_lines(report: &ReportV1) -> Vec<DisplayLine> {
         ));
     }
 
-    lines.push(DisplayLine::new(DisplayTone::Heading, "Peers and grants"));
-    lines.push(DisplayLine::new(
-        if report.topology.local_endpoint_id.is_some() {
-            DisplayTone::Good
-        } else {
-            DisplayTone::Muted
-        },
-        match &report.topology.local_endpoint_id {
-            Some(id) => format!("  this host endpoint {id}"),
-            None => "  this host has no network identity yet (no network operation has needed one)"
-                .into(),
-        },
-    ));
-    if report.topology.joined_origins.is_empty() {
-        lines.push(DisplayLine::new(
-            DisplayTone::Muted,
-            "  no remote origins joined",
-        ));
-    }
-    for peer in &report.topology.joined_origins {
-        let (tone, state) = match peer.reachability {
-            Reachability::Reachable => (DisplayTone::Good, "reachable"),
-            Reachability::Unreachable => (DisplayTone::Warning, "unreachable"),
-            Reachability::NotProbed => (DisplayTone::Muted, "not probed"),
-        };
-        lines.push(DisplayLine::new(
-            tone,
-            format!(
-                "  joined {} · slice {} ({}) — {}{}",
-                short_id(&peer.endpoint_id),
-                peer.slice,
-                peer.mode,
-                state,
-                peer.generation
-                    .map(|generation| format!(" · generation {generation}"))
-                    .unwrap_or_default()
-            ),
-        ));
-        if let Some(detail) = &peer.detail {
-            lines.push(DisplayLine::new(
-                DisplayTone::Muted,
-                format!("    {detail}"),
-            ));
-        }
-    }
-    if report.topology.granted_peers.is_empty() {
-        lines.push(DisplayLine::new(
-            DisplayTone::Muted,
-            "  no outbound slice grants",
-        ));
-    }
-    for peer in &report.topology.granted_peers {
+    lines.push(DisplayLine::new(DisplayTone::Heading, "Git repositories"));
+    for repo in &report.repositories {
         lines.push(DisplayLine::new(
             DisplayTone::Normal,
-            format!(
-                "  grant {} ({}) -> {} — {}",
-                peer.slice,
-                peer.mode,
-                peer.endpoint_id
-                    .as_deref()
-                    .map(short_id)
-                    .unwrap_or("unused invite"),
-                peer.state
-            ),
+            format!("  {} — {}", repo.path.display(), repo.state),
         ));
     }
 
@@ -1975,13 +1585,14 @@ mod tests {
                 brain_root: Some("/brain".into()),
                 error: None,
             },
-            catalog: CatalogDiagnostic { state: "current".into(), detail: Some("generation 1".into()) },
+            catalog: CatalogDiagnostic {
+                state: "current".into(),
+                detail: Some("generation 1".into()),
+            },
             daemon: DaemonDiagnostic {
                 state: DaemonState::Running,
                 version: Some("0.9.9".into()),
                 version_matches_cli: Some(true),
-                endpoint_id: Some("abcdefghijklmnopqrst".into()),
-                network_endpoint_bound: true,
             },
             memory: MemoryDiagnostic {
                 route: "local".into(),
@@ -1994,13 +1605,6 @@ mod tests {
                     detail: None,
                 },
                 shared_vector_artifacts: Some(3),
-                peer_artifacts: PeerArtifactDiagnostic {
-                    transport: "iroh-blobs".into(),
-                    state: "ready".into(),
-                    authorized_routes: 1,
-                    route_order: "shared_store_then_authorized_peers_then_configured_endpoint"
-                        .into(),
-                },
             },
             inference: InferenceDiagnostic {
                 build_backend: "endpoint".into(),
@@ -2054,19 +1658,7 @@ mod tests {
                 selected: false,
                 utilization: DeviceUtilizationState::NotSelected,
             }],
-            topology: TopologyDiagnostic {
-                local_endpoint_id: Some("abcdefghijklmnopqrst".into()),
-                joined_origins: vec![JoinedOriginDiagnostic {
-                    endpoint_id: "zyxwvutsrqponmlkjihg".into(),
-                    slice: "shared".into(),
-                    mode: "ro".into(),
-                    joined_at: 1,
-                    reachability: Reachability::Reachable,
-                    generation: Some(9),
-                    detail: Some("serving path is fresh".into()),
-                }],
-                granted_peers: Vec::new(),
-            },
+            repositories: Vec::new(),
             integrations: IntegrationDiagnostic {
                 hooks: Vec::new(),
                 summary: "hooks: all registered hooks reporting, healthy".into(),
@@ -2090,10 +1682,6 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("live utilization: not reported"), "{text}");
-        assert!(
-            text.contains("joined zyxwvutsrqpo · slice shared (ro) — reachable"),
-            "{text}"
-        );
     }
 
     #[test]
@@ -2134,8 +1722,7 @@ mod tests {
         // build's registry); the finding fires either way — the profile
         // is unavailable for the package-local path.
         assert!(
-            finding.summary.contains("not active")
-                || finding.summary.contains("no admitted"),
+            finding.summary.contains("not active") || finding.summary.contains("no admitted"),
             "{}",
             finding.summary
         );

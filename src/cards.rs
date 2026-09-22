@@ -58,10 +58,6 @@ struct CardsStatus {
 
 pub fn run(action: CardsAction) -> anyhow::Result<()> {
     let cfg = config::Config::load()?;
-    ensure!(
-        cfg.client.serving.is_none(),
-        "local card storage is unavailable on a metadata-only client"
-    );
     let store = store_root(&cfg.brain_root);
     match action {
         CardsAction::Init { repository } => {
@@ -189,14 +185,20 @@ fn sync(store: &Path, json: bool) -> anyhow::Result<()> {
     // `status()` here deadlocked the command on its own store lock after
     // fetch and merge were already done.
     if json {
-        println!("{}", serde_json::to_string_pretty(&status_report_locked(store)?)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&status_report_locked(store)?)?
+        );
     } else {
         println!("synchronized nixcards catalogue");
         let report = status_report_locked(store)?;
         if !report.initialized {
             println!("not initialized: {}", report.store);
         } else {
-            println!("revision: {}", report.revision.as_deref().unwrap_or("unknown"));
+            println!(
+                "revision: {}",
+                report.revision.as_deref().unwrap_or("unknown")
+            );
             println!("selected sets: {}", report.selected_sets.len());
         }
     }

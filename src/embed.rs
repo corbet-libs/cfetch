@@ -36,7 +36,10 @@ fn split_url(url: &str) -> anyhow::Result<(String, String)> {
         .split_once("://")
         .with_context(|| format!("endpoint {url:?} is not a scheme://host URL"))?;
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    anyhow::ensure!(!authority.contains('@'), "endpoint URL must not contain userinfo");
+    anyhow::ensure!(
+        !authority.contains('@'),
+        "endpoint URL must not contain userinfo"
+    );
     let host = if let Some(bracketed) = authority.strip_prefix('[') {
         // [ipv6]:port
         bracketed
@@ -45,14 +48,21 @@ fn split_url(url: &str) -> anyhow::Result<(String, String)> {
             .0
             .to_string()
     } else {
-        authority.rsplit_once(':').map_or(authority, |(h, _)| h).to_string()
+        authority
+            .rsplit_once(':')
+            .map_or(authority, |(h, _)| h)
+            .to_string()
     };
     anyhow::ensure!(!host.is_empty(), "endpoint URL has no host");
     Ok((scheme.to_ascii_lowercase(), host.to_ascii_lowercase()))
 }
 
 fn is_loopback_host(host: &str) -> bool {
-    host == "localhost" || host.parse::<std::net::IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
+    host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
 }
 
 /// Address ranges no config value may point at (loopback is checked first
@@ -119,16 +129,17 @@ pub fn check_endpoint(url: &str, allow_hosts: &[String]) -> anyhow::Result<()> {
             "endpoint host {host} refused: {reason} (add it to embeddings.allow_hosts to permit deliberately)"
         );
     }
-    anyhow::ensure!(scheme == "https", "non-loopback endpoint must be https (got http://{host})");
+    anyhow::ensure!(
+        scheme == "https",
+        "non-loopback endpoint must be https (got http://{host})"
+    );
     // The host STRING passed; hold the same line against the addresses it
     // actually names. A string check cannot see a DNS name resolving into a
     // refused range (rebinding), nor resolver spellings of literal IPs
     // (`0x7f000001`, `2130706433`) that parse as hostnames. Exempted hosts
     // skip this by definition, and a host that does not resolve here fails
     // later at connect time — resolution failures are not a policy decision.
-    if !exempted
-        && let Ok(addrs) = (host.as_str(), 0u16).to_socket_addrs()
-    {
+    if !exempted && let Ok(addrs) = (host.as_str(), 0u16).to_socket_addrs() {
         for addr in addrs {
             let ip = addr.ip();
             if ip.is_loopback() {
@@ -184,7 +195,10 @@ fn resolve_auth_with(
     let key = lookup(name).ok_or_else(|| {
         anyhow::anyhow!("{field}.api_key_env: environment variable {name} is not set")
     })?;
-    anyhow::ensure!(!key.trim().is_empty(), "{field}.api_key_env: environment variable {name} is empty");
+    anyhow::ensure!(
+        !key.trim().is_empty(),
+        "{field}.api_key_env: environment variable {name} is empty"
+    );
     Ok(Some(format!("Bearer {}", key.trim())))
 }
 
@@ -365,7 +379,10 @@ fn input_refusal(status: u16, body: &str) -> Option<InputRefusal> {
         " tokens; the profile limit is {} and truncation is forbidden",
         crate::embedding_profile::MAX_TOKENS
     );
-    let count = envelope.error.strip_prefix("prefixed input contains ")?.strip_suffix(&suffix)?;
+    let count = envelope
+        .error
+        .strip_prefix("prefixed input contains ")?
+        .strip_suffix(&suffix)?;
     let token_count = count.parse::<usize>().ok()?;
     if token_count <= crate::embedding_profile::MAX_TOKENS || count != token_count.to_string() {
         return None;
@@ -890,11 +907,11 @@ fn verify_execution_signature(
     let public_key_bytes =
         decode_lowercase_hex::<32>(public_key_hex, "admitted attestation public key")?;
     let signature_bytes = decode_lowercase_hex::<64>(signature_hex, ATTESTATION_SIGNATURE_HEADER)?;
-    let public_key = iroh::PublicKey::from_bytes(&public_key_bytes)
+    let public_key = ed25519_dalek::VerifyingKey::from_bytes(&public_key_bytes)
         .context("admitted attestation public key is not a valid Ed25519 key")?;
-    let signature = iroh::Signature::from_bytes(&signature_bytes);
+    let signature = ed25519_dalek::Signature::from_bytes(&signature_bytes);
     public_key
-        .verify(
+        .verify_strict(
             &attestation_message(nonce, request_body, response_body),
             &signature,
         )
@@ -953,7 +970,10 @@ impl EmbedClient {
     /// the ONE place that gates every semantic path, so the CLI error is a
     /// single clear line.
     pub fn new(cfg: &EmbeddingsConfig) -> anyhow::Result<EmbedClient> {
-        anyhow::ensure!(cfg.enabled, "embeddings disabled (set embeddings.enabled=true in config)");
+        anyhow::ensure!(
+            cfg.enabled,
+            "embeddings disabled (set embeddings.enabled=true in config)"
+        );
         anyhow::ensure!(!cfg.model.is_empty(), "embeddings.model is required");
         if cfg.model == crate::embedding_profile::MODEL {
             // Every producer of canonical vectors must be admitted before it
@@ -984,7 +1004,10 @@ impl EmbedClient {
         Ok(EmbedClient {
             backend,
             model: cfg.model.clone(),
-            wire_model: cfg.endpoint_model.clone().unwrap_or_else(|| cfg.model.clone()),
+            wire_model: cfg
+                .endpoint_model
+                .clone()
+                .unwrap_or_else(|| cfg.model.clone()),
             base_timeout,
             dimensions: cfg.dimensions,
             query_prefix: cfg.query_prefix.clone(),
@@ -1042,7 +1065,10 @@ impl EmbedClient {
         if self.doc_prefix.is_empty() {
             return self.embed_with_timeout(texts, timeout);
         }
-        let owned: Vec<String> = texts.iter().map(|t| format!("{}{t}", self.doc_prefix)).collect();
+        let owned: Vec<String> = texts
+            .iter()
+            .map(|t| format!("{}{t}", self.doc_prefix))
+            .collect();
         let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
         self.embed_with_timeout(&refs, timeout)
     }
@@ -1086,14 +1112,7 @@ impl EmbedClient {
             EmbedBackend::Endpoint { agent, url, auth } => (
                 crate::runtime_status::InferenceMode::Endpoint,
                 crate::runtime_status::endpoint_route(url),
-                self.embed_request(
-                    agent,
-                    url,
-                    auth.as_deref(),
-                    texts,
-                    timeout,
-                    None,
-                ),
+                self.embed_request(agent, url, auth.as_deref(), texts, timeout, None),
             ),
             EmbedBackend::Local { agent, state } => (
                 crate::runtime_status::InferenceMode::Local,
@@ -1154,8 +1173,11 @@ impl EmbedClient {
             }),
         );
 
-        let mut unavailable: Vec<String> = state.unavailable_scopes.iter()
-            .map(|index| state.ordered_scope_ids[*index].clone()).collect();
+        let mut unavailable: Vec<String> = state
+            .unavailable_scopes
+            .iter()
+            .map(|index| state.ordered_scope_ids[*index].clone())
+            .collect();
         for index in attempts {
             let scope_id = state.ordered_scope_ids[index].clone();
             let endpoint = state.supervisor.endpoint()?;
@@ -1222,7 +1244,7 @@ impl EmbedClient {
         // the admitted scope key. On supervised-local it checks response
         // consistency inside the separately hashed and supervised package
         // boundary; on remote-attested it authenticates the admitted producer.
-        let attestation_nonce = iroh::SecretKey::generate().to_bytes();
+        let attestation_nonce = rand::random::<[u8; 32]>();
         let mut req = agent
             .post(url)
             .config()
@@ -1233,9 +1255,9 @@ impl EmbedClient {
         if let Some(auth) = auth {
             req = req.header("authorization", auth);
         }
-        let mut resp = req.send(body.as_slice()).map_err(|error| {
-            AdapterTransportError(format!("POST {url}: {error}"))
-        })?;
+        let mut resp = req
+            .send(body.as_slice())
+            .map_err(|error| AdapterTransportError(format!("POST {url}: {error}")))?;
         let status = resp.status();
         let response_signature = resp
             .headers()
@@ -1284,7 +1306,8 @@ impl EmbedClient {
         if is_canonical {
             anyhow::ensure!(
                 parsed.cfetch_profile == crate::embedding_profile::PROFILE_ID
-                    && parsed.cfetch_profile_manifest_sha256 == crate::embedding_profile::manifest_sha256()
+                    && parsed.cfetch_profile_manifest_sha256
+                        == crate::embedding_profile::manifest_sha256()
                     && parsed.cfetch_model_revision == crate::embedding_profile::MODEL_REVISION,
                 "embeddings endpoint is not profile-attested for {} (vector-space profile/revision mismatch)",
                 crate::embedding_profile::PROFILE_ID
@@ -1296,8 +1319,7 @@ impl EmbedClient {
                     == crate::embedding_profile::admission_policy_sha256(),
                 "embeddings endpoint admission-policy digest does not match this cfetch release"
             );
-            let execution =
-                validate_execution_scope(parsed.cfetch_execution, requested_scope_id)?;
+            let execution = validate_execution_scope(parsed.cfetch_execution, requested_scope_id)?;
             let signature = response_signature
                 .context("admitted embedding producer omitted its response-signature header")?;
             verify_execution_signature(
@@ -1408,11 +1430,16 @@ pub fn run(
         client.dimensions()
     );
     if index::ensure_vector_spec(conn, &spec)? {
-        println!("embedding spec changed -> local vector cache dropped, re-filling for {}", spec.model);
+        println!(
+            "embedding spec changed -> local vector cache dropped, re-filling for {}",
+            spec.model
+        );
     }
     let imported = vectors::hydrate(conn, store)?;
     if imported > 0 {
-        println!("imported {imported} vector(s) from the shared store (already derived by this group)");
+        println!(
+            "imported {imported} vector(s) from the shared store (already derived by this group)"
+        );
     }
     let mut embedded = 0usize;
     // Refusals stay missing in the durable store, but must not be selected
@@ -1455,8 +1482,10 @@ pub fn run(
                         single
                     }
                 }
-                Err(error) => return Err(error)
-                    .context("embedding stopped; earlier committed batches are kept"),
+                Err(error) => {
+                    return Err(error)
+                        .context("embedding stopped; earlier committed batches are kept");
+                }
             };
             // Record first, cache second: the shared artifact is what the
             // group keeps, the local row is a convenience. Pairs, not two
@@ -1495,11 +1524,12 @@ pub fn run(
             }
             // Widen the window by this run's refused keys, then remove them.
             // Even an entirely refused batch advances to remaining work.
-            pending = index::hashes_without_vectors(conn, &spec, batch.saturating_add(refused.len()))?
-                .into_iter()
-                .filter(|(hash, _)| !refused.contains(hash))
-                .take(batch)
-                .collect();
+            pending =
+                index::hashes_without_vectors(conn, &spec, batch.saturating_add(refused.len()))?
+                    .into_iter()
+                    .filter(|(hash, _)| !refused.contains(hash))
+                    .take(batch)
+                    .collect();
             if pending.is_empty() {
                 break;
             }
@@ -1512,102 +1542,38 @@ pub fn run(
         refused.len()
     );
     let (_, total_blocks) = index::vector_coverage(conn, &spec)?;
-    Ok(EmbedIndexReport { embedded, imported, total_blocks })
-}
-
-/// Pulls missing vectors from every remembered, authorized origin before the
-/// local endpoint is considered. Origins filter the request through the
-/// joined slice, so asking all routes is safe and lets overlapping storage
-/// groups satisfy one batch cooperatively.
-fn import_peer_artifacts(
-    conn: &Connection,
-    store: &mut vectors::VectorStore,
-) -> anyhow::Result<usize> {
-    let memberships = crate::grant::memberships(&crate::paths::state_dir())?
-        .into_iter()
-        .filter(|membership| {
-            membership.network_major == crate::embedding_profile::NETWORK_MAJOR
-        })
-        .collect::<Vec<_>>();
-    if memberships.is_empty() {
-        return Ok(0);
-    }
-    let spec = store.spec().clone();
-    let mut imported = 0usize;
-    loop {
-        let pending = index::hashes_without_vectors(
-            conn,
-            &spec,
-            vectors::MAX_PEER_ARTIFACTS,
-        )?;
-        if pending.is_empty() {
-            break;
-        }
-        let mut made_progress = false;
-        for membership in &memberships {
-            let hashes: Vec<String> = pending
-                .iter()
-                .map(|(hash, _)| hash.clone())
-                .filter(|hash| !store.contains(hash))
-                .collect();
-            if hashes.is_empty() {
-                break;
-            }
-            match crate::daemon::sync_peer_vectors(
-                &membership.origin,
-                &membership.slice,
-                &hashes,
-                &spec,
-            ) {
-                Ok(received) if received > 0 => {
-                    store.refresh()?;
-                    let hydrated = vectors::hydrate(conn, store)?;
-                    imported += hydrated;
-                    made_progress |= hydrated > 0;
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!(
-                    "peer vector route {:?} unavailable: {e:#}; trying the next route or local embedding",
-                    membership.slice
-                ),
-            }
-        }
-        if !made_progress {
-            break;
-        }
-    }
-    Ok(imported)
+    Ok(EmbedIndexReport {
+        embedded,
+        imported,
+        total_blocks,
+    })
 }
 
 /// Brings the local vector cache and shared content-addressed store up to the
 /// current Markdown generation. Both the CLI and the daemon's change-driven
 /// worker use this exact path.
-pub fn sync_configured(
-    cfg: &Config,
-    batch: usize,
-) -> anyhow::Result<(EmbedIndexReport, usize)> {
-    anyhow::ensure!(
-        cfg.client.serving.is_none(),
-        "this host delegates its index; vectors are maintained by the storage host"
-    );
+pub fn sync_configured(cfg: &Config, batch: usize) -> anyhow::Result<(EmbedIndexReport, usize)> {
     // Hydration and peer ingress can publish canonical artifacts without
     // constructing an EmbedClient, so they enforce admission independently.
     crate::embedding_profile::production_availability()?;
     let spec = cfg.embeddings.spec();
     let mut store = vectors::VectorStore::open(&cfg.brain_root, &spec)?;
-    let native = crate::paths::native_projects_root();
-    let mut conn = index::ensure_fresh(&crate::paths::state_dir(), &cfg.brain_root, Some(&native), &cfg.rings())?;
+    let mut conn = index::ensure_fresh(
+        &crate::paths::state_dir(),
+        &cfg.brain_root,
+        None,
+        &cfg.rings(),
+    )?;
     if index::ensure_vector_spec(&conn, &spec)? {
-        println!("embedding spec changed -> local vector cache dropped, re-filling for {}", spec.model);
+        println!(
+            "embedding spec changed -> local vector cache dropped, re-filling for {}",
+            spec.model
+        );
     }
     let shared_imported = vectors::hydrate(&conn, &store)?;
     if shared_imported > 0 {
-        println!("imported {shared_imported} vector(s) from the shared store (already derived by this group)");
-    }
-    let peer_imported = import_peer_artifacts(&conn, &mut store)?;
-    if peer_imported > 0 {
         println!(
-            "imported {peer_imported} vector(s) from authorized peers over iroh-blobs (no embedding call)"
+            "imported {shared_imported} vector(s) from the shared store (already derived by this group)"
         );
     }
     let pending = index::hashes_without_vectors(&conn, &spec, 1)?;
@@ -1615,13 +1581,13 @@ pub fn sync_configured(
         let (_, total_blocks) = index::vector_coverage(&conn, &spec)?;
         EmbedIndexReport {
             embedded: 0,
-            imported: shared_imported + peer_imported,
+            imported: shared_imported,
             total_blocks,
         }
     } else {
         let client = EmbedClient::new(&cfg.embeddings)?;
         let mut report = run(&mut conn, &client, batch, &mut store)?;
-        report.imported += shared_imported + peer_imported;
+        report.imported += shared_imported;
         report
     };
     Ok((report, store.len()))
@@ -1660,7 +1626,10 @@ pub fn coverage_status_line(
     } else if embedded >= total {
         "complete".to_string()
     } else {
-        format!("run cfetch embed-index for the remaining {}", total - embedded)
+        format!(
+            "run cfetch embed-index for the remaining {}",
+            total - embedded
+        )
     };
     format!(
         "semantic: {embedded}/{total} blocks embedded — {health}\n  \
@@ -1730,7 +1699,10 @@ pub fn semantic_hits(
     if embedded == 0 {
         // Nothing to rank against. Answer lexically — but say so; a silently
         // lexical "hybrid" is the degradation this project bans.
-        return Ok(SemanticRecall { hits: index::recall_in(conn, query, limit, prefixes)?, note });
+        return Ok(SemanticRecall {
+            hits: index::recall_in(conn, query, limit, prefixes)?,
+            note,
+        });
     }
     let embedded_query = client.embed_query(query);
     let mut qv = match embedded_query {
@@ -1784,12 +1756,13 @@ mod tests {
 
     #[test]
     fn package_key_signature_binds_nonce_request_and_exact_response_bytes() {
-        let key = iroh::SecretKey::generate();
+        use ed25519_dalek::Signer as _;
+        let key = ed25519_dalek::SigningKey::from_bytes(&rand::random::<[u8; 32]>());
         let nonce = [9; 32];
         let request = br#"{"model":"m","input":["one"]}"#;
         let response = br#"{"data":[{"index":0}]}"#;
         let signature = key.sign(&attestation_message(&nonce, request, response));
-        let public_key = lowercase_hex(key.public().as_bytes());
+        let public_key = lowercase_hex(key.verifying_key().as_bytes());
         let signature = lowercase_hex(&signature.to_bytes());
 
         verify_execution_signature(&public_key, &signature, &nonce, request, response).unwrap();
@@ -1879,18 +1852,35 @@ mod tests {
 
     #[test]
     fn only_the_exact_adapter_overlength_envelope_is_an_input_refusal() {
-        let message = |count: &str| format!(
-            "prefixed input contains {count} tokens; the profile limit is {} and truncation is forbidden",
-            crate::embedding_profile::MAX_TOKENS
-        );
+        let message = |count: &str| {
+            format!(
+                "prefixed input contains {count} tokens; the profile limit is {} and truncation is forbidden",
+                crate::embedding_profile::MAX_TOKENS
+            )
+        };
         let body = serde_json::json!({"error": message("2049")}).to_string();
         assert_eq!(input_refusal(400, &body).unwrap().token_count, 2049);
         for status in [200, 401, 413, 429, 500, 503] {
-            assert!(input_refusal(status, &body).is_none(), "HTTP {status} must stop");
+            assert!(
+                input_refusal(status, &body).is_none(),
+                "HTTP {status} must stop"
+            );
         }
-        for count in ["2048", "0", "-2049", "+2049", "02049", "2049.0", "2049 ", "99999999999999999999999999999999999999"] {
+        for count in [
+            "2048",
+            "0",
+            "-2049",
+            "+2049",
+            "02049",
+            "2049.0",
+            "2049 ",
+            "99999999999999999999999999999999999999",
+        ] {
             let body = serde_json::json!({"error": message(count)}).to_string();
-            assert!(input_refusal(400, &body).is_none(), "noncanonical/impossible count {count}");
+            assert!(
+                input_refusal(400, &body).is_none(),
+                "noncanonical/impossible count {count}"
+            );
         }
         for body in [
             "not json".to_string(),
@@ -2093,9 +2083,8 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&adapter, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::write(&package_manifest, "{\"schema_version\":1}\n").unwrap();
-        let digest = crate::hashing::hex_lower(sha2::Sha256::digest(
-            std::fs::read(&adapter).unwrap(),
-        ));
+        let digest =
+            crate::hashing::hex_lower(sha2::Sha256::digest(std::fs::read(&adapter).unwrap()));
         let package_manifest_sha256 = crate::hashing::hex_lower(sha2::Sha256::digest(
             std::fs::read(&package_manifest).unwrap(),
         ));
@@ -2104,11 +2093,7 @@ mod tests {
             sha256: digest,
             package_manifest,
             package_manifest_sha256,
-            ordered_scope_ids: vec![
-                "npu-scope".into(),
-                "gpu-scope".into(),
-                "cpu-scope".into(),
-            ],
+            ordered_scope_ids: vec!["npu-scope".into(), "gpu-scope".into(), "cpu-scope".into()],
         };
         let cache = std::sync::OnceLock::new();
         let first_state = cached_local_backend_state(&cache, launch.clone()).unwrap();
@@ -2150,8 +2135,13 @@ mod tests {
         let n = v["input"].as_array().unwrap().len();
         let rows: Vec<String> = (0..n)
             .map(|i| {
-                let comps: Vec<String> = (0..width).map(|d| format!("{}", (i + d + 1) as f32)).collect();
-                format!(r#"{{"object":"embedding","index":{i},"embedding":[{}]}}"#, comps.join(","))
+                let comps: Vec<String> = (0..width)
+                    .map(|d| format!("{}", (i + d + 1) as f32))
+                    .collect();
+                format!(
+                    r#"{{"object":"embedding","index":{i},"embedding":[{}]}}"#,
+                    comps.join(",")
+                )
             })
             .collect();
         http_response(
@@ -2171,7 +2161,10 @@ mod tests {
     /// truncation at the endpoint), falling back to `native` when absent.
     fn canned_honoring_dimensions(body: &str, native: usize) -> String {
         let v: serde_json::Value = serde_json::from_str(body).unwrap();
-        let width = v["dimensions"].as_u64().map(|d| d as usize).unwrap_or(native);
+        let width = v["dimensions"]
+            .as_u64()
+            .map(|d| d as usize)
+            .unwrap_or(native);
         canned_width(body, width.min(native))
     }
 
@@ -2267,7 +2260,10 @@ mod tests {
         assert!(msg.contains("semantic recall unavailable"), "got: {msg}");
         assert!(!msg.contains('\n'));
         let err = semantic_hits(&Config::default(), &conn, "query", 5, true, &[]).unwrap_err();
-        assert!(err.to_string().contains("semantic recall unavailable"), "--hybrid gated too");
+        assert!(
+            err.to_string().contains("semantic recall unavailable"),
+            "--hybrid gated too"
+        );
     }
 
     // ---- client wire behavior ----
@@ -2293,9 +2289,16 @@ mod tests {
         client.embed_documents_batch(&["a stored block"]).unwrap();
         let sent = bodies.lock().unwrap();
         let q: serde_json::Value = serde_json::from_str(&sent[0]).unwrap();
-        assert_eq!(q["input"], serde_json::json!(["Instruct: find it\nQuery: what is it"]));
+        assert_eq!(
+            q["input"],
+            serde_json::json!(["Instruct: find it\nQuery: what is it"])
+        );
         let d: serde_json::Value = serde_json::from_str(&sent[1]).unwrap();
-        assert_eq!(d["input"], serde_json::json!(["a stored block"]), "documents stay raw");
+        assert_eq!(
+            d["input"],
+            serde_json::json!(["a stored block"]),
+            "documents stay raw"
+        );
     }
 
     #[test]
@@ -2322,11 +2325,19 @@ mod tests {
 
         let sent = bodies.lock().unwrap();
         let q: serde_json::Value = serde_json::from_str(&sent[0]).unwrap();
-        assert_eq!(q["input"], serde_json::json!(["Q: who"]), "query takes the query prefix only");
+        assert_eq!(
+            q["input"],
+            serde_json::json!(["Q: who"]),
+            "query takes the query prefix only"
+        );
         let d: serde_json::Value = serde_json::from_str(&sent[1]).unwrap();
         assert_eq!(d["input"], serde_json::json!(["D: what"]));
         let b: serde_json::Value = serde_json::from_str(&sent[2]).unwrap();
-        assert_eq!(b["input"], serde_json::json!(["D: one", "D: two"]), "every batched document");
+        assert_eq!(
+            b["input"],
+            serde_json::json!(["D: one", "D: two"]),
+            "every batched document"
+        );
     }
 
     #[test]
@@ -2369,7 +2380,10 @@ mod tests {
                 .to_string()
         });
         let client = client_for(&url);
-        assert!(client.embed_documents_batch(&["x"]).is_err(), "a 3xx must be an error, never followed");
+        assert!(
+            client.embed_documents_batch(&["x"]).is_err(),
+            "a 3xx must be an error, never followed"
+        );
     }
 
     #[test]
@@ -2377,7 +2391,14 @@ mod tests {
         // The post-resolution half of check_endpoint: a DNS name (or a
         // resolver spelling like 0x7f000001) that NAMES one of these must be
         // refused exactly like the literal string would have been.
-        for refused in ["127.0.0.1", "169.254.169.254", "10.1.2.3", "192.168.0.1", "100.64.0.1", "0.0.0.0"] {
+        for refused in [
+            "127.0.0.1",
+            "169.254.169.254",
+            "10.1.2.3",
+            "192.168.0.1",
+            "100.64.0.1",
+            "0.0.0.0",
+        ] {
             let addr: std::net::IpAddr = refused.parse().unwrap();
             assert!(
                 addr.is_loopback() || forbidden_ip(&addr).is_some(),
@@ -2386,7 +2407,10 @@ mod tests {
         }
         for public in ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"] {
             let addr: std::net::IpAddr = public.parse().unwrap();
-            assert!(forbidden_ip(&addr).is_none(), "{public} is public and must pass");
+            assert!(
+                forbidden_ip(&addr).is_none(),
+                "{public} is public and must pass"
+            );
         }
     }
 
@@ -2403,7 +2427,10 @@ mod tests {
         // 1 vector for 2 inputs must not silently mis-align block ids
         let (url, _, _) = spawn_server(|_, body| {
             let _ = body;
-            http_response(200, r#"{"object":"list","data":[{"index":0,"embedding":[1.0,0.0]}]}"#)
+            http_response(
+                200,
+                r#"{"object":"list","data":[{"index":0,"embedding":[1.0,0.0]}]}"#,
+            )
         });
         let client = client_for(&url);
         assert!(client.embed_documents_batch(&["a", "b"]).is_err());
@@ -2432,7 +2459,10 @@ mod tests {
                 .embed_documents_batch(&["a", "b"])
                 .unwrap_err()
                 .to_string();
-            assert!(error.contains(expected), "expected {expected:?}, got {error:?}");
+            assert!(
+                error.contains(expected),
+                "expected {expected:?}, got {error:?}"
+            );
         }
     }
 
@@ -2448,35 +2478,41 @@ mod tests {
         // with the admitted shared profile, so its standard response remains
         // valid in its separately named vector space.
         let result = client_for(&url).embed_documents_batch(&["a"]);
-        assert!(result.is_ok(), "endpoint-configured client accepts standard response: {:?}",
-            result.err().map(|e| e.to_string()));
+        assert!(
+            result.is_ok(),
+            "endpoint-configured client accepts standard response: {:?}",
+            result.err().map(|e| e.to_string())
+        );
     }
 
     #[test]
     fn profile_strings_cannot_self_admit_an_execution_scope() {
-        let error = validate_execution_scope(Some(WireExecutionScope {
-            scope_id: "unreviewed-scope".into(),
-            transport: crate::embedding_profile::ExecutionTransport::RemoteAttested,
-            backend: "candidate-runtime".into(),
-            runtime: "runtime-version".into(),
-            compiler: "compiler-version".into(),
-            package_target: "test-target".into(),
-            artifact_source: "source@revision/file".into(),
-            device_class: "npu".into(),
-            device: "test-npu".into(),
-            artifact_sha256: "1".repeat(64),
-            internal_precision: "target-native".into(),
-            placement_evidence_sha256: "2".repeat(64),
-            supported_max_tokens: crate::embedding_profile::MAX_TOKENS,
-            supported_sequence_buckets: BoundedVec(
-                crate::embedding_profile::SEQUENCE_BUCKETS.to_vec(),
-            ),
-            supported_max_batch_size: crate::embedding_profile::MAX_WIRE_BATCH_SIZE,
-            sequence_capability_evidence_sha256: "3".repeat(64),
-            performance_evidence_sha256: "4".repeat(64),
-            compatibility_report_sha256: "5".repeat(64),
-            accelerated_placement: true,
-        }), None)
+        let error = validate_execution_scope(
+            Some(WireExecutionScope {
+                scope_id: "unreviewed-scope".into(),
+                transport: crate::embedding_profile::ExecutionTransport::RemoteAttested,
+                backend: "candidate-runtime".into(),
+                runtime: "runtime-version".into(),
+                compiler: "compiler-version".into(),
+                package_target: "test-target".into(),
+                artifact_source: "source@revision/file".into(),
+                device_class: "npu".into(),
+                device: "test-npu".into(),
+                artifact_sha256: "1".repeat(64),
+                internal_precision: "target-native".into(),
+                placement_evidence_sha256: "2".repeat(64),
+                supported_max_tokens: crate::embedding_profile::MAX_TOKENS,
+                supported_sequence_buckets: BoundedVec(
+                    crate::embedding_profile::SEQUENCE_BUCKETS.to_vec(),
+                ),
+                supported_max_batch_size: crate::embedding_profile::MAX_WIRE_BATCH_SIZE,
+                sequence_capability_evidence_sha256: "3".repeat(64),
+                performance_evidence_sha256: "4".repeat(64),
+                compatibility_report_sha256: "5".repeat(64),
+                accelerated_placement: true,
+            }),
+            None,
+        )
         .unwrap_err()
         .to_string();
         assert!(error.contains("not an admitted backend"), "{error}");
@@ -2511,29 +2547,32 @@ mod tests {
         .to_string();
         assert!(error.contains("local package plan requested"), "{error}");
 
-        let error = validate_execution_scope(Some(WireExecutionScope {
-            scope_id: "unaccelerated".into(),
-            transport: crate::embedding_profile::ExecutionTransport::RemoteAttested,
-            backend: "candidate-runtime".into(),
-            runtime: "runtime-version".into(),
-            compiler: "compiler-version".into(),
-            package_target: "test-target".into(),
-            artifact_source: "source@revision/file".into(),
-            device_class: "cpu".into(),
-            device: "test-cpu".into(),
-            artifact_sha256: "2".repeat(64),
-            internal_precision: "target-native".into(),
-            placement_evidence_sha256: "3".repeat(64),
-            supported_max_tokens: crate::embedding_profile::MAX_TOKENS,
-            supported_sequence_buckets: BoundedVec(
-                crate::embedding_profile::SEQUENCE_BUCKETS.to_vec(),
-            ),
-            supported_max_batch_size: crate::embedding_profile::MAX_WIRE_BATCH_SIZE,
-            sequence_capability_evidence_sha256: "4".repeat(64),
-            performance_evidence_sha256: "5".repeat(64),
-            compatibility_report_sha256: "6".repeat(64),
-            accelerated_placement: false,
-        }), None)
+        let error = validate_execution_scope(
+            Some(WireExecutionScope {
+                scope_id: "unaccelerated".into(),
+                transport: crate::embedding_profile::ExecutionTransport::RemoteAttested,
+                backend: "candidate-runtime".into(),
+                runtime: "runtime-version".into(),
+                compiler: "compiler-version".into(),
+                package_target: "test-target".into(),
+                artifact_source: "source@revision/file".into(),
+                device_class: "cpu".into(),
+                device: "test-cpu".into(),
+                artifact_sha256: "2".repeat(64),
+                internal_precision: "target-native".into(),
+                placement_evidence_sha256: "3".repeat(64),
+                supported_max_tokens: crate::embedding_profile::MAX_TOKENS,
+                supported_sequence_buckets: BoundedVec(
+                    crate::embedding_profile::SEQUENCE_BUCKETS.to_vec(),
+                ),
+                supported_max_batch_size: crate::embedding_profile::MAX_WIRE_BATCH_SIZE,
+                sequence_capability_evidence_sha256: "4".repeat(64),
+                performance_evidence_sha256: "5".repeat(64),
+                compatibility_report_sha256: "6".repeat(64),
+                accelerated_placement: false,
+            }),
+            None,
+        )
         .unwrap_err()
         .to_string();
         assert!(error.contains("accelerated placement"), "{error}");
@@ -2561,7 +2600,10 @@ mod tests {
         let client = client_for_auth(&url, auth);
         client.embed_documents_batch(&["x"]).unwrap();
         let sent = headers.lock().unwrap()[0].to_ascii_lowercase();
-        assert!(sent.contains("authorization: bearer sk-cfetch-test"), "got headers:\n{sent}");
+        assert!(
+            sent.contains("authorization: bearer sk-cfetch-test"),
+            "got headers:\n{sent}"
+        );
     }
 
     #[test]
@@ -2570,7 +2612,10 @@ mod tests {
         let client = client_for(&url);
         client.embed_documents_batch(&["x"]).unwrap();
         let sent = headers.lock().unwrap()[0].to_ascii_lowercase();
-        assert!(!sent.contains("authorization:"), "no auth configured, none sent:\n{sent}");
+        assert!(
+            !sent.contains("authorization:"),
+            "no auth configured, none sent:\n{sent}"
+        );
     }
 
     #[test]
@@ -2594,7 +2639,10 @@ mod tests {
             ..base
         })
         .unwrap_err();
-        assert!(err.to_string().contains("never the key itself"), "got: {err}");
+        assert!(
+            err.to_string().contains("never the key itself"),
+            "got: {err}"
+        );
     }
 
     // ---- timeouts ----
@@ -2626,7 +2674,10 @@ mod tests {
         // The interactive path is the QUERY embed — the batch path
         // deliberately scales its bound per item, so asserting the tight
         // bound there would be asserting the wrong thing.
-        assert!(client.embed_query("x").is_err(), "recall must not wait for a slow backend");
+        assert!(
+            client.embed_query("x").is_err(),
+            "recall must not wait for a slow backend"
+        );
     }
 
     #[test]
@@ -2659,7 +2710,13 @@ mod tests {
         std::fs::write(p, "- one\n- two\n- three\n- four\n- five\n").unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = index::open(state.path()).unwrap();
-        index::scan(&mut conn, brain.path(), None, &crate::config::RingRules::default()).unwrap();
+        index::scan(
+            &mut conn,
+            brain.path(),
+            None,
+            &crate::config::RingRules::default(),
+        )
+        .unwrap();
         (brain, state, conn)
     }
 
@@ -2679,21 +2736,34 @@ mod tests {
         assert_eq!(report.imported, 0);
         assert_eq!(report.total_blocks, 5);
         assert_eq!(index::vector_coverage(&conn, &spec_for(2)).unwrap(), (5, 5));
-        assert_eq!(store.len(), 5, "the shared tree is the record, not index.db");
+        assert_eq!(
+            store.len(),
+            5,
+            "the shared tree is the record, not index.db"
+        );
         let sizes: Vec<usize> = bodies
             .lock()
             .unwrap()
             .iter()
-            .map(|b| serde_json::from_str::<serde_json::Value>(b).unwrap()["input"].as_array().unwrap().len())
+            .map(|b| {
+                serde_json::from_str::<serde_json::Value>(b).unwrap()["input"]
+                    .as_array()
+                    .unwrap()
+                    .len()
+            })
             .collect();
         assert_eq!(sizes, vec![2, 2, 1], "batched requests");
         // meta recorded for future model/dim gating
         let model: String = conn
-            .query_row("SELECT value FROM meta WHERE key='embed_model'", [], |r| r.get(0))
+            .query_row("SELECT value FROM meta WHERE key='embed_model'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(model, "test-model");
         let dim: String = conn
-            .query_row("SELECT value FROM meta WHERE key='embed_dim'", [], |r| r.get(0))
+            .query_row("SELECT value FROM meta WHERE key='embed_dim'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(dim, "2");
     }
@@ -2728,7 +2798,16 @@ mod tests {
 
     #[test]
     fn embed_index_systemic_failures_make_one_request_without_row_retries() {
-        for case in ["503", "transport", "400", "auth", "parse", "model", "width", "degenerate"] {
+        for case in [
+            "503",
+            "transport",
+            "400",
+            "auth",
+            "parse",
+            "model",
+            "width",
+            "degenerate",
+        ] {
             let (brain, _state, mut conn) = five_block_index();
             let (url, bodies, _) = spawn_server(move |_, body| match case {
                 "503" => http_response(503, r#"{"error":"resource governor unavailable"}"#),
@@ -2742,7 +2821,8 @@ mod tests {
                     let request: serde_json::Value = serde_json::from_str(body).unwrap();
                     let rows = (0..request["input"].as_array().unwrap().len())
                         .map(|index| format!(r#"{{"index":{index},"embedding":[0.0,0.0]}}"#))
-                        .collect::<Vec<_>>().join(",");
+                        .collect::<Vec<_>>()
+                        .join(",");
                     attested_rows("test-model", &rows)
                 }
                 _ => unreachable!(),
@@ -2752,8 +2832,15 @@ mod tests {
                 Ok(_) => panic!("systemic failure must stop the run"),
                 Err(error) => error,
             };
-            assert!(error.downcast_ref::<InputRefusal>().is_none(), "{case}: {error:#}");
-            assert_eq!(bodies.lock().unwrap().len(), 1, "{case} must not become five singleton retries");
+            assert!(
+                error.downcast_ref::<InputRefusal>().is_none(),
+                "{case}: {error:#}"
+            );
+            assert_eq!(
+                bodies.lock().unwrap().len(),
+                1,
+                "{case} must not become five singleton retries"
+            );
             assert!(store.is_empty(), "{case} must not admit any failed batch");
             assert_eq!(index::vector_coverage(&conn, &spec_for(2)).unwrap(), (0, 5));
         }
@@ -2772,8 +2859,15 @@ mod tests {
             Ok(_) => panic!("a systemic error during row isolation must stop"),
             Err(error) => error,
         };
-        assert!(format!("{error:#}").contains("503"), "original failure must survive: {error:#}");
-        assert_eq!(bodies.lock().unwrap().len(), 3, "batch, first row, failing second row; nothing after failure");
+        assert!(
+            format!("{error:#}").contains("503"),
+            "original failure must survive: {error:#}"
+        );
+        assert_eq!(
+            bodies.lock().unwrap().len(),
+            3,
+            "batch, first row, failing second row; nothing after failure"
+        );
         assert!(store.is_empty(), "the interrupted batch was never admitted");
         assert_eq!(index::vector_coverage(&conn, &spec_for(2)).unwrap(), (0, 5));
     }
@@ -2788,25 +2882,61 @@ mod tests {
                     let text = text.as_str().unwrap();
                     text.ends_with("- one") || (poison_count == 2 && text.ends_with("- two"))
                 });
-                if too_long { overlength_response() } else { canned_embeddings(body, 0.0) }
+                if too_long {
+                    overlength_response()
+                } else {
+                    canned_embeddings(body, 0.0)
+                }
             });
             let mut store = store_for(brain.path());
             let error = match run(&mut conn, &client_for(&url), batch, &mut store) {
                 Ok(_) => panic!("refused inputs cannot report a complete run"),
                 Err(error) => error,
             };
-            assert!(error.to_string().contains(&format!("{poison_count} input(s) exceeded")), "{error:#}");
-            assert_eq!(store.len(), 5 - poison_count, "later valid inputs are durably stored");
-            assert_eq!(index::vector_coverage(&conn, &spec_for(2)).unwrap(), (5 - poison_count, 5));
-            assert_eq!(index::hashes_without_vectors(&conn, &spec_for(2), 10).unwrap().len(), poison_count);
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("{poison_count} input(s) exceeded")),
+                "{error:#}"
+            );
+            assert_eq!(
+                store.len(),
+                5 - poison_count,
+                "later valid inputs are durably stored"
+            );
+            assert_eq!(
+                index::vector_coverage(&conn, &spec_for(2)).unwrap(),
+                (5 - poison_count, 5)
+            );
+            assert_eq!(
+                index::hashes_without_vectors(&conn, &spec_for(2), 10)
+                    .unwrap()
+                    .len(),
+                poison_count
+            );
             let requests = bodies.lock().unwrap();
-            assert_eq!(requests.len(), 5, "refused heads are not reselected; singleton refusals are not retried");
+            assert_eq!(
+                requests.len(),
+                5,
+                "refused heads are not reselected; singleton refusals are not retried"
+            );
             for suffix in ["- one", "- two"].into_iter().take(poison_count) {
-                let occurrences = requests.iter().map(|body| {
-                    let request: serde_json::Value = serde_json::from_str(body).unwrap();
-                    request["input"].as_array().unwrap().iter().filter(|text| text.as_str().unwrap().ends_with(suffix)).count()
-                }).sum::<usize>();
-                assert_eq!(occurrences, batch, "one initial batch plus isolation only when needed");
+                let occurrences = requests
+                    .iter()
+                    .map(|body| {
+                        let request: serde_json::Value = serde_json::from_str(body).unwrap();
+                        request["input"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .filter(|text| text.as_str().unwrap().ends_with(suffix))
+                            .count()
+                    })
+                    .sum::<usize>();
+                assert_eq!(
+                    occurrences, batch,
+                    "one initial batch plus isolation only when needed"
+                );
             }
         }
     }
@@ -2820,8 +2950,15 @@ mod tests {
             Ok(_) => panic!("all-refused run must fail without looping"),
             Err(error) => error,
         };
-        assert!(error.to_string().contains("5 input(s) exceeded"), "{error:#}");
-        assert_eq!(bodies.lock().unwrap().len(), 6, "one batch and one isolation attempt per input");
+        assert!(
+            error.to_string().contains("5 input(s) exceeded"),
+            "{error:#}"
+        );
+        assert_eq!(
+            bodies.lock().unwrap().len(),
+            6,
+            "one batch and one isolation attempt per input"
+        );
         assert!(store.is_empty());
         assert_eq!(index::vector_coverage(&conn, &spec_for(2)).unwrap(), (0, 5));
     }
@@ -2832,18 +2969,30 @@ mod tests {
         // First server: batch 1 succeeds, batch 2 fails -> run() errors, but
         // the first batch's vectors are already committed.
         let (url_a, bodies_a, _) = spawn_server(|n, body| {
-            if n == 0 { canned_embeddings(body, 0.0) } else { http_response(500, "{}") }
+            if n == 0 {
+                canned_embeddings(body, 0.0)
+            } else {
+                http_response(500, "{}")
+            }
         });
         let client_a = client_for(&url_a);
         let mut store = store_for(brain.path());
         assert!(run(&mut conn, &client_a, 2, &mut store).is_err());
-        assert_eq!(bodies_a.lock().unwrap().len(), 2, "failure stops without row retries");
+        assert_eq!(
+            bodies_a.lock().unwrap().len(),
+            2,
+            "failure stops without row retries"
+        );
         assert_eq!(
             index::vector_coverage(&conn, &spec_for(2)).unwrap().0,
             2,
             "committed batch survives the failure"
         );
-        assert_eq!(store.len(), 2, "and it survives in the SHARED store, not only locally");
+        assert_eq!(
+            store.len(),
+            2,
+            "and it survives in the SHARED store, not only locally"
+        );
 
         // Second server: healthy. Only the 3 missing blocks get embedded.
         let (url_b, bodies_b, _) = spawn_server(|_, body| canned_embeddings(body, 100.0));
@@ -2895,9 +3044,16 @@ mod tests {
         let client2 = EmbedClient::new(&cfg2).unwrap();
         let mut store2 = crate::vectors::VectorStore::open(brain.path(), &cfg2.spec()).unwrap();
         let report = run(&mut conn, &client2, 8, &mut store2).unwrap();
-        assert_eq!(report.embedded, 5, "model change drops vectors; all re-embedded");
+        assert_eq!(
+            report.embedded, 5,
+            "model change drops vectors; all re-embedded"
+        );
         assert_eq!(bodies.lock().unwrap().len(), 2);
-        assert_eq!(store.len(), 5, "the old model's artifacts are untouched, not destroyed");
+        assert_eq!(
+            store.len(),
+            5,
+            "the old model's artifacts are untouched, not destroyed"
+        );
         assert_eq!(store2.len(), 5);
     }
 
@@ -2914,10 +3070,19 @@ mod tests {
             ..EmbeddingsConfig::default()
         })
         .unwrap();
-        let err = client.embed_documents_batch(&["alpha"]).unwrap_err().to_string();
+        let err = client
+            .embed_documents_batch(&["alpha"])
+            .unwrap_err()
+            .to_string();
         let sent: serde_json::Value = serde_json::from_str(&bodies.lock().unwrap()[0]).unwrap();
-        assert_eq!(sent["dimensions"], 4, "the request asks the endpoint for the width");
-        assert!(err.contains("returned 8-d") && err.contains("exactly 4"), "got: {err}");
+        assert_eq!(
+            sent["dimensions"], 4,
+            "the request asks the endpoint for the width"
+        );
+        assert!(
+            err.contains("returned 8-d") && err.contains("exactly 4"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -2931,7 +3096,10 @@ mod tests {
             ..EmbeddingsConfig::default()
         })
         .unwrap();
-        assert_eq!(client.embed_documents_batch(&["alpha"]).unwrap()[0].len(), 3);
+        assert_eq!(
+            client.embed_documents_batch(&["alpha"]).unwrap()[0].len(),
+            3
+        );
     }
 
     #[test]
@@ -2947,9 +3115,18 @@ mod tests {
             ..EmbeddingsConfig::default()
         })
         .unwrap();
-        let err = client.embed_documents_batch(&["alpha"]).unwrap_err().to_string();
-        assert!(err.contains("16") && err.contains('2'), "both widths named: {err}");
-        assert!(err.contains("refusing truncation or padding"), "the compatibility reason is named: {err}");
+        let err = client
+            .embed_documents_batch(&["alpha"])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("16") && err.contains('2'),
+            "both widths named: {err}"
+        );
+        assert!(
+            err.contains("refusing truncation or padding"),
+            "the compatibility reason is named: {err}"
+        );
     }
 
     #[test]
@@ -2967,12 +3144,20 @@ mod tests {
         let client = EmbedClient::new(&cfg).unwrap();
         let mut store = crate::vectors::VectorStore::open(brain.path(), &cfg.spec()).unwrap();
         run(&mut conn, &client, 8, &mut store).unwrap();
-        let stored = store.get(&crate::embedding_input::hash("- one")).unwrap().unwrap();
+        let stored = store
+            .get(&crate::embedding_input::hash("- one"))
+            .unwrap()
+            .unwrap();
         assert_eq!(stored.len(), 4, "the artifact carries the configured width");
-        let dim: i64 = conn.query_row("SELECT dim FROM vectors LIMIT 1", [], |r| r.get(0)).unwrap();
+        let dim: i64 = conn
+            .query_row("SELECT dim FROM vectors LIMIT 1", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(dim, 4);
-        let blob_len: i64 =
-            conn.query_row("SELECT length(embedding) FROM vectors LIMIT 1", [], |r| r.get(0)).unwrap();
+        let blob_len: i64 = conn
+            .query_row("SELECT length(embedding) FROM vectors LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(blob_len, 4, "INT8: 4 components in 4 bytes");
         let dir = crate::paths::shared_vector_dir(brain.path());
         let files: Vec<_> = std::fs::read_dir(&dir)
@@ -2982,7 +3167,11 @@ mod tests {
             .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("bin"))
             .collect();
         assert_eq!(files.len(), 1);
-        assert_eq!(std::fs::metadata(&files[0]).unwrap().len(), 5 * 4, "5 blocks x 4 INT8 components");
+        assert_eq!(
+            std::fs::metadata(&files[0]).unwrap().len(),
+            5 * 4,
+            "5 blocks x 4 INT8 components"
+        );
     }
 
     // ---- compute-once across hosts ----
@@ -2999,14 +3188,32 @@ mod tests {
         // fails every request. Derived-once means it must never be called.
         let state_b = tempfile::tempdir().unwrap();
         let mut conn_b = index::open(state_b.path()).unwrap();
-        index::scan(&mut conn_b, brain.path(), None, &crate::config::RingRules::default()).unwrap();
+        index::scan(
+            &mut conn_b,
+            brain.path(),
+            None,
+            &crate::config::RingRules::default(),
+        )
+        .unwrap();
         let (url_b, bodies_b, _) = spawn_server(|_, _| http_response(500, r#"{"error":"no"}"#));
         let mut store_b = store_for(brain.path());
         let report = run(&mut conn_b, &client_for(&url_b), 8, &mut store_b).unwrap();
-        assert_eq!(report.embedded, 0, "nothing to derive: the group already derived it");
-        assert_eq!(report.imported, 5, "the shared artifacts are read, not recomputed");
-        assert!(bodies_b.lock().unwrap().is_empty(), "the endpoint was never called");
-        assert_eq!(index::vector_coverage(&conn_b, &spec_for(2)).unwrap(), (5, 5));
+        assert_eq!(
+            report.embedded, 0,
+            "nothing to derive: the group already derived it"
+        );
+        assert_eq!(
+            report.imported, 5,
+            "the shared artifacts are read, not recomputed"
+        );
+        assert!(
+            bodies_b.lock().unwrap().is_empty(),
+            "the endpoint was never called"
+        );
+        assert_eq!(
+            index::vector_coverage(&conn_b, &spec_for(2)).unwrap(),
+            (5, 5)
+        );
     }
 
     // ---- no silent degradation ----
@@ -3033,7 +3240,10 @@ mod tests {
         assert!(line.contains("cfetch embed-index"), "got: {line}");
         let line = coverage_status_line(&spec, 19478, 19478, 19478);
         assert!(line.contains("complete"), "got: {line}");
-        assert!(line.contains("1024 dims") && line.contains("i8"), "got: {line}");
+        assert!(
+            line.contains("1024 dims") && line.contains("i8"),
+            "got: {line}"
+        );
         assert!(coverage_status_line(&spec, 0, 0, 0).contains("index is empty"));
     }
 
@@ -3043,12 +3253,23 @@ mod tests {
         let (url, bodies, _) = spawn_server(|_, body| canned_embeddings(body, 0.0));
         let cfg = semantic_config(brain.path(), &url);
         let out = semantic_hits(&cfg, &conn, "three", 5, true, &[]).unwrap();
-        let note = out.note.expect("zero coverage must be reported, never hidden");
-        assert!(note.contains("0/5"), "the numbers are in the warning: {note}");
-        assert!(note.contains("cfetch embed-index"), "the fix is named: {note}");
+        let note = out
+            .note
+            .expect("zero coverage must be reported, never hidden");
+        assert!(
+            note.contains("0/5"),
+            "the numbers are in the warning: {note}"
+        );
+        assert!(
+            note.contains("cfetch embed-index"),
+            "the fix is named: {note}"
+        );
         assert_eq!(out.hits.len(), 1, "the lexical answer is still delivered");
         assert!(out.hits[0].snippet.contains("three"));
-        assert!(bodies.lock().unwrap().is_empty(), "no point embedding a query nothing can match");
+        assert!(
+            bodies.lock().unwrap().is_empty(),
+            "no point embedding a query nothing can match"
+        );
         // --semantic degrades the same way: an answer plus the truth about it.
         let out = semantic_hits(&cfg, &conn, "three", 5, false, &[]).unwrap();
         assert!(out.note.is_some());
@@ -3066,7 +3287,9 @@ mod tests {
         let (url, _, _) = spawn_server(|_, body| canned_embeddings(body, 0.0));
         let cfg = semantic_config(brain.path(), &url);
         let out = semantic_hits(&cfg, &conn, "one", 5, true, &[]).unwrap();
-        let note = out.note.expect("partial coverage is degradation, and must be said");
+        let note = out
+            .note
+            .expect("partial coverage is degradation, and must be said");
         assert!(note.contains("2/5"), "got: {note}");
         assert!(!out.hits.is_empty());
     }
@@ -3080,11 +3303,20 @@ mod tests {
         let (url, _, _) = spawn_server(|_, body| canned_embeddings(body, 0.0));
         let cfg = semantic_config(brain.path(), &url);
         let mut store = store_for(brain.path());
-        run(&mut conn, &EmbedClient::new(&cfg.embeddings).unwrap(), 8, &mut store).unwrap();
+        run(
+            &mut conn,
+            &EmbedClient::new(&cfg.embeddings).unwrap(),
+            8,
+            &mut store,
+        )
+        .unwrap();
 
         // Same config, an endpoint nothing listens on.
         let dead = Config {
-            embeddings: EmbeddingsConfig { endpoint: "http://127.0.0.1:1".into(), ..cfg.embeddings },
+            embeddings: EmbeddingsConfig {
+                endpoint: "http://127.0.0.1:1".into(),
+                ..cfg.embeddings
+            },
             ..cfg
         };
         let out = semantic_hits(&dead, &conn, "three", 5, true, &[]).unwrap();
@@ -3101,9 +3333,19 @@ mod tests {
         let (url, _, _) = spawn_server(|_, body| canned_embeddings(body, 0.0));
         let cfg = semantic_config(brain.path(), &url);
         let mut store = store_for(brain.path());
-        run(&mut conn, &EmbedClient::new(&cfg.embeddings).unwrap(), 8, &mut store).unwrap();
+        run(
+            &mut conn,
+            &EmbedClient::new(&cfg.embeddings).unwrap(),
+            8,
+            &mut store,
+        )
+        .unwrap();
         let out = semantic_hits(&cfg, &conn, "one", 5, true, &[]).unwrap();
-        assert!(out.note.is_none(), "no warning when nothing is degraded: {:?}", out.note);
+        assert!(
+            out.note.is_none(),
+            "no warning when nothing is degraded: {:?}",
+            out.note
+        );
         assert!(!out.hits.is_empty());
     }
 
@@ -3115,15 +3357,33 @@ mod tests {
         let (url, _, _) = spawn_server(|_, body| canned_embeddings(body, 0.0));
         let cfg = semantic_config(brain.path(), &url);
         let mut store = store_for(brain.path());
-        run(&mut conn, &EmbedClient::new(&cfg.embeddings).unwrap(), 8, &mut store).unwrap();
+        run(
+            &mut conn,
+            &EmbedClient::new(&cfg.embeddings).unwrap(),
+            8,
+            &mut store,
+        )
+        .unwrap();
 
         let state_b = tempfile::tempdir().unwrap();
         let mut conn_b = index::open(state_b.path()).unwrap();
-        index::scan(&mut conn_b, brain.path(), None, &crate::config::RingRules::default()).unwrap();
-        assert_eq!(index::vector_coverage(&conn_b, &spec_for(2)).unwrap(), (0, 5));
+        index::scan(
+            &mut conn_b,
+            brain.path(),
+            None,
+            &crate::config::RingRules::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            index::vector_coverage(&conn_b, &spec_for(2)).unwrap(),
+            (0, 5)
+        );
         let out = semantic_hits(&cfg, &conn_b, "one", 5, false, &[]).unwrap();
         assert!(out.note.is_none(), "the tree covered it: {:?}", out.note);
         assert!(!out.hits.is_empty());
-        assert_eq!(index::vector_coverage(&conn_b, &spec_for(2)).unwrap(), (5, 5));
+        assert_eq!(
+            index::vector_coverage(&conn_b, &spec_for(2)).unwrap(),
+            (5, 5)
+        );
     }
 }

@@ -1,50 +1,7 @@
-//! Serving mode: the daemon owns the index lifecycle for its brain tree.
-//!
-//! A recursive fs watcher (notify/inotify) turns every relevant event batch
-//! into an index update; each committed update advances the monotonic
-//! GENERATION persisted in the index meta. Every query op passes a DRAIN
-//! BARRIER first — serve-fresh-or-wait, bounded: on timeout the answer still
-//! comes, labeled `fresh: false` with a staleness note, never silently stale
-//! and never hanging.
-//!
-//! Barrier mechanics come in TWO modes, because the fast one is a property of
-//! ONE watcher backend rather than of watching in general — see
-//! [`BarrierMode`] for the backend-to-mode mapping and its reasoning.
-//!
-//!   * ORDERED (inotify): the caller drops a uniquely-numbered SENTINEL file
-//!     into a watched directory. The sentinel rides the same event queue as
-//!     the real events, so once the watcher has observed sentinel N, every
-//!     write that completed before the barrier began has been counted into
-//!     `pending`; the barrier then waits until the rebuild worker has applied
-//!     that count. Cost: two condvar waits, no tree walk.
-//!   * UNORDERED (FSEvents, kqueue, Windows, polling, anything unproven):
-//!     event order proves nothing, so coverage is proven by CONTENT. The
-//!     barrier takes the stat FINGERPRINT of the tree at entry — the same
-//!     value the 60s backstop computes — and waits until the applied catalog
-//!     covers it: either the committed catalog describes exactly that
-//!     fingerprint, or a stat walk that began after the fingerprint was taken
-//!     has committed (such a walk saw a superset of what the fingerprint saw).
-//!     Cost: one stat walk per query, plus a forced worker pass when the
-//!     catalog is behind.
-//!
-//! Both modes are bounded and both label the answer: on timeout, `fresh:
-//! false` with a note naming the reason. The watcher is a latency
-//! optimization only — a stat-fingerprint check at daemon start and every 60s
-//! is the correctness backstop for events missed while the daemon was not
-//! running (or on filesystems the watcher cannot see).
-//!
-//! This module also carries the CLIENT side: a none-tier host routes
-//! recall/find/expand/map to a serving host over TCP (bearer-token gated,
-//! same line-JSON protocol) and opens NO local index at all. Unreachable
-//! serving host = explicit error naming the host — never a fallback to local
-//! data.
-//!
-//! Perf note: an update tries `index::rescan_changed` first — a stat-diff
-//! that re-reads ONLY the changed files — and falls back to the full
-//! `index::scan` for large diffs, a changed basis (different brain root,
-//! never scanned), or any incremental failure. Both paths commit the same
-//! catalog bytes and advance the generation identically; the barrier/
-//! generation contract is unchanged.
+//! Local index lifecycle and bounded freshness checks.
+//! File notifications accelerate updates; every query checks a filesystem
+//! fingerprint because other writers need not trigger this process's watcher.
+//! Only disposable local indexes are updated here. Git handles sharing.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -54,8 +11,8 @@ use std::time::{Duration, Instant};
 use notify::Watcher as _;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{ClientServingConfig, Config};
-use crate::{daemon, index, paths};
+use crate::config::Config;
+use crate::{index, paths};
 
 /// Bounded wait for the drain barrier; on expiry the query answers anyway,
 /// labeled stale.
@@ -65,11 +22,6 @@ const DEBOUNCE: Duration = Duration::from_millis(50);
 /// Cadence of the stat-fingerprint correctness backstop — and of the daemon's
 /// own code-scan refresh, which rides the same tick.
 pub const FINGERPRINT_INTERVAL: Duration = Duration::from_secs(60);
-/// Remote client connect budget.
-pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
-/// Remote client full-query budget.
-pub const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
-
 // ---- watcher ordering capability ----
 
 /// Does this host's watcher backend deliver events in an order the drain
@@ -118,40 +70,15 @@ impl BarrierMode {
     }
 }
 
-/// The mapping in [`BarrierMode`]'s table, as code — the one place it lives.
-pub(crate) fn mode_of_kind(kind: notify::WatcherKind) -> BarrierMode {
-    match kind {
-        notify::WatcherKind::Inotify => BarrierMode::Ordered,
-        // Fsevent, Kqueue, ReadDirectoryChangesWatcher, PollWatcher,
-        // NullWatcher — and whatever `notify` adds next: unproven is
-        // unordered.
-        _ => BarrierMode::Unordered,
-    }
-}
-
 /// Override for the detected mode: `ordered` | `unordered`.
 ///
 /// The unordered path must be exercisable on an ordered host — a path only
 /// macOS runs is a path only macOS debugs, and CI cannot run macOS unit tests
 /// against a Linux daemon. An operator may also pin the sound-and-slower path
 /// deliberately (e.g. a filesystem whose events they do not trust).
-pub const MODE_ENV: &str = "CFETCH_BARRIER_MODE";
 
-/// Parses [`MODE_ENV`]. Anything unrecognized (including empty) is no
-/// override at all — a typo must not silently pick a path.
-fn mode_override(raw: Option<&str>) -> Option<BarrierMode> {
-    match raw.map(str::trim) {
-        Some("ordered") => Some(BarrierMode::Ordered),
-        Some("unordered") => Some(BarrierMode::Unordered),
-        _ => None,
-    }
-}
-
-/// The barrier mode this host runs: the override if set and understood, else
-/// the compiled-in watcher backend's own answer.
 pub fn detected_mode() -> BarrierMode {
-    mode_override(std::env::var(MODE_ENV).ok().as_deref())
-        .unwrap_or_else(|| mode_of_kind(<notify::RecommendedWatcher as notify::Watcher>::kind()))
+    BarrierMode::Unordered
 }
 
 /// Why the rebuild worker was woken. `Barrier` additionally FORCES the
@@ -268,7 +195,11 @@ pub struct WireMap {
 
 impl From<crate::graph::RepoMap> for WireMap {
     fn from(m: crate::graph::RepoMap) -> Self {
-        WireMap { lines: m.lines, total_files: m.total_files, focus_matched: m.focus_matched }
+        WireMap {
+            lines: m.lines,
+            total_files: m.total_files,
+            focus_matched: m.focus_matched,
+        }
     }
 }
 
@@ -327,8 +258,6 @@ pub struct ServeState {
     /// the worker's backstop pass, which walks anyway, so the figure exists
     /// before the first query that could claim freshness.
     last_walk_ms: AtomicU64,
-    /// Actual TCP listen address once bound (resolves ":0" configs).
-    pub bind_addr: Mutex<Option<String>>,
 }
 
 pub struct BarrierOutcome {
@@ -363,7 +292,6 @@ impl ServeState {
             generation: AtomicU64::new(0),
             last_barrier_ms: AtomicU64::new(0),
             last_walk_ms: AtomicU64::new(0),
-            bind_addr: Mutex::new(None),
         }
     }
 
@@ -432,11 +360,15 @@ impl ServeState {
         }
         if fresh {
             let target = lock(&self.progress).pending;
-            if !self.wait_until(deadline, |p| p.settled && p.watches_ready && p.applied >= target) {
+            if !self.wait_until(deadline, |p| {
+                p.settled && p.watches_ready && p.applied >= target
+            }) {
                 fresh = false;
                 let err = lock(&self.progress).last_error.clone();
                 note = Some(match err {
-                    Some(e) => format!("barrier timeout: pending changes not applied (last index error: {e})"),
+                    Some(e) => format!(
+                        "barrier timeout: pending changes not applied (last index error: {e})"
+                    ),
                     None => "barrier timeout: pending changes not yet applied".to_string(),
                 });
             }
@@ -523,13 +455,18 @@ impl ServeState {
     fn finish(&self, start: Instant, fresh: bool, note: Option<String>) -> BarrierOutcome {
         let waited_ms = start.elapsed().as_millis() as u64;
         self.last_barrier_ms.store(waited_ms, Ordering::Relaxed);
-        BarrierOutcome { fresh, waited_ms, note }
+        BarrierOutcome {
+            fresh,
+            waited_ms,
+            note,
+        }
     }
 
     /// Records what one full stat walk of the tree cost. Both the worker's
     /// backstop and the unordered barrier's own entry walk report it.
     pub(crate) fn note_walk_cost(&self, walk: Duration) {
-        self.last_walk_ms.store(walk.as_millis() as u64, Ordering::Relaxed);
+        self.last_walk_ms
+            .store(walk.as_millis() as u64, Ordering::Relaxed);
     }
 
     /// Asks the rebuild worker for an immediate stat-fingerprint pass. A no-op
@@ -673,14 +610,8 @@ fn covers(p: &Progress, entry: &str, entry_at: Instant) -> bool {
         || p.applied_walk_start.is_some_and(|w| w >= entry_at)
 }
 
-/// Serving-host identity: explicit `serve.origin`, else the machine hostname.
-pub fn origin_of(cfg: &Config) -> String {
-    if let Some(o) = &cfg.serve.origin
-        && !o.is_empty()
-    {
-        return o.clone();
-    }
-    crate::paths::hostname()
+pub fn origin_of(_cfg: &Config) -> String {
+    crate::paths::host_id()
 }
 
 /// Keeps the watcher alive for the daemon's lifetime.
@@ -712,8 +643,10 @@ pub struct ServeHandle {
 /// When registration fails anyway, [`scoping_advice`] names the subtrees to
 /// scope out — measured, not guessed at from disk usage.
 fn watchable_dirs(brain_root: &Path, rules: &crate::config::RingRules) -> WatchScope {
-    let mut scope =
-        WatchScope { dirs: vec![brain_root.to_path_buf()], census: index::DocCensus::default() };
+    let mut scope = WatchScope {
+        dirs: vec![brain_root.to_path_buf()],
+        census: index::DocCensus::default(),
+    };
     let mut seen_dirs = std::collections::HashSet::from([brain_root.to_path_buf()]);
     let mut seen_files = std::collections::HashSet::new();
     let mut walkers = vec![crate::index::brain_walker(brain_root, rules).build()];
@@ -722,8 +655,12 @@ fn watchable_dirs(brain_root: &Path, rules: &crate::config::RingRules) -> WatchS
     }
     for walker in walkers {
         for entry in walker.flatten() {
-            let Some(kind) = entry.file_type() else { continue };
-            let Ok(rel) = entry.path().strip_prefix(brain_root) else { continue };
+            let Some(kind) = entry.file_type() else {
+                continue;
+            };
+            let Ok(rel) = entry.path().strip_prefix(brain_root) else {
+                continue;
+            };
             // Same canonical `/`-separated form the indexer derives, so the watch
             // set stays EXACTLY the index set on every platform — a
             // backslash-separated `mind\secrets` would match no exclusion.
@@ -781,8 +718,10 @@ fn scoping_advice(census: &index::DocCensus) -> Option<String> {
         return None;
     }
     let total = census.total();
-    let named: Vec<String> =
-        hits.iter().map(|(prefix, n)| format!("{prefix}/ ({n} of {total})")).collect();
+    let named: Vec<String> = hits
+        .iter()
+        .map(|(prefix, n)| format!("{prefix}/ ({n} of {total})"))
+        .collect();
     Some(format!(
         "cfetch serve: most of what is indexed sits under {} — a `{}` naming those scopes them \
          out of cfetch without hiding them from git",
@@ -822,7 +761,14 @@ mod watch_scope_tests {
     #[test]
     fn watchable_dirs_skips_symlinks_and_excluded_subtrees() {
         let brain = tempfile::tempdir().unwrap();
-        for d in ["knowledge/hosts", "mind/memories", "mind/secrets", "logs/x", "projects/repo/src", "knowledge/archive/old"] {
+        for d in [
+            "knowledge/hosts",
+            "mind/memories",
+            "mind/secrets",
+            "logs/x",
+            "projects/repo/src",
+            "knowledge/archive/old",
+        ] {
             std::fs::create_dir_all(brain.path().join(d)).unwrap();
         }
         // The wineprefix-style escape hatch that walked the whole rootfs.
@@ -844,10 +790,22 @@ mod watch_scope_tests {
 
         assert!(rel.iter().any(|r| r == "knowledge/hosts"));
         assert!(rel.iter().any(|r| r == "mind/memories"));
-        assert!(!rel.iter().any(|r| r.starts_with("mind/secrets")), "secrets never watched: {rel:?}");
-        assert!(!rel.iter().any(|r| r.starts_with("logs")), "logs excluded: {rel:?}");
-        assert!(!rel.iter().any(|r| r.starts_with("projects")), "projects excluded: {rel:?}");
-        assert!(!rel.iter().any(|r| r.starts_with("knowledge/archive")), "archive excluded: {rel:?}");
+        assert!(
+            !rel.iter().any(|r| r.starts_with("mind/secrets")),
+            "secrets never watched: {rel:?}"
+        );
+        assert!(
+            !rel.iter().any(|r| r.starts_with("logs")),
+            "logs excluded: {rel:?}"
+        );
+        assert!(
+            !rel.iter().any(|r| r.starts_with("projects")),
+            "projects excluded: {rel:?}"
+        );
+        assert!(
+            !rel.iter().any(|r| r.starts_with("knowledge/archive")),
+            "archive excluded: {rel:?}"
+        );
         #[cfg(unix)]
         assert!(
             !dirs.iter().any(|d| d.starts_with(outside.path())),
@@ -867,13 +825,22 @@ mod watch_scope_tests {
     fn watch_scope_honors_the_overlay_and_ranks_by_what_the_indexer_reads() {
         let brain = tempfile::tempdir().unwrap();
         let root = brain.path();
-        let dirs =
-            ["knowledge/hosts", "knowledge/generated/api", "mind/memories", "bulk", "scratch/deep"];
+        let dirs = [
+            "knowledge/hosts",
+            "knowledge/generated/api",
+            "mind/memories",
+            "bulk",
+            "scratch/deep",
+        ];
         for d in dirs {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
         for i in 0..20 {
-            std::fs::write(root.join(format!("knowledge/generated/api/p{i}.md")), "# p\n").unwrap();
+            std::fs::write(
+                root.join(format!("knowledge/generated/api/p{i}.md")),
+                "# p\n",
+            )
+            .unwrap();
         }
         for i in 0..5 {
             std::fs::write(root.join(format!("knowledge/hosts/h{i}.md")), "# h\n").unwrap();
@@ -900,11 +867,24 @@ mod watch_scope_tests {
             "the overlay must reach the watcher too: {rel:?}"
         );
 
-        assert_eq!(scope.census.total(), 30, "only markdown the indexer would read is counted");
+        assert_eq!(
+            scope.census.total(),
+            30,
+            "only markdown the indexer would read is counted"
+        );
         let advice = scoping_advice(&scope.census).expect("one subtree dominates this tree");
-        assert!(advice.contains("knowledge/generated/api/ (20 of 30)"), "{advice}");
-        assert!(!advice.contains("bulk"), "bytes on disk must not enter the ranking: {advice}");
-        assert!(advice.contains(".cfetchignore"), "the advice must name the lever: {advice}");
+        assert!(
+            advice.contains("knowledge/generated/api/ (20 of 30)"),
+            "{advice}"
+        );
+        assert!(
+            !advice.contains("bulk"),
+            "bytes on disk must not enter the ranking: {advice}"
+        );
+        assert!(
+            advice.contains(".cfetchignore"),
+            "the advice must name the lever: {advice}"
+        );
     }
 
     #[test]
@@ -934,7 +914,11 @@ mod watch_scope_tests {
 
         let scope = watchable_dirs(root, &crate::config::RingRules::default());
         assert!(scope.dirs.contains(&cards));
-        assert!(scope.dirs.contains(&cards.join("cloud/certificates/example")));
+        assert!(
+            scope
+                .dirs
+                .contains(&cards.join("cloud/certificates/example"))
+        );
         assert_eq!(scope.census.total(), 1);
     }
 
@@ -1059,7 +1043,10 @@ pub fn start(cfg: &Config) -> anyhow::Result<ServeHandle> {
         let watcher = watcher.clone();
         move || worker(&state, &cfg, &wake_rx, &watcher)
     });
-    Ok(ServeHandle { state, _watcher: watcher })
+    Ok(ServeHandle {
+        state,
+        _watcher: watcher,
+    })
 }
 
 /// The rebuild worker: drains event batches into index updates and runs the
@@ -1112,8 +1099,11 @@ fn worker(
                 if watched.is_empty() {
                     watched = dirs.iter().cloned().collect();
                 } else {
-                    let fresh: Vec<PathBuf> =
-                        dirs.iter().filter(|d| !watched.contains(*d)).cloned().collect();
+                    let fresh: Vec<PathBuf> = dirs
+                        .iter()
+                        .filter(|d| !watched.contains(*d))
+                        .cloned()
+                        .collect();
                     if !fresh.is_empty() {
                         register_watches(watcher, &fresh);
                         watched.extend(fresh);
@@ -1202,7 +1192,12 @@ fn apply(
         // The stat walk just proved the committed catalog already describes
         // the tree — coverage without a rebuild, and the value an unordered
         // barrier tests against.
-        state.mark_pass(target, index::generation(c), Some(fingerprint), Some(pass_start));
+        state.mark_pass(
+            target,
+            index::generation(c),
+            Some(fingerprint),
+            Some(pass_start),
+        );
     } else if !state.is_settled() {
         // Event path, nothing dirty: no walk happened, so nothing may be
         // claimed about tree coverage — only that startup is past.
@@ -1211,41 +1206,6 @@ fn apply(
 }
 
 // ---- token handling ----
-
-/// Reads a bearer token file, trimmed. `require_0600` additionally refuses
-/// group/other-accessible files — the serving daemon must not accept a
-/// world-readable credential as its gate.
-///
-/// KNOWN GAP on Windows: there are no mode bits, and reading an ACL needs a
-/// Win32 call this binary does not link. `require_0600` is therefore a no-op
-/// there; the token file inherits the default per-user ACL of the profile
-/// directory it lives in, which is private but NOT verified by cfetch.
-pub fn read_token(path: &Path, require_0600: bool) -> anyhow::Result<String> {
-    if require_0600 {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            let mode = std::fs::metadata(path)
-                .map_err(|e| anyhow::anyhow!("token file {}: {e}", path.display()))?
-                .permissions()
-                .mode();
-            if mode & 0o077 != 0 {
-                anyhow::bail!(
-                    "token file {} must be 0600 (mode is {:o})",
-                    path.display(),
-                    mode & 0o777
-                );
-            }
-        }
-    }
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| anyhow::anyhow!("token file {}: {e}", path.display()))?;
-    let token = raw.trim().to_string();
-    if token.is_empty() {
-        anyhow::bail!("token file {} is empty", path.display());
-    }
-    Ok(token)
-}
 
 /// Constant-time-ish comparison: never early-returns on the first differing
 /// byte, so response timing does not leak the token prefix.
@@ -1262,91 +1222,6 @@ pub fn token_eq(a: &str, b: &str) -> bool {
 
 // ---- client side (none-tier host) ----
 
-/// One request/response against a serving host's TCP listener. Every failure
-/// names the serving host — a none-tier host has no local data to fall back
-/// to, and must never pretend otherwise.
-pub fn remote_request(
-    addr: &str,
-    token: &str,
-    mut body: serde_json::Value,
-    read_timeout: Duration,
-) -> anyhow::Result<daemon::Response> {
-    use std::io::{BufRead as _, BufReader, Write as _};
-    use std::net::{TcpStream, ToSocketAddrs as _};
-    let sock_addr = addr
-        .to_socket_addrs()
-        .map_err(|e| anyhow::anyhow!("serving host {addr}: bad address: {e}"))?
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("serving host {addr}: address resolves to nothing"))?;
-    let stream = TcpStream::connect_timeout(&sock_addr, CONNECT_TIMEOUT)
-        .map_err(|e| anyhow::anyhow!("serving host {addr} unreachable: {e}"))?;
-    stream.set_read_timeout(Some(read_timeout))?;
-    stream.set_write_timeout(Some(read_timeout))?;
-    body["token"] = serde_json::Value::String(token.to_string());
-    body["network_major"] = serde_json::json!(crate::embedding_profile::NETWORK_MAJOR);
-    let mut stream = stream;
-    writeln!(stream, "{body}").map_err(|e| anyhow::anyhow!("serving host {addr}: send: {e}"))?;
-    let mut line = String::new();
-    BufReader::new(stream)
-        .read_line(&mut line)
-        .map_err(|e| anyhow::anyhow!("serving host {addr}: read: {e}"))?;
-    let resp: daemon::Response = serde_json::from_str(&line)
-        .map_err(|e| anyhow::anyhow!("serving host {addr}: bad response: {e}"))?;
-    if !resp.ok {
-        anyhow::bail!(
-            "serving host {addr} refused: {}",
-            resp.error.unwrap_or_else(|| "unknown error".to_string())
-        );
-    }
-    Ok(resp)
-}
-
-/// Client call using `client.serving` config (token loaded from its file).
-pub fn client_call(
-    cs: &ClientServingConfig,
-    body: serde_json::Value,
-    read_timeout: Duration,
-) -> anyhow::Result<daemon::Response> {
-    let retrieval = (body.get("op").and_then(serde_json::Value::as_str) == Some("recall"))
-        .then(|| {
-            if body.get("hybrid").and_then(serde_json::Value::as_bool) == Some(true) {
-                crate::runtime_status::RetrievalMode::Hybrid
-            } else if body.get("semantic").and_then(serde_json::Value::as_bool) == Some(true) {
-                crate::runtime_status::RetrievalMode::Semantic
-            } else {
-                crate::runtime_status::RetrievalMode::Lexical
-            }
-        });
-    let result = (|| {
-        let token = read_token(&cs.token_file, false)
-            .map_err(|e| anyhow::anyhow!("client.serving token: {e}"))?;
-        remote_request(&cs.addr, &token, body, read_timeout)
-    })();
-    match &result {
-        Ok(response) => {
-            crate::runtime_status::record_memory_answer(
-                crate::runtime_status::MemoryRoute::Remote,
-                response.generation,
-                response.fresh,
-                true,
-            );
-            if let Some(mode) = retrieval {
-                crate::runtime_status::record_retrieval(
-                    mode,
-                    crate::runtime_status::retrieval_note_is_degraded(response.note.as_deref()),
-                );
-            }
-        }
-        Err(_) => crate::runtime_status::record_memory_answer(
-            crate::runtime_status::MemoryRoute::Remote,
-            None,
-            None,
-            false,
-        ),
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1358,33 +1233,6 @@ mod tests {
         assert!(!token_eq("abc123", "abc12"));
         assert!(!token_eq("", "x"));
         assert!(token_eq("", ""));
-    }
-
-    #[test]
-    fn read_token_trims_and_refuses_an_empty_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("token");
-        std::fs::write(&p, "  secret-token\n").unwrap();
-        assert_eq!(read_token(&p, false).unwrap(), "secret-token");
-        std::fs::write(&p, "\n").unwrap();
-        assert!(read_token(&p, false).is_err(), "empty token file is an error");
-        assert!(read_token(&dir.path().join("absent"), false).is_err());
-    }
-
-    /// The mode gate is a unix file-permission check; Windows has no mode
-    /// bits and `read_token` documents that gap explicitly.
-    #[cfg(unix)]
-    #[test]
-    fn read_token_enforces_0600() {
-        use std::os::unix::fs::PermissionsExt as _;
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("token");
-        std::fs::write(&p, "  secret-token\n").unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(read_token(&p, true).is_err(), "0644 must be refused for the server gate");
-        assert_eq!(read_token(&p, false).unwrap(), "secret-token");
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
-        assert_eq!(read_token(&p, true).unwrap(), "secret-token");
     }
 
     #[test]
@@ -1409,7 +1257,10 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("barrier")).unwrap();
         // No watcher, no worker: the sentinel is never observed.
         let out = state.barrier(Duration::from_millis(80));
-        assert!(!out.fresh, "an unserviced barrier must label the answer stale");
+        assert!(
+            !out.fresh,
+            "an unserviced barrier must label the answer stale"
+        );
         assert!(out.note.is_some());
         assert!(out.waited_ms >= 80);
     }
@@ -1440,7 +1291,10 @@ mod tests {
         let out = state.barrier(Duration::from_secs(2));
         sim.join().unwrap();
         assert!(out.fresh, "note: {:?}", out.note);
-        assert!(out.waited_ms >= 60, "must have waited for sentinel AND apply");
+        assert!(
+            out.waited_ms >= 60,
+            "must have waited for sentinel AND apply"
+        );
         assert_eq!(state.generation.load(Ordering::Relaxed), 7);
     }
 
@@ -1522,52 +1376,36 @@ mod tests {
     #[test]
     fn sentinel_paths_are_distinguished_from_tree_paths() {
         let bd = PathBuf::from("/state/barrier");
-        assert_eq!(sentinel_seq_of(&bd, Path::new("/state/barrier/b17")), Some(17));
+        assert_eq!(
+            sentinel_seq_of(&bd, Path::new("/state/barrier/b17")),
+            Some(17)
+        );
         assert_eq!(sentinel_seq_of(&bd, Path::new("/state/barrier/bx")), None);
-        assert_eq!(sentinel_seq_of(&bd, Path::new("/brain/knowledge/b17")), None);
+        assert_eq!(
+            sentinel_seq_of(&bd, Path::new("/brain/knowledge/b17")),
+            None
+        );
         assert_eq!(sentinel_seq_of(&bd, Path::new("/state/barrier")), None);
     }
 
     // ---- barrier mode: the platform capability, and the two paths ----
-
-    #[test]
-    fn only_a_proven_ordered_backend_gets_the_sentinel_path() {
-        use notify::WatcherKind::*;
-        assert_eq!(mode_of_kind(Inotify), BarrierMode::Ordered);
-        // FSEvents coalesces per directory and does not order across them —
-        // the macOS CI failure this split exists for.
-        assert_eq!(mode_of_kind(Fsevent), BarrierMode::Unordered);
-        assert_eq!(mode_of_kind(Kqueue), BarrierMode::Unordered);
-        assert_eq!(mode_of_kind(ReadDirectoryChangesWatcher), BarrierMode::Unordered);
-        assert_eq!(mode_of_kind(PollWatcher), BarrierMode::Unordered);
-        assert_eq!(mode_of_kind(NullWatcher), BarrierMode::Unordered);
-        assert_ne!(BarrierMode::Ordered.label(), BarrierMode::Unordered.label());
-    }
-
-    #[test]
-    fn the_mode_override_takes_only_the_two_words_it_documents() {
-        assert_eq!(mode_override(Some("unordered")), Some(BarrierMode::Unordered));
-        assert_eq!(mode_override(Some(" ordered\n")), Some(BarrierMode::Ordered));
-        // A typo must fall through to the backend's own answer, never quietly
-        // pick a path the platform cannot support.
-        assert_eq!(mode_override(Some("unorderd")), None);
-        assert_eq!(mode_override(Some("")), None);
-        assert_eq!(mode_override(None), None);
-        assert_eq!(MODE_ENV, "CFETCH_BARRIER_MODE");
-    }
 
     /// A state wired the way `start` wires the real one, minus watcher and
     /// worker — the tests below play those parts themselves.
     fn unordered_state(brain: &Path, state_dir: &Path) -> Arc<ServeState> {
         std::fs::create_dir_all(state_dir.join("barrier")).unwrap();
         Arc::new(
-            ServeState::new("test".into(), state_dir.to_path_buf(), state_dir.join("barrier"))
-                .with_mode(BarrierMode::Unordered)
-                .with_basis(FingerprintBasis {
-                    brain_root: brain.to_path_buf(),
-                    native_root: None,
-                    rules: crate::config::RingRules::default(),
-                }),
+            ServeState::new(
+                "test".into(),
+                state_dir.to_path_buf(),
+                state_dir.join("barrier"),
+            )
+            .with_mode(BarrierMode::Unordered)
+            .with_basis(FingerprintBasis {
+                brain_root: brain.to_path_buf(),
+                native_root: None,
+                rules: crate::config::RingRules::default(),
+            }),
         )
     }
 
@@ -1590,15 +1428,31 @@ mod tests {
         let old_fingerprint = fingerprint_of(brain.path());
         state.mark_pass(0, 1, Some(old_fingerprint.clone()), Some(Instant::now()));
         std::fs::write(brain.path().join("knowledge/b.md"), "two\n").unwrap();
-        assert_ne!(fingerprint_of(brain.path()), old_fingerprint, "the tree moved");
+        assert_ne!(
+            fingerprint_of(brain.path()),
+            old_fingerprint,
+            "the tree moved"
+        );
         let out = state.barrier(Duration::from_millis(150));
-        assert!(!out.fresh, "an uncovered entry fingerprint must not serve fresh");
+        assert!(
+            !out.fresh,
+            "an uncovered entry fingerprint must not serve fresh"
+        );
         assert!(out.note.unwrap().contains("covered the tree"));
 
         // The worker commits a pass whose walk observed the NEW tree.
-        state.mark_pass(0, 2, Some(fingerprint_of(brain.path())), Some(Instant::now()));
+        state.mark_pass(
+            0,
+            2,
+            Some(fingerprint_of(brain.path())),
+            Some(Instant::now()),
+        );
         let out = state.barrier(Duration::from_secs(1));
-        assert!(out.fresh, "the committed fingerprint IS the entry fingerprint: {:?}", out.note);
+        assert!(
+            out.fresh,
+            "the committed fingerprint IS the entry fingerprint: {:?}",
+            out.note
+        );
     }
 
     #[test]
@@ -1625,13 +1479,25 @@ mod tests {
                 // matches neither the barrier's entry snapshot nor the tree as
                 // it ends up.
                 std::fs::write(brain.join("knowledge/c.md"), "three\n").unwrap();
-                state.mark_pass(0, 2, Some("yet another tree state".into()), Some(walk_start));
+                state.mark_pass(
+                    0,
+                    2,
+                    Some("yet another tree state".into()),
+                    Some(walk_start),
+                );
             }
         });
         let out = state.barrier(Duration::from_secs(2));
         sim.join().unwrap();
-        assert!(out.fresh, "a later walk must count as coverage: {:?}", out.note);
-        assert!(out.waited_ms >= 40, "it must actually have waited for that walk");
+        assert!(
+            out.fresh,
+            "a later walk must count as coverage: {:?}",
+            out.note
+        );
+        assert!(
+            out.waited_ms >= 40,
+            "it must actually have waited for that walk"
+        );
     }
 
     #[test]
@@ -1640,9 +1506,12 @@ mod tests {
         // it by order either. Say so; never guess.
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("barrier")).unwrap();
-        let state =
-            ServeState::new("test".into(), dir.path().to_path_buf(), dir.path().join("barrier"))
-                .with_mode(BarrierMode::Unordered);
+        let state = ServeState::new(
+            "test".into(),
+            dir.path().to_path_buf(),
+            dir.path().join("barrier"),
+        )
+        .with_mode(BarrierMode::Unordered);
         state.mark_watches_ready();
         state.mark_pass(0, 1, Some("anything".into()), Some(Instant::now()));
         let out = state.barrier(Duration::from_millis(50));
@@ -1663,13 +1532,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = unordered_state(brain.path(), dir.path());
         state.mark_watches_ready();
-        state.mark_pass(0, 1, Some(fingerprint_of(brain.path())), Some(Instant::now()));
-        assert!(state.barrier(Duration::from_millis(500)).fresh, "covered: fresh at no cost");
+        state.mark_pass(
+            0,
+            1,
+            Some(fingerprint_of(brain.path())),
+            Some(Instant::now()),
+        );
+        assert!(
+            state.barrier(Duration::from_millis(500)).fresh,
+            "covered: fresh at no cost"
+        );
 
         state.note_walk_cost(Duration::from_millis(13_500));
         let out = state.barrier(Duration::from_secs(5));
         assert!(!out.fresh, "an unaffordable proof is not a proof");
-        assert!(out.waited_ms < 500, "the bound must hold: waited {} ms", out.waited_ms);
+        assert!(
+            out.waited_ms < 500,
+            "the bound must hold: waited {} ms",
+            out.waited_ms
+        );
         let note = out.note.unwrap();
         assert!(note.contains("13500 ms"), "the cost must be named: {note}");
         assert!(note.contains("5000 ms"), "the budget must be named: {note}");
@@ -1689,20 +1570,32 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("barrier")).unwrap();
         let state = Arc::new(
-            ServeState::new("test".into(), dir.path().to_path_buf(), dir.path().join("barrier"))
-                .with_mode(BarrierMode::Ordered)
-                .with_basis(FingerprintBasis {
-                    brain_root: PathBuf::from("/definitely/not/a/tree"),
-                    native_root: None,
-                    rules: crate::config::RingRules::default(),
-                }),
+            ServeState::new(
+                "test".into(),
+                dir.path().to_path_buf(),
+                dir.path().join("barrier"),
+            )
+            .with_mode(BarrierMode::Ordered)
+            .with_basis(FingerprintBasis {
+                brain_root: PathBuf::from("/definitely/not/a/tree"),
+                native_root: None,
+                rules: crate::config::RingRules::default(),
+            }),
         );
         state.mark_watches_ready();
-        state.mark_pass(0, 1, Some(fingerprint_of(brain.path())), Some(Instant::now()));
+        state.mark_pass(
+            0,
+            1,
+            Some(fingerprint_of(brain.path())),
+            Some(Instant::now()),
+        );
         // Coverage by content is fully established — the ordered path does not
         // look at it, so no sentinel means no freshness.
         let out = state.barrier(Duration::from_millis(120));
-        assert!(!out.fresh, "the ordered path must still wait for its sentinel");
+        assert!(
+            !out.fresh,
+            "the ordered path must still wait for its sentinel"
+        );
         assert!(out.note.unwrap().contains("sentinel"));
 
         let sim = std::thread::spawn({
@@ -1714,7 +1607,11 @@ mod tests {
         });
         let out = state.barrier(Duration::from_secs(1));
         sim.join().unwrap();
-        assert!(out.fresh, "sentinel observed + nothing pending = fresh: {:?}", out.note);
+        assert!(
+            out.fresh,
+            "sentinel observed + nothing pending = fresh: {:?}",
+            out.note
+        );
     }
 
     /// The measurement the unordered path's cost decision rests on: what does
@@ -1726,7 +1623,9 @@ mod tests {
     #[test]
     #[ignore = "measurement against a real tree; set CFETCH_FINGERPRINT_BENCH"]
     fn fingerprint_walk_cost_on_a_real_tree() {
-        let Ok(root) = std::env::var("CFETCH_FINGERPRINT_BENCH") else { return };
+        let Ok(root) = std::env::var("CFETCH_FINGERPRINT_BENCH") else {
+            return;
+        };
         let root = PathBuf::from(root);
         let rules = crate::config::RingRules::default();
         let dirs = watchable_dirs(&root, &rules).dirs.len();
@@ -1739,7 +1638,10 @@ mod tests {
             // A fingerprint that is not stable on an idle tree would make the
             // unordered barrier force a rebuild pass on every single query.
             if let Some(prev) = &previous {
-                assert_eq!(prev, &fingerprint, "the fingerprint must be stable on an idle tree");
+                assert_eq!(
+                    prev, &fingerprint,
+                    "the fingerprint must be stable on an idle tree"
+                );
             }
             previous = Some(fingerprint);
         }
@@ -1749,14 +1651,5 @@ mod tests {
             times[times.len() / 2],
             times[times.len() - 1]
         );
-    }
-
-    #[test]
-    fn origin_prefers_config_over_hostname() {
-        let mut cfg = Config::default();
-        cfg.serve.origin = Some("storage-1".to_string());
-        assert_eq!(origin_of(&cfg), "storage-1");
-        cfg.serve.origin = None;
-        assert!(!origin_of(&cfg).is_empty(), "hostname fallback must yield something");
     }
 }

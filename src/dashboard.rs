@@ -18,17 +18,12 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 
-use crate::config::{ClientServingConfig, Config};
+use crate::config::Config;
 use crate::maintenance_inbox::{Inbox, Tone};
 use crate::{
     daemon, doctor, exhaust, heartbeat, index, knowledge_graph, ledger, maintenance, paths,
     runtime_status, serve,
 };
-
-/// Remote budget for the dashboard's own calls. Deliberately shorter than the
-/// CLI's: this screen refreshes on a timer and must not freeze on a slow drain
-/// barrier.
-const REMOTE_STATUS_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Whoever can answer this host's queries.
 enum Source {
@@ -38,8 +33,6 @@ enum Source {
         /// Serving identity, when this host also serves.
         origin: Option<String>,
     },
-    /// none-tier: the serving host answers, and no local index is opened.
-    Served(ClientServingConfig),
     /// Neither — the reason is shown instead of numbers.
     Unusable(String),
 }
@@ -47,28 +40,13 @@ enum Source {
 /// Picks the source from config alone. Infallible on purpose: a broken index
 /// is something to REPORT on the screen, not a reason to refuse to draw it.
 fn open_source(cfg: &Config, state: &Path) -> Source {
-    if let Some(cs) = &cfg.client.serving {
-        return Source::Served(cs.clone());
-    }
-    let native = paths::native_projects_root();
-    match index::ensure_fresh(state, &cfg.brain_root, Some(&native), &cfg.rings()) {
+    match index::ensure_fresh(state, &cfg.brain_root, None, &cfg.rings()) {
         Ok(conn) => Source::Local {
             conn,
-            origin: cfg.serve.enabled.then(|| serve::origin_of(cfg)),
+            origin: Some(serve::origin_of(cfg)),
         },
         Err(e) => Source::Unusable(format!("local index unavailable: {e}")),
     }
-}
-
-/// Every remote failure names the serving host: a none-tier host has no local
-/// data to fall back on and must never merely look empty.
-fn served(
-    cs: &ClientServingConfig,
-    body: serde_json::Value,
-    timeout: Duration,
-) -> anyhow::Result<daemon::Response> {
-    serve::client_call(cs, body, timeout)
-        .map_err(|e| anyhow::anyhow!("serving host {} unavailable: {e}", cs.addr))
 }
 
 /// What the header can honestly say about the index behind this host.
@@ -82,11 +60,6 @@ enum IndexView {
         /// Serving identity, when this host also serves.
         origin: Option<String>,
         generation: u64,
-    },
-    Served {
-        origin: String,
-        generation: u64,
-        fresh: bool,
     },
     Unavailable {
         reason: String,
@@ -133,17 +106,9 @@ fn index_view(source: &Source) -> IndexView {
         }
         // One tiny barrier-gated round trip per refresh: the generation op is
         // the same coherence label the CLI footer prints.
-        Source::Served(cs) => {
-            match served(cs, serde_json::json!({"op": "generation"}), REMOTE_STATUS_TIMEOUT) {
-                Ok(r) => IndexView::Served {
-                    origin: r.origin.unwrap_or_else(|| cs.addr.clone()),
-                    generation: r.generation.unwrap_or(0),
-                    fresh: r.fresh.unwrap_or(false),
-                },
-                Err(e) => IndexView::Unavailable { reason: e.to_string() },
-            }
-        }
-        Source::Unusable(reason) => IndexView::Unavailable { reason: reason.clone() },
+        Source::Unusable(reason) => IndexView::Unavailable {
+            reason: reason.clone(),
+        },
     }
 }
 
@@ -192,7 +157,14 @@ fn index_span(v: &IndexView) -> Span<'static> {
             format!("   {}", heartbeat::IndexLiveness::NeverScanned.describe()),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ),
-        IndexView::Local { docs_by_ring, blocks, code_files, symbols, origin, generation } => {
+        IndexView::Local {
+            docs_by_ring,
+            blocks,
+            code_files,
+            symbols,
+            origin,
+            generation,
+        } => {
             let rings = docs_by_ring
                 .iter()
                 .map(|(r, n)| format!("r{r}:{n}"))
@@ -206,14 +178,6 @@ fn index_span(v: &IndexView) -> Span<'static> {
                 "   index: {blocks} blocks [{rings}]   code: {code_files} files / {symbols} symbols{serving}"
             ))
         }
-        IndexView::Served { origin, generation, fresh } => Span::styled(
-            if *fresh {
-                format!("   served by {origin} (generation {generation}, fresh)")
-            } else {
-                format!("   served by {origin} (generation {generation}) — STALE")
-            },
-            Style::default().fg(if *fresh { Color::Green } else { Color::Yellow }),
-        ),
         IndexView::Unavailable { reason } => Span::styled(
             format!("   NO INDEX: {reason}"),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -241,7 +205,10 @@ fn header_lines(s: &Stats) -> Vec<Line<'static>> {
         Line::from(vec![
             daemon_span,
             index_span(&s.index),
-            Span::raw(format!("   exhaust: {}", crate::jsonl::human_bytes(s.exhaust_bytes))),
+            Span::raw(format!(
+                "   exhaust: {}",
+                crate::jsonl::human_bytes(s.exhaust_bytes)
+            )),
         ]),
         Line::from(format!(
             "ledger: {} session(s), ~{} tokens injected{}",
@@ -330,13 +297,11 @@ fn ring_color(ring: u8) -> Color {
 /// on a storage host, serving host on a none-tier one.
 fn recall_hits(source: &Source, query: &str, limit: usize) -> anyhow::Result<Vec<serve::WireHit>> {
     match source {
-        Source::Local { conn, .. } => {
-            Ok(index::recall(conn, query, limit)?.into_iter().map(Into::into).collect())
-        }
-        Source::Served(cs) => {
-            let body = serde_json::json!({"op": "recall", "query": query, "limit": limit});
-            Ok(served(cs, body, serve::QUERY_TIMEOUT)?.hits.unwrap_or_default())
-        }
+        Source::Local { conn, .. } => Ok(index::recall(conn, query, limit)?
+            .into_iter()
+            .map(Into::into)
+            .collect()),
+
         Source::Unusable(reason) => anyhow::bail!("{reason}"),
     }
 }
@@ -374,19 +339,10 @@ impl Pane {
 
 fn graph_view(source: &Source) -> Result<knowledge_graph::KnowledgeGraph, String> {
     match source {
-        Source::Local { conn, .. } => knowledge_graph::build(conn, None, 60)
-            .map_err(|error| error.to_string()),
-        Source::Served(config) => {
-            let response = served(
-                config,
-                serde_json::json!({"op": "graph", "limit": 60}),
-                REMOTE_STATUS_TIMEOUT,
-            )
-            .map_err(|error| error.to_string())?;
-            response.knowledge_graph.ok_or_else(|| {
-                format!("serving host {} returned no knowledge graph", config.addr)
-            })
+        Source::Local { conn, .. } => {
+            knowledge_graph::build(conn, None, 60).map_err(|error| error.to_string())
         }
+
         Source::Unusable(reason) => Err(reason.clone()),
     }
 }
@@ -398,7 +354,9 @@ fn tone_style(tone: Tone) -> Style {
         Tone::Good => Style::default().fg(Color::Green),
         Tone::Warning => Style::default().fg(Color::Yellow),
         Tone::Error => Style::default().fg(Color::Red),
-        Tone::Accent => Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Tone::Accent => Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     }
 }
 
@@ -408,8 +366,11 @@ fn draw_recall(f: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Length(3), Constraint::Min(3)])
         .split(area);
     f.render_widget(
-        Paragraph::new(app.query.as_str())
-            .block(Block::default().borders(Borders::ALL).title(" recall (type + Enter) ")),
+        Paragraph::new(app.query.as_str()).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" recall (type + Enter) "),
+        ),
         chunks[0],
     );
     let items: Vec<ListItem> = app
@@ -420,16 +381,25 @@ fn draw_recall(f: &mut Frame, area: Rect, app: &App) {
                 Line::from(vec![
                     Span::styled(
                         h.cite.clone(),
-                        Style::default().fg(ring_color(h.ring)).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(ring_color(h.ring))
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(format!(" {}:{}-{}", h.path, h.start_line, h.end_line)),
                 ]),
-                Line::from(Span::styled(format!("    {}", h.snippet), Style::default().fg(Color::Gray))),
+                Line::from(Span::styled(
+                    format!("    {}", h.snippet),
+                    Style::default().fg(Color::Gray),
+                )),
             ])
         })
         .collect();
     f.render_widget(
-        List::new(items).block(Block::default().borders(Borders::ALL).title(format!(" {} ", app.status))),
+        List::new(items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" {} ", app.status)),
+        ),
         chunks[1],
     );
 }
@@ -448,7 +418,10 @@ fn draw_activity(f: &mut Frame, area: Rect, inbox: &Inbox) {
                     Span::styled(format!(" {:<9} ", row.badge), tone_style(row.tone)),
                     Span::styled(row.summary, Style::default().fg(Color::Gray)),
                 ]),
-                Line::from(Span::styled(format!("   {}", row.id), Style::default().fg(Color::DarkGray))),
+                Line::from(Span::styled(
+                    format!("   {}", row.id),
+                    Style::default().fg(Color::DarkGray),
+                )),
             ])
         })
         .collect();
@@ -456,8 +429,16 @@ fn draw_activity(f: &mut Frame, area: Rect, inbox: &Inbox) {
     state.select(inbox.selected());
     f.render_stateful_widget(
         List::new(rows)
-            .block(Block::default().borders(Borders::ALL).title(format!(" {} ", inbox.status)))
-            .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!(" {} ", inbox.status)),
+            )
+            .highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
             .highlight_symbol("›"),
         chunks[0],
         &mut state,
@@ -471,7 +452,11 @@ fn draw_activity(f: &mut Frame, area: Rect, inbox: &Inbox) {
         .collect::<Vec<_>>();
     f.render_widget(
         Paragraph::new(detail)
-            .block(Block::default().borders(Borders::ALL).title(inbox.detail.title.clone()))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(inbox.detail.title.clone()),
+            )
             .wrap(Wrap { trim: false })
             .scroll((inbox.detail_scroll, 0)),
         chunks[1],
@@ -500,7 +485,9 @@ fn draw_graph(f: &mut Frame, area: Rect, app: &App) {
                         graph.unresolved_references,
                         graph.generation,
                     ),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled(
                     "Markdown and Obsidian links are authoritative; this is a rebuildable view.",
@@ -535,9 +522,12 @@ fn draw_graph(f: &mut Frame, area: Rect, app: &App) {
                     "Curated links in this view",
                     Style::default().add_modifier(Modifier::BOLD),
                 )));
-                lines.extend(graph.edges.iter().map(|edge| {
-                    Line::from(format!("{} → {}", edge.from, edge.to))
-                }));
+                lines.extend(
+                    graph
+                        .edges
+                        .iter()
+                        .map(|edge| Line::from(format!("{} → {}", edge.from, edge.to))),
+                );
                 if graph.omitted_edges > 0 {
                     lines.push(Line::from(Span::styled(
                         format!("… {} more link(s) omitted", graph.omitted_edges),
@@ -550,7 +540,11 @@ fn draw_graph(f: &mut Frame, area: Rect, app: &App) {
     };
     f.render_widget(
         Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(" knowledge graph "))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" knowledge graph "),
+            )
             .wrap(Wrap { trim: false })
             .scroll((app.graph_scroll, 0)),
         area,
@@ -559,16 +553,14 @@ fn draw_graph(f: &mut Frame, area: Rect, app: &App) {
 
 fn doctor_style(tone: doctor::DisplayTone) -> Style {
     match tone {
-        doctor::DisplayTone::Heading => {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-        }
+        doctor::DisplayTone::Heading => Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
         doctor::DisplayTone::Normal => Style::default(),
         doctor::DisplayTone::Muted => Style::default().fg(Color::DarkGray),
         doctor::DisplayTone::Good => Style::default().fg(Color::Green),
         doctor::DisplayTone::Warning => Style::default().fg(Color::Yellow),
-        doctor::DisplayTone::Error => {
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-        }
+        doctor::DisplayTone::Error => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
     }
 }
 
@@ -579,7 +571,11 @@ fn draw_system(f: &mut Frame, area: Rect, app: &App) {
         .collect::<Vec<_>>();
     f.render_widget(
         Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(" live system diagnostics "))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" live system diagnostics "),
+            )
             .wrap(Wrap { trim: false })
             .scroll((app.system_scroll, 0)),
         area,
@@ -598,7 +594,8 @@ fn draw(f: &mut Frame, stats: &Stats, app: &App) {
         .split(f.area());
 
     f.render_widget(
-        Paragraph::new(header_lines(stats)).block(Block::default().borders(Borders::ALL).title(" cfetch ")),
+        Paragraph::new(header_lines(stats))
+            .block(Block::default().borders(Borders::ALL).title(" cfetch ")),
         chunks[0],
     );
     f.render_widget(
@@ -609,8 +606,16 @@ fn draw(f: &mut Frame, stats: &Stats, app: &App) {
                 Pane::Graph => 2,
                 Pane::System => 3,
             })
-            .block(Block::default().borders(Borders::ALL).title(" Tab switches view "))
-            .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Tab switches view "),
+            )
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         chunks[1],
     );
     match app.pane {
@@ -657,7 +662,7 @@ fn run_with_pane(initial_pane: Pane, probe_network: bool) -> anyhow::Result<()> 
     crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
     let mut terminal = ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(stdout))?;
 
-    let can_verify_locally = cfg.client.serving.is_none();
+    let can_verify_locally = true;
     let mut app = App {
         pane: initial_pane,
         query: String::new(),
@@ -702,7 +707,9 @@ fn run_with_pane(initial_pane: Pane, probe_network: bool) -> anyhow::Result<()> 
                 }
                 match key.code {
                     KeyCode::Esc => break Ok(()),
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break Ok(()),
+                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        break Ok(());
+                    }
                     KeyCode::Enter if app.pane == Pane::Recall => {
                         match recall_hits(&source, &app.query, 20) {
                             Ok(hits) => {
@@ -774,8 +781,7 @@ fn run_with_pane(initial_pane: Pane, probe_network: bool) -> anyhow::Result<()> 
                         app.system_scroll = app.system_scroll.saturating_sub(12);
                     }
                     KeyCode::Char('r') if app.pane == Pane::System => {
-                        app.system =
-                            doctor::gather_with(&cfg, &state, None, probe_network);
+                        app.system = doctor::gather_with(&cfg, &state, None, probe_network);
                         stats = gather(&cfg, &source, &state);
                         last_refresh = std::time::Instant::now();
                         last_system_refresh = std::time::Instant::now();
@@ -787,7 +793,10 @@ fn run_with_pane(initial_pane: Pane, probe_network: bool) -> anyhow::Result<()> 
     };
 
     crossterm::terminal::disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), crossterm::terminal::LeaveAlternateScreen)?;
+    crossterm::execute!(
+        terminal.backend_mut(),
+        crossterm::terminal::LeaveAlternateScreen
+    )?;
     result
 }
 
@@ -848,80 +857,17 @@ mod tests {
     }
 
     #[test]
-    fn none_tier_dashboard_never_opens_a_local_index() {
-        // The defect: the dashboard opened a LOCAL index unconditionally, so a
-        // none-tier host rendered an empty second truth next to its serving
-        // host's real one.
-        let dir = tempfile::tempdir().unwrap();
-        let mut cfg = Config { brain_root: dir.path().join("brain"), ..Config::default() };
-        cfg.client.serving = Some(ClientServingConfig {
-            addr: "198.51.100.7:9737".to_string(),
-            token_file: dir.path().join("absent-token"),
-        });
-        let source = open_source(&cfg, dir.path());
-        let stats = gather(&cfg, &source, dir.path());
-        assert!(
-            !dir.path().join("index.db").exists(),
-            "a none-tier host must open (and create) NO local index"
-        );
-        match &stats.index {
-            IndexView::Unavailable { reason } => {
-                assert!(reason.contains("198.51.100.7:9737"), "name the serving host: {reason}");
-            }
-            other => panic!("an unreachable serving host must be reported, got {other:?}"),
-        }
-        let text = flat_text(&header_lines(&stats));
-        assert!(text.contains("198.51.100.7:9737"), "{text}");
-        assert!(!text.contains("0 blocks"), "zeros must never stand in for a remote index: {text}");
-    }
-
-    #[test]
     fn recall_failures_name_what_could_not_answer() {
         // The recall pane routes like the CLI, so its failures must be as
         // explicit: a none-tier host has nothing local to fall back on.
-        let dir = tempfile::tempdir().unwrap();
-        let cs = ClientServingConfig {
-            addr: "198.51.100.7:9737".to_string(),
-            token_file: dir.path().join("absent-token"),
-        };
-        let err = recall_hits(&Source::Served(cs), "anything", 5).unwrap_err().to_string();
-        assert!(err.contains("198.51.100.7:9737"), "name the serving host: {err}");
-        let err = recall_hits(&Source::Unusable("local index unavailable: boom".into()), "x", 5)
-            .unwrap_err()
-            .to_string();
+        let err = recall_hits(
+            &Source::Unusable("local index unavailable: boom".into()),
+            "x",
+            5,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("boom"), "{err}");
-    }
-
-    #[test]
-    fn header_shows_the_serving_origin_and_generation() {
-        let s = Stats {
-            runtime: runtime_status::RuntimeStatusV1::default(),
-            daemon_version: Some("0.5.0".into()),
-            hooks: all_reporting(),
-            sessions: 0,
-            injected_tokens: 0,
-            unreadable_streams: 0,
-            index: IndexView::Served {
-                origin: "storage-1".into(),
-                generation: 91,
-                fresh: true,
-            },
-            staging_total: 0,
-            staging_by_reason: Vec::new(),
-            maintenance_pending: 0,
-            maintenance_applied: 0,
-            exhaust_bytes: 0,
-        };
-        let text = flat_text(&header_lines(&s));
-        assert!(text.contains("cfetch ● memory:local"), "{text}");
-        assert!(text.contains("served by storage-1"), "{text}");
-        assert!(text.contains("generation 91"), "{text}");
-        // A stale remote answer must say so rather than look authoritative.
-        let stale = Stats {
-            index: IndexView::Served { origin: "storage-1".into(), generation: 91, fresh: false },
-            ..s
-        };
-        assert!(flat_text(&header_lines(&stale)).contains("STALE"), "staleness must be labeled");
     }
 
     #[test]
@@ -938,7 +884,10 @@ mod tests {
                         last_ok: None,
                     },
                 ),
-                ("session-start", heartbeat::HookState::Healthy { last_ok: 1 }),
+                (
+                    "session-start",
+                    heartbeat::HookState::Healthy { last_ok: 1 },
+                ),
             ]),
             sessions: 2,
             injected_tokens: 1234,
@@ -955,7 +904,10 @@ mod tests {
         assert!(text.contains("FAILING: stop (5×)"));
         assert!(text.contains("unreadable ledger stream(s)"));
         assert!(text.contains("r1:2 r3:400"));
-        assert!(text.contains("staging: 0 candidates"), "empty staging still renders");
+        assert!(
+            text.contains("staging: 0 candidates"),
+            "empty staging still renders"
+        );
         // Four hooks in that heartbeat have no record at all, and the failing
         // one must not hide them.
         assert!(text.contains("NEVER OBSERVED: user-prompt"), "{text}");
@@ -969,7 +921,10 @@ mod tests {
         let base = Stats {
             runtime: runtime_status::RuntimeStatusV1::default(),
             daemon_version: Some("0.5.0".into()),
-            hooks: liveness(&[("session-start", heartbeat::HookState::Healthy { last_ok: 1 })]),
+            hooks: liveness(&[(
+                "session-start",
+                heartbeat::HookState::Healthy { last_ok: 1 },
+            )]),
             sessions: 0,
             injected_tokens: 0,
             unreadable_streams: 0,
@@ -982,12 +937,25 @@ mod tests {
         };
         let lines = header_lines(&base);
         let text = flat_text(&lines);
-        assert!(!text.contains("all healthy"), "one reporting hook is not a healthy set: {text}");
-        assert!(text.contains("1 of 6 registered hook(s) reporting"), "{text}");
-        assert!(text.contains("NEVER OBSERVED: user-prompt, pre-tool, post-tool, stop"), "{text}");
+        assert!(
+            !text.contains("all healthy"),
+            "one reporting hook is not a healthy set: {text}"
+        );
+        assert!(
+            text.contains("1 of 6 registered hook(s) reporting"),
+            "{text}"
+        );
+        assert!(
+            text.contains("NEVER OBSERVED: user-prompt, pre-tool, post-tool, stop"),
+            "{text}"
+        );
         let hook_line = lines
             .iter()
-            .find(|l| l.spans.iter().any(|sp| sp.content.contains("NEVER OBSERVED")))
+            .find(|l| {
+                l.spans
+                    .iter()
+                    .any(|sp| sp.content.contains("NEVER OBSERVED"))
+            })
             .unwrap();
         assert_eq!(
             hook_line.spans[0].style.fg,
@@ -996,10 +964,16 @@ mod tests {
         );
 
         // Only a complete set earns the green line.
-        let healthy = Stats { hooks: all_reporting(), ..base };
+        let healthy = Stats {
+            hooks: all_reporting(),
+            ..base
+        };
         let lines = header_lines(&healthy);
         let text = flat_text(&lines);
-        assert!(text.contains("all 6 registered hook(s) reporting, healthy"), "{text}");
+        assert!(
+            text.contains("all 6 registered hook(s) reporting, healthy"),
+            "{text}"
+        );
         let hook_line = lines
             .iter()
             .find(|l| l.spans.iter().any(|sp| sp.content.contains("hooks:")))
@@ -1034,7 +1008,10 @@ mod tests {
         };
         let text = flat_text(&header_lines(&never));
         assert!(text.contains("NEVER SCANNED"), "{text}");
-        assert!(!text.contains("0 blocks"), "an unbuilt catalog must not print counts: {text}");
+        assert!(
+            !text.contains("0 blocks"),
+            "an unbuilt catalog must not print counts: {text}"
+        );
 
         // A scanned but genuinely empty tree keeps its zeros: that one IS a
         // measurement.
@@ -1071,9 +1048,15 @@ mod tests {
             exhaust_bytes: 0,
         };
         let text = flat_text(&header_lines(&base));
-        assert!(text.contains("UNOBSERVED"), "no capture stream means no examined turns: {text}");
+        assert!(
+            text.contains("UNOBSERVED"),
+            "no capture stream means no examined turns: {text}"
+        );
 
-        let captured = Stats { exhaust_bytes: 8192, ..base };
+        let captured = Stats {
+            exhaust_bytes: 8192,
+            ..base
+        };
         let text = flat_text(&header_lines(&captured));
         assert!(text.contains("staging: 0 candidates (measured)"), "{text}");
         assert!(!text.contains("UNOBSERVED"), "{text}");

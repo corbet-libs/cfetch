@@ -8,7 +8,7 @@
 use std::time::{Duration, Instant};
 
 use crate::config::Config;
-use crate::{embed, grant, index, paths, runtime_status, vectors};
+use crate::{embed, index, paths, runtime_status, vectors};
 
 const GENERATION_POLL: Duration = Duration::from_secs(2);
 const SETTLE_DELAY: Duration = Duration::from_secs(2);
@@ -22,24 +22,14 @@ fn generation() -> Option<u64> {
         .filter(|generation| *generation > 0)
 }
 
-/// A storage host has useful autonomous vector work when it may derive new
-/// vectors, can request them from a joined peer, or already shares compatible
-/// artifacts that this host's disposable cache may need to hydrate. A local
-/// embedding endpoint is deliberately not required for the latter two paths.
-pub(crate) fn sources_available(cfg: &Config, state_dir: &std::path::Path) -> bool {
-    if cfg.client.serving.is_some() {
-        return false;
-    }
+pub(crate) fn sources_available(cfg: &Config, _state_dir: &std::path::Path) -> bool {
     cfg.embeddings.enabled
-        || grant::memberships(state_dir).is_ok_and(|memberships| !memberships.is_empty())
         || vectors::VectorStore::open(&cfg.brain_root, &cfg.embeddings.spec())
             .is_ok_and(|store| !store.is_empty())
 }
 
 pub fn run(cfg: Config, stopping: impl Fn() -> bool) {
-    if cfg.client.serving.is_some()
-        || crate::embedding_profile::production_availability().is_err()
-    {
+    if crate::embedding_profile::production_availability().is_err() {
         return;
     }
     let mut completed_generation = None;
@@ -69,9 +59,7 @@ pub fn run(cfg: Config, stopping: impl Fn() -> bool) {
                 Ok((report, _)) => {
                     eprintln!(
                         "cfetch vectors: generation {attempted_generation}, {} embedded, {} imported, {} block(s) covered",
-                        report.embedded,
-                        report.imported,
-                        report.total_blocks,
+                        report.embedded, report.imported, report.total_blocks,
                     );
                     completed_generation = Some(attempted_generation);
                     due = None;
@@ -95,18 +83,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn delegated_worker_returns_without_waiting() {
-        let started = Instant::now();
-        let mut cfg = Config::default();
-        cfg.client.serving = Some(crate::config::ClientServingConfig {
-            addr: "127.0.0.1:1".into(),
-            token_file: std::path::PathBuf::from("unused"),
-        });
-        run(cfg, || false);
-        assert!(started.elapsed() < Duration::from_millis(100));
-    }
-
-    #[test]
     fn inactive_profile_worker_returns_without_retrying() {
         let started = Instant::now();
         run(Config::default(), || false);
@@ -117,7 +93,7 @@ mod tests {
     fn compatible_shared_artifacts_enable_hydration_without_an_endpoint() {
         let brain = tempfile::tempdir().unwrap();
         let state = tempfile::tempdir().unwrap();
-        let mut cfg = Config {
+        let cfg = Config {
             brain_root: brain.path().to_path_buf(),
             ..Config::default()
         };
@@ -130,11 +106,5 @@ mod tests {
         writer.flush().unwrap();
         drop(writer);
         assert!(sources_available(&cfg, state.path()));
-
-        cfg.client.serving = Some(crate::config::ClientServingConfig {
-            addr: "127.0.0.1:1".into(),
-            token_file: std::path::PathBuf::from("unused"),
-        });
-        assert!(!sources_available(&cfg, state.path()));
     }
 }
