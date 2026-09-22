@@ -2347,7 +2347,7 @@ fn init_cmd(path: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     // a standard nobody can migrate onto is a standard for new users only.
     let moved = migrate::migrate_staging(&root)?;
     if !moved.moved.is_empty() {
-        println!("  moved   {} staged candidate(s) into todo/staging/", moved.moved.len());
+        println!("  moved   {} staged candidate(s) into scratch/cfetch-staging/", moved.moved.len());
     }
     for name in &moved.collisions {
         println!("  CLASH   {name} exists at both ends — left untouched, resolve by hand");

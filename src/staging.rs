@@ -1,4 +1,4 @@
-//! Ring-5 staging as FILES in the tree: `<brain_root>/todo/staging/<id>.md`.
+//! Ring-5 staging as FILES in the tree: `<brain_root>/scratch/cfetch-staging/<id>.md`.
 //!
 //! A staged candidate is the ladder's only inward crossing, so it must be
 //! visible to whichever host runs maintenance — a row in one machine's
@@ -8,7 +8,7 @@
 //! deletable by hand.
 //!
 //! Ring 5 keeps them out of recall and injection by the ordinary ring rules —
-//! `staging/` resolves to ring 5 by LOCATION (see `index::default_ring`), and
+//! `scratch/cfetch-staging/` resolves to ring 5 by LOCATION (see `index::default_ring`), and
 //! every file also declares `ring: 5` in its frontmatter, so neither a moved
 //! file nor a stripped default can make a candidate recallable.
 //!

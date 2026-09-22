@@ -2563,6 +2563,8 @@ mod tests {
         assert_eq!(default_ring("staging/cfetch/hot-file-1234abcd.md", &r), 5);
         // Disposable working material is excluded outright, not ringed.
         assert!(r.excluded("todo/scratch/dump.md"));
+        assert!(r.excluded("scratch/dump.md"));
+        assert_eq!(default_ring("scratch/cfetch-staging/candidate.md", &r), 5);
     }
 
     #[test]
@@ -2572,7 +2574,7 @@ mod tests {
         // injection. Fabricate a tree with a REAL staged candidate, scan it,
         // and prove nothing of it comes back.
         let dir = brain(&[("knowledge/live.md", "the reachable fact zulqar\n")]);
-        let staging_dir = dir.path().join("staging/cfetch");
+        let staging_dir = crate::paths::staging_dir(dir.path());
         crate::staging::write(
             &staging_dir,
             &crate::staging::Candidate {
@@ -2606,8 +2608,8 @@ mod tests {
         let mut conn = open(state.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert_eq!(report.docs, 1, "only the ring-3 knowledge file is indexed");
-        assert_eq!(report.skipped_high_ring, 2, "both candidates are skipped as ring 5");
-        assert!(report.skipped.iter().all(|p| p.starts_with("staging/")));
+        assert_eq!(report.skipped_high_ring, 0, "scratch is excluded before traversal");
+        assert!(report.skipped.is_empty());
         assert_eq!(recall(&conn, "zulqar", 10).unwrap().len(), 1, "only the ring-3 hit");
         assert_eq!(recall(&conn, "zulqar", 10).unwrap()[0].path, "knowledge/live.md");
         assert!(

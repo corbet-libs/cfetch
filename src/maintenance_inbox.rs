@@ -890,7 +890,7 @@ mod tests {
         staging::write(&staging_dir, &candidate("fix-discovered-a1b2c3d4", 42)).unwrap();
         let finalized = root
             .path()
-            .join("todo/staging/maintenance/finalized/maintenance-000000000000.md");
+            .join("scratch/cfetch-staging/maintenance/finalized/maintenance-000000000000.md");
         std::fs::create_dir_all(finalized.parent().unwrap()).unwrap();
         let proposal = maintenance::Proposal {
             schema_version: maintenance::SCHEMA_VERSION,

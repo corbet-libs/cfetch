@@ -245,39 +245,62 @@ mod tests {
     }
 }
 
-/// Moves ring-5 candidates from the pre-standard `staging/cfetch/` into
-/// `todo/staging/`.
-///
-/// A rename, not a copy, and never a merge that could lose one: a candidate is
-/// moved only when nothing of that name is already at the destination, and a
-/// collision leaves BOTH files where they are for a person to look at. Losing
-/// a staged candidate silently would destroy the one thing staging exists to
-/// hold — an observation that cannot be recomputed from the tree.
-///
-/// The legacy directory is left in place once empty rather than removed. It is
-/// the operator's directory, it may hold things cfetch never wrote, and an
-/// empty directory costs nothing next to deleting something we did not create.
+/// Explicitly migrate legacy evidence into scratch, including across filesystems.
+/// Publish complete files without overwriting collisions; remove a source only
+/// after publication and an unchanged-byte check. Remove only empty directories.
 pub fn migrate_staging(brain_root: &Path) -> anyhow::Result<StagingMove> {
-    let from = crate::paths::legacy_staging_dir(brain_root);
+    use std::io::Write as _;
+
     let to = crate::paths::staging_dir(brain_root);
     let mut moved = StagingMove::default();
-    if !from.is_dir() || from == to {
-        return Ok(moved);
-    }
-    for entry in walkdir(&from)? {
-        let Ok(rel) = entry.strip_prefix(&from) else { continue };
-        let target = to.join(rel);
-        if target.exists() {
-            moved.collisions.push(rel.display().to_string());
+    for from in crate::paths::legacy_staging_dirs(brain_root) {
+        if !from.is_dir() || from.is_symlink() {
             continue;
         }
-        if let Some(parent) = target.parent() {
+        for entry in walkdir(&from)? {
+            let rel = entry.strip_prefix(&from)?;
+            let target = to.join(rel);
+            if target.symlink_metadata().is_ok() {
+                moved.collisions.push(rel.display().to_string());
+                continue;
+            }
+            let parent = target.parent().expect("staging file has a parent");
             std::fs::create_dir_all(parent)?;
+            let bytes = std::fs::read(&entry)?;
+            let mut pending = tempfile::NamedTempFile::new_in(parent)?;
+            pending.write_all(&bytes)?;
+            pending.as_file().set_permissions(std::fs::metadata(&entry)?.permissions())?;
+            pending.as_file().sync_all()?;
+            if let Err(error) = pending.persist_noclobber(&target) {
+                if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+                    moved.collisions.push(rel.display().to_string());
+                    continue;
+                }
+                return Err(error.into());
+            }
+            if std::fs::read(&entry)? != bytes {
+                moved.collisions.push(rel.display().to_string());
+                continue;
+            }
+            std::fs::remove_file(&entry)?;
+            moved.moved.push(rel.display().to_string());
         }
-        std::fs::rename(&entry, &target)?;
-        moved.moved.push(rel.display().to_string());
+        remove_empty_staging_dirs(&from)?;
     }
     Ok(moved)
+}
+
+fn remove_empty_staging_dirs(root: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            remove_empty_staging_dirs(&entry.path())?;
+        }
+    }
+    match std::fs::remove_dir(root) {
+        Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => Ok(()),
+        result => result,
+    }
 }
 
 #[derive(Debug, Default)]
@@ -314,7 +337,7 @@ mod staging_migration_tests {
     #[test]
     fn candidates_move_and_a_name_clash_leaves_both_alone() {
         let brain = tempfile::tempdir().unwrap();
-        let from = crate::paths::legacy_staging_dir(brain.path());
+        let from = crate::paths::legacy_staging_dirs(brain.path())[0].clone();
         let to = crate::paths::staging_dir(brain.path());
         std::fs::create_dir_all(from.join("dismissed")).unwrap();
         std::fs::write(from.join("hot-file-aaaa.md"), "candidate a").unwrap();
@@ -345,5 +368,39 @@ mod staging_migration_tests {
         let out = migrate_staging(brain.path()).unwrap();
         assert!(out.moved.is_empty() && out.collisions.is_empty());
         assert!(!crate::paths::staging_dir(brain.path()).exists(), "nothing is created for nothing");
+    }
+
+    #[test]
+    fn both_legacy_trees_move_history_and_leave_only_task_states() {
+        let brain = tempfile::tempdir().unwrap();
+        crate::init::run(brain.path()).unwrap();
+        for (i, from) in crate::paths::legacy_staging_dirs(brain.path()).iter().enumerate() {
+            std::fs::create_dir_all(from.join("maintenance/history")).unwrap();
+            std::fs::write(from.join(format!("maintenance/history/event-{i}.json")), "evidence")
+                .unwrap();
+        }
+        let result = migrate_staging(brain.path()).unwrap();
+        assert_eq!(result.moved.len(), 2);
+        assert!(result.collisions.is_empty());
+        for from in crate::paths::legacy_staging_dirs(brain.path()) {
+            assert!(!from.exists());
+        }
+        let mut states: Vec<_> = std::fs::read_dir(brain.path().join("todo"))
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|e| e.file_type().unwrap().is_dir())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        states.sort();
+        assert_eq!(states, ["active", "backlog", "blocked", "done"]);
+        let to = crate::paths::staging_dir(brain.path());
+        for i in 0..2 {
+            assert_eq!(
+                std::fs::read_to_string(to.join(format!("maintenance/history/event-{i}.json")))
+                    .unwrap(),
+                "evidence"
+            );
+        }
+        assert!(migrate_staging(brain.path()).unwrap().moved.is_empty());
     }
 }

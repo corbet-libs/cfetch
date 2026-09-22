@@ -23,6 +23,13 @@ for check in "$@"; do
       bash scripts/variant-matrix.sh >/dev/null
       "$python_bin" -m unittest -v scripts.test_stage_local_inference scripts.test_variant_matrix scripts.test_ci_variants
       ;;
+    staging)
+      rustc --version
+      cargo test --locked --bin cfetch staging
+      cargo test --locked --bin cfetch init::tests
+      cargo test --locked --bin cfetch import::tests
+      cargo test --locked --bin cfetch index::tests
+      ;;
     rust)
       version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
       case "$version" in

@@ -78,7 +78,7 @@ pub const WITHHELD: &str = "<secret path withheld>";
 pub struct Exhaust {
     /// Where the JSONL streams live (`<brain_root>/logs/cfetch`).
     pub logs_dir: PathBuf,
-    /// Where ring-5 candidates live (`<brain_root>/todo/staging`).
+    /// Where ring-5 candidates live (`<brain_root>/scratch/cfetch-staging`).
     pub staging_dir: PathBuf,
     /// This host's identity, stamped into file names and candidates.
     pub host: String,

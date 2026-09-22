@@ -91,26 +91,35 @@ How to behave, who you are, and what grants access.
     Dir {
         name: "todo",
         children: &["active", "backlog", "blocked", "done"],
-        reserved: &[
-            ("scratch", "never indexed: high-volume disposable working files"),
-            ("staging", "never indexed: autonomous maintenance evidence and history"),
-        ],
+        reserved: &[],
         readme: "\
 # todo
 
-Work state. Ring 4 — the current task, not the finished record.
+Shared task state. Ring 4 — tasks survive changes of agent or session.
 
-- `active/` — work in progress. `active/<task>/STATUS.md` is a convention
-  cfetch keys on: a session that writes to the tree without touching one is
-  reminded that it has not.
-- `backlog/`, `blocked/`, `done/` — the rest of the lifecycle.
+- `backlog/` — all new tasks start here.
+- `active/` — work in progress; keep `active/<task>/STATUS.md` current.
+- `blocked/` — work waiting for a named dependency or decision.
+- `done/` — closed tasks with an outcome and any reusable findings.
 
-Two reserved lanes are never indexed. `scratch/` is disposable working
-material — without the exclusion it drowns the ring it shares, measured at
-12,276 scratch files against 27 files of live task state. `staging/` holds
-ring-5 candidates: captured, quarantined, and promoted only through an
-evidence-grounded maintenance transaction. Both are quarantined by LOCATION,
-so a file whose frontmatter was stripped or hand-edited is still quarantined.
+Move the same task between these four states. The containing directory is its
+state; update its handoff and commit and push each transition when Git is used.
+Working material and generated evidence belong in `../scratch/`.
+",
+    },
+    Dir {
+        name: "scratch",
+        children: &[],
+        reserved: &[("cfetch-staging", "ring-5 maintenance evidence and history; never recalled")],
+        readme: "\
+# scratch
+
+Working material outside Git, never indexed for recall.
+
+`cfetch-staging/` holds generated ring-5 candidates, reviews and maintenance
+history. It is shared across hosts, preserved during migration, and never
+injected or recalled as curated knowledge. Snapshot retention is separate
+from task Git history; do not discard maintenance evidence as a cache.
 ",
     },
     Dir {
@@ -193,6 +202,8 @@ const GITIGNORE: &str = "\
 # Ring 5 candidates and disposable working material. Both are working
 # material, not record: candidates cross into the tree only through the
 # evidence-grounded maintenance gates, and until then they are not history.
+/scratch/
+# Keep legacy locations excluded until explicit migration completes.
 /todo/staging/
 /todo/scratch/
 ";
@@ -294,7 +305,7 @@ mod tests {
     fn the_created_tree_covers_every_directory_the_default_rules_name() {
         let dir = tempfile::tempdir().unwrap();
         run(dir.path()).unwrap();
-        for named in ["mind", "todo", "logs", "knowledge", "state"] {
+        for named in ["mind", "todo", "scratch", "logs", "knowledge", "state"] {
             assert!(dir.path().join(named).is_dir(), "{named} is named by a rule but not created");
         }
     }

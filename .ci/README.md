@@ -13,6 +13,7 @@ in Cargo.toml remains a minimum, and Cargo.lock remains the dependency snapshot.
 | `release-guards` | Shared fixture source | `release` workflow, operation `guards`; uses the exact publisher resource |
 | `catalog` | Automatic CI or selected workflow | Catalog, staging and variant-command fixtures |
 | `governor` | Selected workflow | Model-free deadline and load-policy checks |
+| `staging` | Existing native CI suite | Focused staging, migration, initialization, import and index checks |
 | `rust` | Linux on PR/main; Windows on main; all three OS families on release/manual CI | Provisioned native host, with the same locked commands |
 | `variants` | Selected Linux checks or automatic platform matrix | Only the worker's native Linux architecture |
 | `licenses` | Provisions the declared license tools | Requires existing cargo-deny and cargo-about |

@@ -822,7 +822,7 @@ fn inference_diagnostic(
                     severity: FindingSeverity::Critical,
                     summary: short_error(issue),
                     action: Some(
-                        "inspect todo/staging/maintenance/history and restore the immutable record from version control"
+                        "inspect scratch/cfetch-staging/maintenance/history and restore the immutable record from version control"
                             .into(),
                     ),
                 });

@@ -183,7 +183,7 @@ debugging, but it cannot apply or revert trusted-memory bytes.
 ## Reversal and failure recovery
 
 Every automatic outcome has an append-only Markdown history record under
-`todo/staging/maintenance/history/`. Applied events retain the before and after
+`scratch/cfetch-staging/maintenance/history/`. Applied events retain the before and after
 hashes, provenance, checks, rationale, candidate id, proposal id, and review
 id. Journal text is bounded and secret-redacted.
 
@@ -208,3 +208,12 @@ other bounded work.
 
 The result is a continuously maintained second brain that remains readable,
 portable, inspectable, and directly editable with ordinary Markdown tools.
+
+
+Generated evidence lives under `scratch/cfetch-staging/`, outside the task
+ledger. `todo/` contains only backlog, active, blocked and done task states.
+After upgrading every writer, run `cfetch init` to migrate both former paths
+(`todo/staging/` and `staging/cfetch/`). Nested reviews and history move with
+candidates. Name conflicts preserve both files and are reported for resolution;
+empty old directories are removed. Migration also works when scratch is on a
+separate filesystem. Existing Markdown and ignore files are not overwritten.

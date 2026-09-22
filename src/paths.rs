@@ -170,18 +170,14 @@ pub fn logs_dir(brain_root: &Path) -> PathBuf {
     brain_root.join("logs/cfetch")
 }
 
-/// Ring-5 staging: one markdown file per candidate, shared across hosts.
-/// A lane under `todo/`, because pending maintenance evidence IS work state —
-/// and because a reserved name already carries "never indexed"
-/// without needing a top-level directory of its own.
+/// Ring-5 generated evidence, shared across hosts and outside task state.
 pub fn staging_dir(brain_root: &Path) -> PathBuf {
-    brain_root.join("todo/staging")
+    brain_root.join("scratch/cfetch-staging")
 }
 
-/// Where staging lived before the tree was standardised. Read-only: it exists
-/// so an existing brain is migrated rather than silently orphaned.
-pub fn legacy_staging_dir(brain_root: &Path) -> PathBuf {
-    brain_root.join("staging/cfetch")
+/// Former staging locations, read only during explicit migration.
+pub fn legacy_staging_dirs(brain_root: &Path) -> [PathBuf; 2] {
+    [brain_root.join("todo/staging"), brain_root.join("staging/cfetch")]
 }
 
 /// Tool configuration inside the tree — shared by every host that mounts it,

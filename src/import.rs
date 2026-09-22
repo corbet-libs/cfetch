@@ -17,7 +17,7 @@
 //! | `STATUS.md` | `knowledge/handoff.md` | 0 | snapshot of the project state at migration time; a one-way import makes it history, and it is the natural ring-0 handoff |
 //! | `buglog.json` | `knowledge/bugs/<id>.md` | 3 | one note per curated bug; the ids stay greppable so `bug-NNN` references inside imported files keep resolving |
 //! | archive `*.md` | `knowledge/archive/` | excl | out of the index |
-//! | `todo/staging/*` | `todo/staging/*` | 5 | quarantine, same contract |
+//! | `todo/staging/*` | `scratch/cfetch-staging/*` | 5 | quarantine, same contract |
 //!
 //! Files cfetch derives on its own are skipped with a note: `anatomy.md`
 //! (code index), `token-ledger.json`, `config.json` (cfetch has its own
@@ -67,7 +67,7 @@ pub const MIGRATIONS: &[(&str, &str, Option<u8>)] = &[
 /// the resident channel to the old tool's protocol (or to nothing). Facts
 /// only: where the migrated conventions live now and where the old protocol
 /// is kept. An operator's own AGENT.md is never overwritten.
-const AGENT_BRIDGE: &str = "---\nring: 1\n---\n\n# Migration bridge (authored by `cfetch import openwolf`)\n\nThis brain was migrated from an openwolf-enhanced `.wolf/` tree. The\nprevious operating protocol is preserved verbatim at\n`knowledge/openwolf-protocol.md` — recall-only. Its instructions reference\n`.wolf/` paths (`.wolf/STATUS.md`, `.wolf/memory.md`, `.wolf/buglog.json`)\nand the `openwolf recall` command; none of these exist in a cfetch brain.\nFollowing them here sends work outside the tree.\n\nWhere things live now:\n\n- curated facts and project knowledge → `knowledge/`\n- one note per bug or failure conclusion → `knowledge/bugs/`\n- behaviour and working agreements → `mind/memories/`\n- quarantine for anything unreviewed → `todo/staging/`\n- the migrated project-state snapshot (ring-0 handoff) → `knowledge/handoff.md`\n";
+const AGENT_BRIDGE: &str = "---\nring: 1\n---\n\n# Migration bridge (authored by `cfetch import openwolf`)\n\nThis brain was migrated from an openwolf-enhanced `.wolf/` tree. The\nprevious operating protocol is preserved verbatim at\n`knowledge/openwolf-protocol.md` — recall-only. Its instructions reference\n`.wolf/` paths (`.wolf/STATUS.md`, `.wolf/memory.md`, `.wolf/buglog.json`)\nand the `openwolf recall` command; none of these exist in a cfetch brain.\nFollowing them here sends work outside the tree.\n\nWhere things live now:\n\n- curated facts and project knowledge → `knowledge/`\n- one note per bug or failure conclusion → `knowledge/bugs/`\n- behaviour and working agreements → `mind/memories/`\n- quarantine for anything unreviewed → `scratch/cfetch-staging/`\n- the migrated project-state snapshot (ring-0 handoff) → `knowledge/handoff.md`\n";
 
 /// Files cfetch regenerates or tracks differently — skipped with a reason.
 const SKIPPED: &[(&str, &str)] = &[
@@ -361,8 +361,8 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
             if !name.ends_with(".md") {
                 continue;
             }
-            let dest_rel = format!("todo/staging/{name}");
-            let dest = brain_root.join("todo").join("staging").join(&name);
+            let dest_rel = format!("scratch/cfetch-staging/{name}");
+            let dest = crate::paths::staging_dir(brain_root).join(&name);
             if dest.exists() {
                 report.skipped.push((dest_rel.clone(), "already exists".to_string()));
                 continue;
@@ -540,7 +540,7 @@ mod tests {
             .any(|(s, d)| s == "cerebrum.md" && d == "knowledge/cerebrum.md"));
         assert!(report.imported.iter().any(|(s, d)| s == "memory.md" && d == "mind/memories/MEMORY.md"));
         assert!(report.imported.iter().any(|(s, _)| s.starts_with("handoff-archiv")));
-        assert!(report.imported.iter().any(|(s, _)| s.starts_with("todo/staging/")));
+        assert!(report.imported.iter().any(|(s, _)| s.starts_with("scratch/cfetch-staging/")));
         assert!(report.skipped.iter().any(|(s, r)| s == "anatomy.md" && r.contains("code index")));
 
         // Ring frontmatter was applied.

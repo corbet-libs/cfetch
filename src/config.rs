@@ -243,7 +243,8 @@ fn default_ring_rules() -> Vec<RingRule> {
         RingRule { prefix: "mind/memories/MEMORY.md".into(), ring: 1 },
         // Distilled behavioral memories.
         RingRule { prefix: "mind/memories/".into(), ring: 2 },
-        // Ring-5 staging candidates. This MUST precede the `todo/` rule:
+        RingRule { prefix: "scratch/cfetch-staging/".into(), ring: 5 },
+        // Legacy ring-5 candidates. This MUST precede the `todo/` rule:
         // `ring_for` takes the first match, so the general lane would
         // otherwise claim the quarantined one and make candidates recallable.
         RingRule { prefix: "todo/staging/".into(), ring: 5 },
@@ -271,6 +272,7 @@ fn default_exclude_prefixes() -> Vec<String> {
         // Disposable working material. Without this a scratch lane drowns the
         // ring it shares: a real tree measured 12,276 scratch files against 27
         // files of live task state, and every query paid the ratio.
+        "scratch/".into(),
         "todo/scratch/".into(),
     ]
 }
