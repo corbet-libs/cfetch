@@ -1066,12 +1066,11 @@ pub fn status() -> anyhow::Result<()> {
             println!("daemon: running (v{})", r.version.unwrap_or_default());
             if let Some(info) = info.filter(|i| i.enabled) {
                 println!(
-                    "serving: origin {}, generation {}, drain barrier {}, last barrier {} ms, {}",
+                    "serving: origin {}, generation {}, drain barrier {}, last barrier {} ms, local channel only",
                     info.origin,
                     info.generation,
                     barrier_mode_of(&info),
-                    info.last_barrier_ms,
-                    "local channel only"
+                    info.last_barrier_ms
                 );
             }
             if let Some(s) = call("scan-status", Duration::from_millis(300)).and_then(|r| r.scan) {
@@ -1514,7 +1513,8 @@ mod tests {
     fn a_token_gated_channel_without_a_configured_token_refuses_everything() {
         // An unconfigured credential is never an open door.
         let ctx = no_serve_ctx();
-        for chan in [Channel::LocalToken] {
+        {
+            let chan = Channel::LocalToken;
             let r = roundtrip(
                 &ctx,
                 chan,

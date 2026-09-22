@@ -50,7 +50,8 @@ impl Fixture {
             TIMEOUT,
         )
         .unwrap();
-        for path in [&a] {
+        {
+            let path = &a;
             git(path, &["config", "user.name", "Test Writer"], TIMEOUT).unwrap();
             git(
                 path,

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 : "${CFETCH_LOCAL_RELEASE_OUTPUT:?new artifact directory required}"
+cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo build --release --locked --features embedded-embeddings
 if [[ -n "${CFETCH_TEST_LOCAL_MODEL:-}" ]]; then
   cargo test --release --locked --features embedded-embeddings --test local_memory -- --ignored --nocapture
