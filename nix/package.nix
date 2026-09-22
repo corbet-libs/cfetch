@@ -39,8 +39,8 @@ rustPlatform.buildRustPackage ({
   version = (builtins.fromTOML (builtins.readFile (src + "/Cargo.toml"))).package.version;
   inherit src;
   cargoLock.lockFile = src + "/Cargo.lock";
-  cargoBuildFeatures = lib.optional embedded "embedded-embeddings";
-  cargoCheckFeatures = lib.optional embedded "embedded-embeddings";
+  buildFeatures = lib.optional embedded "embedded-embeddings";
+  checkFeatures = lib.optional embedded "embedded-embeddings";
   nativeCheckInputs = [ git ];
   CFETCH_VARIANT = "${os}-cfetch-${backend}-${arch}";
   ORT_SKIP_DOWNLOAD = "1";
