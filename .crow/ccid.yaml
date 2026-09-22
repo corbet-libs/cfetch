@@ -8,6 +8,7 @@ variables:
   CI_TOOL_ARCHIVE: {default: ""}
   CI_TOOL_SHA256: {default: ""}
   CHECKS: {default: catalog}
+  CFETCH_TEST_LOCAL_MODEL: {default: ""}
   CFETCH_LOCAL_RELEASE_OUTPUT: {default: ""}
   CFETCH_LOCAL_MODEL_SOURCE: {default: ""}
   CFETCH_LOCAL_MODEL_OUTPUT: {default: ""}
