@@ -78,6 +78,7 @@ mod paths;
 mod pipeline;
 mod rerank;
 mod resident;
+mod repositories;
 mod retrieval_fixture;
 mod runtime_status;
 mod serve;
@@ -102,6 +103,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Inspect independent Git repositories, or synchronize their committed work
+    Repos {
+        /// Explicit checkout/discovery roots; defaults to the configured git.roots
+        roots: Vec<std::path::PathBuf>,
+        /// Fetch, merge clean changes, and push; leave working edits untouched
+        #[arg(long)]
+        sync: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Run a hook entrypoint (invoked by the agent harness, reads stdin)
     Hook {
         /// session-start | user-prompt | pre-tool | post-tool | stop | precompact
@@ -193,6 +204,15 @@ enum Command {
         /// Maximum documents to return (1-200)
         #[arg(long, default_value_t = 40)]
         limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Explain how two notes connect through curated links and backlinks
+    GraphPath {
+        from: String,
+        to: String,
+        #[arg(long, default_value_t = 6)]
+        depth: usize,
         #[arg(long)]
         json: bool,
     },
@@ -3152,6 +3172,29 @@ fn main() {
                 }
             }
         }
+        Command::Repos { roots, sync, json } => {
+            let result = (|| -> anyhow::Result<bool> {
+                let cfg = config::Config::load()?;
+                let roots = if roots.is_empty() {
+                    cfg.git.roots.iter().map(|path| cfg.resolve(path)).collect()
+                } else { roots };
+                anyhow::ensure!(!roots.is_empty(), "provide repository roots or configure git.roots");
+                let statuses = repositories::run(&roots, sync, std::time::Duration::from_secs(cfg.git.timeout_secs))?;
+                if json { println!("{}", serde_json::to_string_pretty(&statuses)?); }
+                else {
+                    for status in &statuses {
+                        println!("{}: {}{}", status.path.display(), status.state,
+                            status.detail.as_ref().map(|text| format!(" ({text})")).unwrap_or_default());
+                    }
+                }
+                Ok(!sync || statuses.iter().all(|status| status.state == "synchronized"))
+            })();
+            match result {
+                Ok(true) => {},
+                Ok(false) => std::process::exit(1),
+                Err(error) => { eprintln!("cfetch repos: {error:#}"); std::process::exit(1); },
+            }
+        }
             Command::Daemon { action } => {
             let result = match action {
                 DaemonAction::Run => daemon::run(),
@@ -3474,6 +3517,20 @@ fn main() {
                 eprintln!("cfetch code-graph: {e}");
                 std::process::exit(1);
             }
+        }
+        Command::GraphPath { from, to, depth, json } => {
+            let result = (|| -> anyhow::Result<()> {
+                let cfg = config::Config::load()?;
+                let conn = index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
+                let route = knowledge_graph::trace(&conn, &from, &to, depth)?;
+                if json { println!("{}", serde_json::to_string_pretty(&route)?); }
+                else if route.found { println!("{}", route.paths.join(" ↔ ")); }
+                else if route.from_matches.len() != 1 || route.to_matches.len() != 1 {
+                    println!("endpoints must each identify one note; from: {:?}; to: {:?}", route.from_matches, route.to_matches);
+                } else { println!("no curated path within {depth} hops"); }
+                Ok(())
+            })();
+            if let Err(error) = result { eprintln!("cfetch graph-path: {error:#}"); std::process::exit(1); }
         }
         Command::Graph { focus, slice, limit, json } => {
             if let Err(e) = graph_cmd(focus.as_deref(), slice.as_deref(), limit, json) {

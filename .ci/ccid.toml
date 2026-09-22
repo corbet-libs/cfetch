@@ -15,6 +15,10 @@ commands = [["bash", "scripts/ci-check.sh", "catalog"]]
 kind = "commands"
 commands = [["bash", "scripts/ci-check.sh", "rust"]]
 
+[checks.memory]
+kind = "commands"
+commands = [["bash", "scripts/ci-check.sh", "memory"]]
+
 [checks.variants]
 kind = "commands"
 commands = [["bash", "scripts/ci-check.sh", "variants"]]

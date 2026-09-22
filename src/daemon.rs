@@ -1823,6 +1823,14 @@ pub fn run() -> anyhow::Result<()> {
     });
     start_iroh(ctx.clone())?;
 
+    if cfg.git.enabled {
+        let git_cfg = cfg.clone();
+        let git_ctx = ctx.clone();
+        std::thread::Builder::new().name("cfetch-git".into()).spawn(move || {
+            crate::repositories::worker(git_cfg, || git_ctx.shutdown.load(Ordering::SeqCst));
+        }).context("start Git synchronization worker")?;
+    }
+
     if cfg.maintenance.enabled && cfg.maintenance.configured() {
         let maintenance_cfg = cfg.clone();
         let maintenance_ctx = ctx.clone();

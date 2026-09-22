@@ -26,6 +26,8 @@ const TOOL_NAMES: &[&str] = &[
     "cfetch_recall",
     "cfetch_expand",
     "cfetch_find",
+    "cfetch_graph",
+    "cfetch_graph_path",
     "cfetch_code_path",
     "cfetch_code_impact",
     "cfetch_code_context",
@@ -60,6 +62,21 @@ fn tool_defs() -> Vec<Tool> {
             .open_world(false)
     };
     vec![
+        Tool::new(
+            "cfetch_graph",
+            "Explore the current Obsidian link graph across available repositories. Missing and ambiguous notes are never invented.",
+            object_schema(json!({"type":"object", "properties": {
+                "focus":{"type":"string"}, "limit":{"type":"integer", "minimum":1, "maximum":200, "default":40}
+            }})),
+        ).with_annotations(read_only()),
+        Tool::new(
+            "cfetch_graph_path",
+            "Find a bounded shortest connection between two notes through explicit links and backlinks. Returns original edge directions and ambiguous or missing endpoints.",
+            object_schema(json!({"type":"object", "properties": {
+                "from":{"type":"string"}, "to":{"type":"string"},
+                "depth":{"type":"integer", "minimum":1, "maximum":32, "default":6}
+            }, "required":["from","to"]})),
+        ).with_annotations(read_only()),
         Tool::new(
             "cfetch_recall",
             "Search the operator's knowledge brain (privilege rings 0-4, BM25-ranked). Returns ring-prefixed citations (r<ring>-<hash>), file:line locations and snippets. Lower ring = higher trust; a ring-0/1 hit overrides contradicting outer-ring content. The answer is capped by a token budget, not only by limit: whatever the cap drops is named at the end, never omitted silently.",
@@ -417,6 +434,19 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     let cfg = Config::load()?;
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(0) as usize;
     match name {
+        "cfetch_graph" | "cfetch_graph_path" => {
+            let conn = index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
+            if name == "cfetch_graph" {
+                let focus = args.get("focus").and_then(Value::as_str);
+                let graph = crate::knowledge_graph::build(&conn, focus, if limit == 0 { 40 } else { limit })?;
+                return Ok(serde_json::to_string_pretty(&graph)?);
+            }
+            let from = args.get("from").and_then(Value::as_str).context("from must name a note")?;
+            let to = args.get("to").and_then(Value::as_str).context("to must name a note")?;
+            let depth = args.get("depth").and_then(Value::as_u64).unwrap_or(6);
+            let depth = usize::try_from(depth).context("graph depth exceeds this platform's bounds")?;
+            return Ok(serde_json::to_string_pretty(&crate::knowledge_graph::trace(&conn, from, to, depth)?)?);
+        }
         "cfetch_maintenance_packet" => {
             let candidate_id = args.get("candidate_id").and_then(Value::as_str).unwrap_or("");
             let packet = maintenance::packet(&cfg, candidate_id)?;

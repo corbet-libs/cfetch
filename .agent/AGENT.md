@@ -5,15 +5,17 @@
   **VOCAB.md** (canonical terms — use these words, not synonyms), DESIGN.md
   (mechanism dossiers + decision history) and STATUS.md (current state).
   Read PRD + VOCAB before implementing anything.
-- ARCHITECTURE IN ONE PARAGRAPH: the markdown tree is the only storage of
-  record. Per slice, a host holds STORAGE (the markdown), METADATA (derived
-  artifacts) or NOTHING (remote queries only) — there is no cache tier. A
-  serving daemon at each storage host watches its own files and answers every
-  query behind a DRAIN BARRIER (serve-fresh-or-wait, bounded, always labeled
-  {origin, generation, fresh}); seconds-scale drift between cooperating
-  agents is a banned defect class, never fixed with a TTL. Derived work is
-  computed ONCE at the change (scored across capable hosts) and distributed
-  as content-addressed artifacts; nothing is derived twice.
+- ARCHITECTURE: Markdown is the storage of record. Independently shared Git
+  repositories compose the brain, including nested skills and project repos.
+  Filesystem placement is external; cfetch never configures mounts. Minds
+  are selected independently of hostnames and may serve several environments.
+  Git synchronizes committed changes with ordinary remotes; delays and offline
+  work are expected. Preserve edits, isolate conflicts per repository, never
+  force push, stash or reset. Queries and computation run locally. Text search,
+  vectors, Obsidian link traversal and code dependency graphs are core features.
+  Reuse compatible content-addressed vectors; mutable indexes remain local.
+  Remove the former peer transport, grants, remote queries and compute routing.
+  Authoritative source edits invalidate derived results regardless of watchers.
 - INDEXES ARE NEVER A FACT OF RECORD. Deleting any index must lose nothing.
 - CLEAN-ROOM RULE (load-bearing): this project implements mechanisms described in
   the private dossiers. Never port, translate, or paraphrase source code from

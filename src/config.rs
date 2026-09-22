@@ -858,6 +858,9 @@ pub struct ClientConfig {
 pub struct Config {
     #[serde(default = "paths::default_brain_root")]
     pub brain_root: PathBuf,
+    /// Git synchronization of explicitly enrolled, independently shared repos.
+    #[serde(default)]
+    pub git: crate::repositories::GitConfig,
     /// Files injected verbatim (budget-clipped) at session start, in order.
     /// Paths are relative to brain_root unless absolute.
     #[serde(default)]
@@ -941,6 +944,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             brain_root: paths::default_brain_root(),
+            git: crate::repositories::GitConfig::default(),
             resident: vec![ResidentEntry {
                 path: PathBuf::from("AGENT.md"),
                 ring: 1,
@@ -973,7 +977,7 @@ impl Default for Config {
 /// choose where the brain itself lives, where requests egress, or how this
 /// machine serves.
 const MACHINE_OWNED_KEYS: &[&str] =
-    &["brain_root", "embeddings", "rerank", "maintenance", "serve", "client"];
+    &["brain_root", "git", "embeddings", "rerank", "maintenance", "serve", "client"];
 
 impl Config {
     /// Loads the configuration in two layers.
@@ -1147,6 +1151,9 @@ impl Config {
 
     /// The shared post-parse checks; every load path funnels through here.
     fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(self.git.interval_secs >= 10, "git.interval_secs must be at least 10");
+        anyhow::ensure!((1..=300).contains(&self.git.timeout_secs), "git.timeout_secs must be between 1 and 300");
+        anyhow::ensure!(!self.git.enabled || !self.git.roots.is_empty(), "enroll git.roots before enabling synchronization");
         // An explicitly empty `resident` list means "inject nothing" — the
         // default (AGENT.md) applies only when no config file exists at all.
         // On hosts where the harness already auto-loads the ring files,
