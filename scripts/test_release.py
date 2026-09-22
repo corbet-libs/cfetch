@@ -23,6 +23,20 @@ class ReleaseTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
 
+    def test_native_host_spellings(self):
+        # Native Windows ARM Python reports ARM64; Unix uses lower case.
+        for system, machine, expected in [("Windows", "ARM64", ("win", "aarch64")),
+                                           ("Windows", "AMD64", ("win", "x86_64")),
+                                           ("Darwin", "arm64", ("mac", "aarch64")),
+                                           ("Linux", "aarch64", ("linux", "aarch64")),
+                                           ("Linux", "x86_64", ("linux", "x86_64"))]:
+            with self.subTest(system=system, machine=machine), patch.object(r.platform, "system", return_value=system), patch.object(r.platform, "machine", return_value=machine):
+                observed = r.host()
+                self.assertEqual((observed["os"], observed["arch"]), expected)
+        with patch.object(r.platform, "machine", return_value="i686"):
+            with self.assertRaisesRegex(r.Failure, "Unsupported native release host"):
+                r.host()
+
     def source(self, directory, entries=None):
         entries = entries or {"Cargo.toml": b'[package]\nname="cfetch"\nversion="0.9.9"\nrepository="https://github.com/corbet-libs/cfetch"\n',
                               "Cargo.lock": b"locked", **{name: name.encode() for name in r.METADATA.values()}}

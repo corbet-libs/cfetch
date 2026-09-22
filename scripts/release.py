@@ -225,8 +225,8 @@ def matrix(files):
 
 def host():
     operating_system = {"Linux": "linux", "Darwin": "mac", "Windows": "win"}.get(platform.system())
-    architecture = {"x86_64": "x86_64", "AMD64": "x86_64", "arm64": "aarch64", "aarch64": "aarch64"}.get(platform.machine())
-    require(operating_system and architecture, "Unsupported native release host")
+    architecture = {"x86_64": "x86_64", "amd64": "x86_64", "arm64": "aarch64", "aarch64": "aarch64"}.get(platform.machine().lower())
+    require(operating_system and architecture, f"Unsupported native release host: {platform.system()} / {platform.machine()}")
     return {"os": operating_system, "arch": architecture, "platform": platform.platform()}
 
 

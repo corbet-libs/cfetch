@@ -21,7 +21,7 @@ for check in "$@"; do
     catalog)
       bash scripts/check-packaging-variants.sh
       bash scripts/variant-matrix.sh >/dev/null
-      "$python_bin" -m unittest -v scripts.test_stage_local_inference scripts.test_variant_matrix scripts.test_ci_variants
+      "$python_bin" -m unittest -v scripts.test_stage_local_inference scripts.test_variant_matrix scripts.test_ci_variants scripts.test_release.ReleaseTests.test_native_host_spellings
       ;;
     staging)
       rustc --version

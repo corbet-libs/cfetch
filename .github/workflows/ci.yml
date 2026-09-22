@@ -126,6 +126,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Verify native release host before compilation
+        shell: bash
+        env:
+          EXPECTED_RELEASE_OS: ${{ matrix.os }}
+          EXPECTED_RELEASE_ARCH: ${{ matrix.arch }}
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.release import host, require
+          native = host()
+          require((native["os"], native["arch"]) == (os.environ["EXPECTED_RELEASE_OS"], os.environ["EXPECTED_RELEASE_ARCH"]), "Runner does not match its native release variant")
+          print(native)
+          PY
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: stable
