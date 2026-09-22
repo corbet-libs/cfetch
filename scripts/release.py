@@ -83,13 +83,23 @@ def durable(path, value):
 
 
 def command(args, *, env=None, capture=False):
+    if args[0] == "bash" and os.name == "nt":
+        # Python's native process lookup can select the WSL launcher. These
+        # repository scripts need the Git installation's native MSYS shell.
+        git = shutil.which("git")
+        shells = [parent / "bin/bash.exe" for parent in Path(git).resolve().parents] if git else []
+        shell = next((path for path in shells if path.is_file()), None)
+        require(shell is not None, "Git Bash must be installed for native Windows release checks")
+        args = [str(shell), *args[1:]]
     try:
         return subprocess.run(args, cwd=ROOT, env=env, check=True, text=True,
                               stdout=subprocess.PIPE if capture else None,
                               stderr=subprocess.PIPE if capture else None).stdout
     except subprocess.CalledProcessError as error:
-        if capture and error.stderr:
-            print(error.stderr[-16384:], file=sys.stderr, end="")
+        if capture:
+            diagnostic = error.stderr or error.stdout
+            if diagnostic:
+                print(diagnostic[-16384:], file=sys.stderr, end="")
         raise
 
 
