@@ -5,7 +5,12 @@ listed here is a fix or an internal change with no effect on behavior.
 
 ## Unreleased
 
-## 0.10.0
+## 0.10.1
+
+- Ship the local-memory rewrite with an explicit manual release trigger. The 0.10.0 tag produced no published artifacts.
+- Retain ONNX Runtime notices in Homebrew installations.
+
+## 0.10.0 (unpublished)
 
 - Replace peer sharing and remote computation with ordinary Git repositories and local retrieval.
 - Add qualified offline CPU embeddings, hybrid search, Obsidian graph paths and independent mind selection.

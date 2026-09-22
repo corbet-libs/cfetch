@@ -77,7 +77,7 @@ def formula(selected_version, catalog, checksums):
                       f'      sha256 "{digest}"']
         lines += ["    end", "  end"]
     lines += ["", "  def install", '    bin.install "cfetch"', '    doc.install "LICENSE.md"',
-              '    doc.install "THIRD-PARTY-LICENSES.txt"', "  end", "", "  test do",
+              '    doc.install "THIRD-PARTY-LICENSES.txt"', '    doc.install Dir["onnxruntime-*.txt"]', "  end", "", "  test do",
               '    assert_match version.to_s, shell_output("#{bin}/cfetch --version")', "  end", "end", ""]
     return "\n".join(lines).encode(), {name: digest for name, digest in selected}
 

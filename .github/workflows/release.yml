@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -15,7 +16,7 @@ env:
 
 jobs:
   plan:
-    if: github.event.repository.private == false
+    if: github.event.repository.private == false && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

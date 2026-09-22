@@ -32,8 +32,7 @@ cfetch still creates a fresh isolated request to the proposal model.
 }
 ```
 
-HTTPS and loopback endpoints are accepted by default. Any other host must be
-named in `maintenance.allow_hosts`. Requests and responses are bounded, model
+Only loopback endpoints are accepted. Requests and responses are bounded, model
 labels are sanitized before reaching agent-visible status, and credentials are
 never written to the maintenance history.
 
@@ -62,8 +61,7 @@ $ cfetch daemon start
    history event, finalizes the record, and settles its source candidate. A
    dismissal or no-op is recorded without writing trusted memory.
 7. The Markdown watcher advances the catalog generation. Lexical search and
-   the wikilink graph rebuild from the files; the vector worker hydrates shared
-   or peer artifacts and embeds only still-missing content hashes.
+   the wikilink graph rebuild from the files; the local vector worker embeds only still-missing content hashes.
 
 The loop is event-driven rather than a model-on-a-timer cron. An unchanged
 candidate revision does not trigger another inference call. Failures back off,

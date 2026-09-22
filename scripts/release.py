@@ -447,8 +447,8 @@ def inspect_tree(directory, core):
             require(contents == receipt.get("inventory") and row["binary"] in contents, "Native archive inventory differs")
             require(row["os"] == "win" or contents[row["binary"]]["executable"], "Native executable lost its execution mode")
             require(metadata == {name: files[original] for name, original in METADATA.items()}, "Native license/catalog/registry bytes differ from source")
-            if row["backend"] == "endpoint":
-                require(set(contents) == {*METADATA, row["binary"]}, "Endpoint package contains unexplained payload")
+            if row["backend"] in {"endpoint", "cpu", "lexical"}:
+                require(set(contents) == {*METADATA, row["binary"]}, "Portable package contains unexplained payload")
             variants[selected] = artifact
     required = {("rust", name) for name in ("linux", "mac", "win")} | {(name, "any") for name in CHECKS - {"rust"}}
     require(observed == required, "Incomplete catalog/license/profile/native Rust gates: " + repr(sorted(required - observed)))
