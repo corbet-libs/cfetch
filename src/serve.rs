@@ -27,33 +27,12 @@ pub const FINGERPRINT_INTERVAL: Duration = Duration::from_secs(60);
 /// Does this host's watcher backend deliver events in an order the drain
 /// barrier may reason about?
 ///
-/// The fast barrier proves coverage by ORDER: a numbered sentinel dropped into
-/// a watched directory rides the same event queue as the real writes, so
-/// "sentinel N observed" implies "every write that completed before the
-/// barrier began has been counted". That argument belongs to ONE backend, not
-/// to watching in general. THE mapping, with the reason each row has its
-/// answer:
-///
-/// | `notify` backend              | platform          | delivery order                                                              | mode      |
-/// |-------------------------------|-------------------|-----------------------------------------------------------------------------|-----------|
-/// | `Inotify`                     | Linux             | one kernel queue for all watches, strict FIFO                               | ordered   |
-/// | `Fsevent`                     | macOS             | coalesced per directory, batched with latency, no order ACROSS directories  | unordered |
-/// | `Kqueue`                      | BSD, macOS opt-in | one event per watched fd; nothing relates two fds                           | unordered |
-/// | `ReadDirectoryChangesWatcher` | Windows           | ordered within ONE directory buffer only, silently truncated on overflow    | unordered |
-/// | `PollWatcher`                 | fallback          | periodic stat diff; there is no event stream to order                       | unordered |
-/// | anything else                 | future backends   | unproven                                                                    | unordered |
-///
-/// The row is chosen from `notify`'s own [`notify::Watcher::kind`] at runtime
-/// — the backend `RecommendedWatcher` actually compiled to — NOT from a
-/// `cfg(target_os)` guess: notify's macOS backend is selectable at compile
-/// time (`macos_kqueue`), so the operating system does not settle the answer.
-///
-/// Unrecognized is UNORDERED on purpose: a wrong "ordered" answer is a
-/// silent-staleness bug — the PRD's banned defect class — while a wrong
-/// "unordered" answer only costs latency.
+/// Every production filesystem uses content fingerprints. The former ordered
+/// barrier remains only as a regression fixture for the shared event worker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BarrierMode {
     /// FIFO event delivery: the sentinel proves coverage.
+    #[cfg(test)]
     Ordered,
     /// No usable ordering: the tree fingerprint proves coverage.
     Unordered,
@@ -64,19 +43,14 @@ impl BarrierMode {
     /// the platform cannot give.
     pub fn label(self) -> &'static str {
         match self {
+            #[cfg(test)]
             BarrierMode::Ordered => "ordered (sentinel)",
             BarrierMode::Unordered => "unordered (fingerprint)",
         }
     }
 }
 
-/// Override for the detected mode: `ordered` | `unordered`.
-///
-/// The unordered path must be exercisable on an ordered host — a path only
-/// macOS runs is a path only macOS debugs, and CI cannot run macOS unit tests
-/// against a Linux daemon. An operator may also pin the sound-and-slower path
-/// deliberately (e.g. a filesystem whose events they do not trust).
-
+/// Select the filesystem-independent production freshness barrier.
 pub fn detected_mode() -> BarrierMode {
     BarrierMode::Unordered
 }
@@ -248,6 +222,7 @@ pub struct ServeState {
     wake: Option<mpsc::Sender<Wake>>,
     progress: Mutex<Progress>,
     cv: Condvar,
+    #[cfg(test)]
     barrier_seq: AtomicU64,
     pub generation: AtomicU64,
     pub last_barrier_ms: AtomicU64,
@@ -288,6 +263,7 @@ impl ServeState {
             wake: None,
             progress: Mutex::new(Progress::default()),
             cv: Condvar::new(),
+            #[cfg(test)]
             barrier_seq: AtomicU64::new(0),
             generation: AtomicU64::new(0),
             last_barrier_ms: AtomicU64::new(0),
@@ -295,10 +271,7 @@ impl ServeState {
         }
     }
 
-    /// Forces the barrier mode. Unit tests use it to exercise the unordered
-    /// path on an ordered host; `start` never calls it — there the mode comes
-    /// from the backend, or from [`MODE_ENV`], which is also how an
-    /// integration test forces a spawned daemon onto the other path.
+    /// Select a regression fixture's barrier.
     #[cfg(test)]
     pub(crate) fn with_mode(mut self, mode: BarrierMode) -> Self {
         self.mode = mode;
@@ -331,6 +304,7 @@ impl ServeState {
     /// [`BarrierMode`].
     pub fn barrier(&self, timeout: Duration) -> BarrierOutcome {
         match self.mode {
+            #[cfg(test)]
             BarrierMode::Ordered => self.barrier_ordered(timeout),
             BarrierMode::Unordered => self.barrier_unordered(timeout),
         }
@@ -339,6 +313,7 @@ impl ServeState {
     /// Coverage by ORDER. Unchanged from the original barrier: two condvar
     /// waits and a sentinel write, no tree walk. Nothing on this path may
     /// acquire a cost that only the unordered path needs.
+    #[cfg(test)]
     fn barrier_ordered(&self, timeout: Duration) -> BarrierOutcome {
         let start = Instant::now();
         let deadline = start + timeout;

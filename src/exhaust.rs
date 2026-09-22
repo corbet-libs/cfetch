@@ -122,9 +122,8 @@ impl Exhaust {
         )
     }
 
-    /// [`Exhaust::record`] with an explicit timestamp. Only the legacy import
-    /// uses it: history carried into the tree must keep the moment it
-    /// happened, not the moment it was moved.
+    /// Synthetic historical events for capture regression checks.
+    #[cfg(test)]
     pub fn record_at(
         &self,
         ts: i64,
