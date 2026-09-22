@@ -227,7 +227,7 @@ class PackageStagingTests(unittest.TestCase):
     def test_loads_the_exact_release_variant_catalog_container(self) -> None:
         path = Path(__file__).resolve().parents[2] / "release/variants.json"
         catalog = _load_variant_catalog(path, file_sha256(path))
-        self.assertEqual(catalog["linux-cfetch-remote-x86_64"]["backend"], "endpoint")
+        self.assertEqual(catalog["linux-cfetch-cpu-x86_64"]["backend"], "cpu")
 
     def test_report_is_injected_before_deterministic_package_hashing(self) -> None:
         with (

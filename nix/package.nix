@@ -1,4 +1,4 @@
-{ lib, stdenv, rustPlatform, fetchurl, runCommand, xz, src }:
+{ lib, stdenv, rustPlatform, fetchurl, runCommand, xz, git, src }:
 let
   system = stdenv.hostPlatform.system;
   # Same pinned CPU archives as ort-sys 2.0.0-rc.13. Cargo cannot download
@@ -41,6 +41,7 @@ rustPlatform.buildRustPackage ({
   cargoLock.lockFile = src + "/Cargo.lock";
   cargoBuildFeatures = lib.optional embedded "embedded-embeddings";
   cargoCheckFeatures = lib.optional embedded "embedded-embeddings";
+  nativeCheckInputs = [ git ];
   CFETCH_VARIANT = "${os}-cfetch-${backend}-${arch}";
   ORT_SKIP_DOWNLOAD = "1";
   CARGO_BUILD_JOBS = "2";
