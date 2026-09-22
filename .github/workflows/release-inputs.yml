@@ -18,7 +18,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: stable
-      - uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833
+      - uses: taiki-e/install-action@9114bf4d891761788c546334fd37538eae1bf8b3
         with:
           tool: cargo-deny,cargo-about
       - name: Retain the resolved graph and exact notices

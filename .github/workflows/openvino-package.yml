@@ -152,7 +152,7 @@ jobs:
           )
 
       - name: Upload content-addressed build inputs
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: openvino-pinned-inputs-${{ github.run_id }}
           path: ${{ runner.temp }}/openvino-archives/*
