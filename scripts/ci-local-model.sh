@@ -6,6 +6,10 @@ set -euo pipefail
 : "${CFETCH_LOCAL_MODEL_REFERENCE:?canonical reference JSON required}"
 python_bin="${CFETCH_POLICY_PYTHON:-python3}"
 model_tools="${CFETCH_LOCAL_MODEL_OUTPUT}.build-tools"
+cxx_library=$("${CXX:-c++}" -print-file-name=libstdc++.so.6)
+if [[ -f "$cxx_library" ]]; then
+  export LD_LIBRARY_PATH="$(dirname "$cxx_library")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 if [[ ! -e "$model_tools/ready" ]]; then
   mkdir -p "$model_tools"
   PYTHONPATH="${CFETCH_PIP_BOOTSTRAP:-}" "$python_bin" -m pip install --disable-pip-version-check --only-binary=:all: --no-deps --target "$model_tools" \
