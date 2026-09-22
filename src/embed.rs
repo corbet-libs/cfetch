@@ -1,7 +1,7 @@
 //! Embeddings client for semantic recall — an attested OpenAI-compatible
 //! `POST {endpoint}/embeddings` with `{"model", "input": [texts]}`. The
 //! transport can be a packaged target-native adapter on loopback or an
-//! explicitly configured remote deployment; runtime status keeps those routes
+//! explicitly configured loopback deployment; runtime status keeps those routes
 //! distinct.
 //!
 //! NEVER called from hook entrypoints. Hooks sit on the interactive path and
@@ -65,97 +65,18 @@ fn is_loopback_host(host: &str) -> bool {
             .unwrap_or(false)
 }
 
-/// Address ranges no config value may point at (loopback is checked first
-/// and exempt). ALL non-public ranges are refused by default, including
-/// 100.64/10 (CGNAT) — in an arbitrary deployment that space can be someone
-/// else's internal network. Operators whose infrastructure legitimately
-/// lives in such a range (e.g. a WireGuard/mesh overlay) opt in explicitly
-/// with `embeddings.allow_hosts` in the config.
-fn forbidden_range(host: &str) -> Option<&'static str> {
-    forbidden_ip(&host.parse().ok()?)
-}
-
-/// The range policy as a function of a resolved address, so the literal-host
-/// check and the post-resolution check below can never drift apart.
-fn forbidden_ip(ip: &std::net::IpAddr) -> Option<&'static str> {
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            if v4.is_private() {
-                Some("private range (RFC 1918)")
-            } else if (v4.octets()[0] == 100) && (v4.octets()[1] & 0xc0) == 64 {
-                Some("shared/CGNAT range (100.64.0.0/10)")
-            } else if v4.is_link_local() {
-                Some("link-local/metadata range (169.254.0.0/16)")
-            } else if v4.is_unspecified() || v4.is_broadcast() {
-                Some("non-routable address")
-            } else {
-                None
-            }
-        }
-        std::net::IpAddr::V6(v6) => {
-            if v6.is_unspecified() {
-                Some("non-routable address")
-            } else if (v6.segments()[0] & 0xffc0) == 0xfe80 {
-                Some("IPv6 link-local")
-            } else if (v6.segments()[0] & 0xfe00) == 0xfc00 {
-                Some("IPv6 unique-local")
-            } else {
-                None
-            }
-        }
-    }
-}
-
-/// Validates a config-supplied endpoint URL against the egress policy:
-/// http/https only, loopback always allowed, everything else must be https
-/// AND outside private (RFC 1918), shared/CGNAT (100.64/10), link-local/
-/// metadata, and IPv6 unique-local/link-local ranges. `allow_hosts` is the
-/// operator's EXPLICIT per-host exemption from the range refusal (never from
-/// the https requirement): mesh overlays and lab networks opt in by listing
-/// the exact host, general deployments stay closed by default.
-pub fn check_endpoint(url: &str, allow_hosts: &[String]) -> anyhow::Result<()> {
-    use std::net::ToSocketAddrs;
+/// All inference stays on this device. Legacy host allowlists cannot enable
+/// remote computation. Redirects are disabled by the HTTP client.
+pub fn check_endpoint(url: &str, _allow_hosts: &[String]) -> anyhow::Result<()> {
     let (scheme, host) = split_url(url)?;
     anyhow::ensure!(
         scheme == "http" || scheme == "https",
-        "endpoint scheme {scheme:?} refused (http/https only)"
+        "endpoint must use http or https"
     );
-    if is_loopback_host(&host) {
-        return Ok(());
-    }
-    let exempted = allow_hosts.iter().any(|a| a.eq_ignore_ascii_case(&host));
-    if !exempted && let Some(reason) = forbidden_range(&host) {
-        anyhow::bail!(
-            "endpoint host {host} refused: {reason} (add it to embeddings.allow_hosts to permit deliberately)"
-        );
-    }
     anyhow::ensure!(
-        scheme == "https",
-        "non-loopback endpoint must be https (got http://{host})"
+        is_loopback_host(&host),
+        "inference endpoint must be on loopback; remote computing was removed"
     );
-    // The host STRING passed; hold the same line against the addresses it
-    // actually names. A string check cannot see a DNS name resolving into a
-    // refused range (rebinding), nor resolver spellings of literal IPs
-    // (`0x7f000001`, `2130706433`) that parse as hostnames. Exempted hosts
-    // skip this by definition, and a host that does not resolve here fails
-    // later at connect time — resolution failures are not a policy decision.
-    if !exempted && let Ok(addrs) = (host.as_str(), 0u16).to_socket_addrs() {
-        for addr in addrs {
-            let ip = addr.ip();
-            if ip.is_loopback() {
-                anyhow::bail!(
-                    "endpoint host {host} resolves to loopback {ip} (add it to \
-                     embeddings.allow_hosts to permit deliberately)"
-                );
-            }
-            if let Some(reason) = forbidden_ip(&ip) {
-                anyhow::bail!(
-                    "endpoint host {host} resolves to {ip}, {reason} (add it to \
-                     embeddings.allow_hosts to permit deliberately)"
-                );
-            }
-        }
-    }
     Ok(())
 }
 
@@ -2211,40 +2132,32 @@ mod tests {
     // ---- SSRF guard ----
 
     #[test]
-    fn ssrf_guard_matrix() {
-        // https to a public host: ok
-        assert!(check_endpoint("https://api.example.com/v1", &[]).is_ok());
-        assert!(check_endpoint("https://api.example.com:8443/v1", &[]).is_ok());
-        // loopback: ok even over plain http
-        assert!(check_endpoint("http://127.0.0.1:8080", &[]).is_ok());
-        assert!(check_endpoint("http://localhost:1234/v1", &[]).is_ok());
-        assert!(check_endpoint("http://[::1]:8080", &[]).is_ok());
-        assert!(check_endpoint("https://127.0.0.1:8080/v1", &[]).is_ok());
-        // http to a public host: refused (bearer tokens in cleartext)
-        assert!(check_endpoint("http://example.com/v1", &[]).is_err());
-        // private / link-local / metadata ranges: refused on BOTH schemes
-        assert!(check_endpoint("http://10.0.0.5:11434", &[]).is_err());
-        assert!(check_endpoint("https://10.0.0.5", &[]).is_err());
-        assert!(check_endpoint("http://192.168.1.10:8080", &[]).is_err());
-        // CGNAT refused by default; allow_hosts exempts the exact host from the
-        // RANGE refusal only — https stays mandatory even for exempted hosts.
-        assert!(check_endpoint("https://100.64.0.7", &[]).is_err());
-        let allow = vec!["100.64.0.7".to_string()];
-        assert!(check_endpoint("https://100.64.0.7", &allow).is_ok());
-        assert!(check_endpoint("http://100.64.0.7", &allow).is_err());
-        assert!(check_endpoint("https://192.168.1.1", &[]).is_err());
-        assert!(check_endpoint("https://172.16.0.1", &[]).is_err());
-        assert!(check_endpoint("http://169.254.169.254/latest/meta-data", &[]).is_err());
-        assert!(check_endpoint("https://169.254.169.254/latest/meta-data", &[]).is_err());
-        assert!(check_endpoint("https://[fe80::1]/v1", &[]).is_err());
-        assert!(check_endpoint("https://[fd00::1]/v1", &[]).is_err());
-        // scheme and shape violations
-        assert!(check_endpoint("ftp://example.com", &[]).is_err());
-        assert!(check_endpoint("file:///etc/passwd", &[]).is_err());
-        assert!(check_endpoint("not a url", &[]).is_err());
-        assert!(check_endpoint("https://", &[]).is_err());
-        // userinfo could smuggle credentials into logs / confuse host parsing
-        assert!(check_endpoint("https://user:pass@example.com/v1", &[]).is_err());
+    fn inference_is_local_even_with_a_legacy_allowlist() {
+        for url in [
+            "http://127.0.0.1:8080",
+            "http://localhost:1234/v1",
+            "http://[::1]:8080",
+            "https://127.0.0.1/v1",
+        ] {
+            assert!(check_endpoint(url, &[]).is_ok(), "{url}");
+        }
+        for url in [
+            "https://api.example.com/v1",
+            "http://10.0.0.5:11434",
+            "https://100.64.0.7",
+            "https://169.254.169.254",
+            "https://[fd00::1]",
+            "https://0x7f000001",
+            "file:///etc/passwd",
+            "not a url",
+            "https://",
+            "https://user:pass@localhost/v1",
+        ] {
+            assert!(
+                check_endpoint(url, &["api.example.com".into(), "100.64.0.7".into()]).is_err(),
+                "{url}"
+            );
+        }
     }
 
     #[test]
@@ -2415,34 +2328,6 @@ mod tests {
             client.embed_documents_batch(&["x"]).is_err(),
             "a 3xx must be an error, never followed"
         );
-    }
-
-    #[test]
-    fn range_policy_covers_resolved_addresses() {
-        // The post-resolution half of check_endpoint: a DNS name (or a
-        // resolver spelling like 0x7f000001) that NAMES one of these must be
-        // refused exactly like the literal string would have been.
-        for refused in [
-            "127.0.0.1",
-            "169.254.169.254",
-            "10.1.2.3",
-            "192.168.0.1",
-            "100.64.0.1",
-            "0.0.0.0",
-        ] {
-            let addr: std::net::IpAddr = refused.parse().unwrap();
-            assert!(
-                addr.is_loopback() || forbidden_ip(&addr).is_some(),
-                "{refused} must be refused after resolution"
-            );
-        }
-        for public in ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"] {
-            let addr: std::net::IpAddr = public.parse().unwrap();
-            assert!(
-                forbidden_ip(&addr).is_none(),
-                "{public} is public and must pass"
-            );
-        }
     }
 
     #[test]

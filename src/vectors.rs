@@ -57,16 +57,17 @@ use crate::index;
 /// network artifacts.
 const MAGIC: &str = "cfetch-vectors v3";
 const HEADER_LINES: usize = 8;
-const PEER_ARTIFACT_MAGIC: &[u8] = b"cfetch-vector-artifact-v1\0";
-const PEER_ARTIFACT_HEADER_BYTES: usize = PEER_ARTIFACT_MAGIC.len() + 32 + 64;
-pub(crate) const MAX_PEER_ARTIFACTS: usize = 256;
 
 /// Short, stable, filename-safe digest of a document prefix.
 fn prefix_tag(prefix: &str) -> String {
     use sha2::Digest as _;
     let mut h = sha2::Sha256::new();
     h.update(prefix.as_bytes());
-    h.finalize().iter().take(4).map(|b| format!("{b:02x}")).collect()
+    h.finalize()
+        .iter()
+        .take(4)
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Up to this many missing vectors, a hydrate seeks per record instead of
@@ -160,7 +161,11 @@ pub(crate) fn degenerate(v: &[f32]) -> Option<String> {
     // An all-zero vector is the specific shape a half-supported accelerator
     // graph returns, and it carries no information at all: every cosine
     // against it is 0, so it would rank identically against every query.
-    let norm = v.iter().map(|x| (*x as f64) * (*x as f64)).sum::<f64>().sqrt();
+    let norm = v
+        .iter()
+        .map(|x| (*x as f64) * (*x as f64))
+        .sum::<f64>()
+        .sqrt();
     if norm < 1e-6 {
         return Some(format!("its L2 norm is {norm:e} — the vector is all zeros"));
     }
@@ -175,14 +180,31 @@ fn slug(spec: &VectorSpec) -> String {
     let model: String = spec
         .model
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let profile: String = spec
         .profile_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    let base = format!("network{}-{profile}-{model}-{}-{}", spec.network_major, spec.dim, spec.precision.as_str());
+    let base = format!(
+        "network{}-{profile}-{model}-{}-{}",
+        spec.network_major,
+        spec.dim,
+        spec.precision.as_str()
+    );
     // A document prefix changes every vector in the file, so it changes the
     // FILE — otherwise two hosts with different prefixes would append
     // incompatible records to one artifact and the header check would only
@@ -222,8 +244,12 @@ impl VectorStore {
         );
         anyhow::ensure!(spec.dim > 0, "embeddings.dimensions must be at least 1");
         let dir = crate::paths::shared_vector_dir(brain_root);
-        let mut store =
-            VectorStore { dir, spec: spec.clone(), hashes: Vec::new(), present: HashSet::new() };
+        let mut store = VectorStore {
+            dir,
+            spec: spec.clone(),
+            hashes: Vec::new(),
+            present: HashSet::new(),
+        };
         store.reload()?;
         Ok(store)
     }
@@ -259,11 +285,14 @@ impl VectorStore {
         let mut header = std::collections::HashMap::new();
         for _ in 0..HEADER_LINES - 1 {
             let line = lines.next().context("truncated vector index header")?;
-            let (k, v) = line.split_once(' ').context("malformed vector index header")?;
+            let (k, v) = line
+                .split_once(' ')
+                .context("malformed vector index header")?;
             header.insert(k.to_string(), v.to_string());
         }
         anyhow::ensure!(
-            header.get("network_major").and_then(|v| v.parse().ok()) == Some(self.spec.network_major),
+            header.get("network_major").and_then(|v| v.parse().ok())
+                == Some(self.spec.network_major),
             "{} belongs to another cfetch network major",
             idx.display()
         );
@@ -314,7 +343,9 @@ impl VectorStore {
             self.spec.doc_prefix
         );
         let listed_raw: Vec<&str> = lines.filter(|l| !l.is_empty()).collect();
-        let stored_records = std::fs::metadata(self.bin_path()).map(|m| m.len()).unwrap_or(0) as usize
+        let stored_records = std::fs::metadata(self.bin_path())
+            .map(|m| m.len())
+            .unwrap_or(0) as usize
             / self.stride();
         // Torn-tail repair: `writeln!` on an unbuffered File is two write(2)
         // calls (payload, then `\n`), so a crash between them leaves the
@@ -326,7 +357,10 @@ impl VectorStore {
         // starts on a clean boundary.
         let torn = !raw.ends_with('\n') && !listed_raw.is_empty();
         let listed: Vec<String> = if torn {
-            listed_raw[..listed_raw.len() - 1].iter().map(|s| s.to_string()).collect()
+            listed_raw[..listed_raw.len() - 1]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
         } else {
             listed_raw.iter().map(|s| s.to_string()).collect()
         };
@@ -338,12 +372,6 @@ impl VectorStore {
 
     pub fn spec(&self) -> &VectorSpec {
         &self.spec
-    }
-
-    /// Refreshes the read view after another process (normally the daemon's
-    /// peer-artifact receiver) appended records under the store lock.
-    pub fn refresh(&mut self) -> anyhow::Result<()> {
-        self.reload()
     }
 
     /// Bytes one vector occupies.
@@ -378,7 +406,8 @@ impl VectorStore {
             return Ok(None);
         };
         let path = self.bin_path();
-        let mut file = std::fs::File::open(&path).with_context(|| format!("open {}", path.display()))?;
+        let mut file =
+            std::fs::File::open(&path).with_context(|| format!("open {}", path.display()))?;
         file.seek(std::io::SeekFrom::Start((record * self.stride()) as u64))?;
         let mut buf = vec![0u8; self.stride()];
         file.read_exact(&mut buf)
@@ -398,7 +427,8 @@ impl VectorStore {
             return Ok(());
         }
         let path = self.bin_path();
-        let file = std::fs::File::open(&path).with_context(|| format!("open {}", path.display()))?;
+        let file =
+            std::fs::File::open(&path).with_context(|| format!("open {}", path.display()))?;
         let mut reader = std::io::BufReader::new(file);
         let mut buf = vec![0u8; self.stride()];
         for hash in &self.hashes {
@@ -420,8 +450,11 @@ impl VectorStore {
         // Derived bytes belong in the tree, never in the tree's git history.
         let ignore = self.dir.join(".gitignore");
         if !ignore.exists() {
-            std::fs::write(&ignore, "# Derived vector artifacts: shared as files, never as commits.\n*\n!.gitignore\n")
-                .with_context(|| format!("write {}", ignore.display()))?;
+            std::fs::write(
+                &ignore,
+                "# Derived vector artifacts: shared as files, never as commits.\n*\n!.gitignore\n",
+            )
+            .with_context(|| format!("write {}", ignore.display()))?;
         }
         let lock = crate::lockfile::acquire(&self.dir.join("store.lock"), 5_000, 0).context(
             "another embed run holds the shared vector store (derive-once: one writer per group)",
@@ -461,9 +494,17 @@ impl VectorStore {
             // Rewrite the hash list whenever the view is shorter than the
             // file (an index line whose record never landed).
             let raw = std::fs::read_to_string(self.idx_path())?;
-            let listed = raw.lines().skip(HEADER_LINES).filter(|l| !l.is_empty()).count();
+            let listed = raw
+                .lines()
+                .skip(HEADER_LINES)
+                .filter(|l| !l.is_empty())
+                .count();
             if listed != self.hashes.len() {
-                let header: String = raw.lines().take(HEADER_LINES).map(|l| format!("{l}\n")).collect();
+                let header: String = raw
+                    .lines()
+                    .take(HEADER_LINES)
+                    .map(|l| format!("{l}\n"))
+                    .collect();
                 let body: String = self.hashes.iter().map(|h| format!("{h}\n")).collect();
                 idx.set_len(0)?;
                 idx.seek(std::io::SeekFrom::Start(0))?;
@@ -474,7 +515,12 @@ impl VectorStore {
         idx.seek(std::io::SeekFrom::End(0))?;
         let mut bin = bin;
         bin.seek(std::io::SeekFrom::End(0))?;
-        Ok(VectorWriter { store: self, _lock: lock, bin, idx })
+        Ok(VectorWriter {
+            store: self,
+            _lock: lock,
+            bin,
+            idx,
+        })
     }
 }
 
@@ -580,75 +626,6 @@ impl VectorWriter<'_> {
         self.idx.sync_all()?;
         Ok(())
     }
-}
-
-/// Encodes one canonical vector record for iroh-blobs.
-///
-/// `nonce` is derived from a daemon-private key plus peer, slice and content
-/// hash. It makes the resulting BLAKE3 hash an unguessable, stable bearer
-/// capability: repeated requests deduplicate in memory, while another peer
-/// or slice gets a different capability for the same vector.
-pub(crate) fn encode_peer_artifact(
-    hash: &str,
-    record: &[u8],
-    nonce: [u8; 32],
-) -> anyhow::Result<Vec<u8>> {
-    anyhow::ensure!(
-        hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
-        "content hash {hash:?} is not canonical lowercase SHA-256"
-    );
-    anyhow::ensure!(!record.is_empty(), "peer vector artifact has no vector bytes");
-    let mut out = Vec::with_capacity(PEER_ARTIFACT_MAGIC.len() + 32 + 64 + record.len());
-    out.extend_from_slice(PEER_ARTIFACT_MAGIC);
-    out.extend_from_slice(&nonce);
-    out.extend_from_slice(hash.as_bytes());
-    out.extend_from_slice(record);
-    Ok(out)
-}
-
-/// Exact byte length of one peer artifact for this vector-space profile.
-/// Negotiation checks this before opening the blob transport so a peer cannot
-/// use an honest content hash with a dishonest, much larger payload.
-pub(crate) fn peer_artifact_len(spec: &VectorSpec) -> anyhow::Result<usize> {
-    validate_storage_spec(spec)?;
-    anyhow::ensure!(spec.dim > 0, "peer vector artifact has zero dimensions");
-    let record = spec
-        .dim
-        .checked_mul(spec.precision.width())
-        .and_then(|bytes| bytes.checked_add(spec.precision.trailer()))
-        .context("peer vector artifact record length overflows usize")?;
-    PEER_ARTIFACT_HEADER_BYTES
-        .checked_add(record)
-        .context("peer vector artifact length overflows usize")
-}
-
-/// Decodes and structurally validates one peer artifact. The expected hash is
-/// supplied by the receiver, so a faulty peer cannot smuggle an unrelated
-/// record into the local artifact store.
-pub(crate) fn decode_peer_artifact(
-    raw: &[u8],
-    spec: &VectorSpec,
-    expected_hash: &str,
-) -> anyhow::Result<Vec<u8>> {
-    let expected_len = peer_artifact_len(spec)?;
-    anyhow::ensure!(
-        raw.len() == expected_len,
-        "peer vector artifact length is inconsistent"
-    );
-    anyhow::ensure!(
-        raw.starts_with(PEER_ARTIFACT_MAGIC),
-        "peer vector artifact has unknown format"
-    );
-    let hash_start = PEER_ARTIFACT_MAGIC.len() + 32;
-    let hash = std::str::from_utf8(&raw[hash_start..hash_start + 64])?;
-    anyhow::ensure!(
-        hash == expected_hash,
-        "peer returned vector {hash} for requested {expected_hash}"
-    );
-    let record = raw[PEER_ARTIFACT_HEADER_BYTES..].to_vec();
-    validate_record_bytes(spec, &record)
-        .with_context(|| format!("peer returned an invalid vector for {hash}"))?;
-    Ok(record)
 }
 
 /// Fills the local index cache from the shared store: every block hash that
@@ -830,13 +807,6 @@ mod tests {
             assert!(error.contains("forbidden -128"), "{error}");
         }
 
-        let mut peer_record = vec![0; crate::embedding_profile::DIMENSIONS];
-        peer_record[0] = 0x81; // canonical -127
-        peer_record[1] = 0x80; // forbidden -128
-        let raw = encode_peer_artifact(&hash, &peer_record, [7; 32]).unwrap();
-        let error = format!("{:#}", decode_peer_artifact(&raw, &s, &hash).unwrap_err());
-        assert!(error.contains("forbidden -128"), "{error}");
-
         let mut valid = vec![0.0; crate::embedding_profile::DIMENSIONS];
         valid[0] = 1.0;
         {
@@ -887,52 +857,6 @@ mod tests {
     }
 
     #[test]
-    fn peer_artifact_round_trip_preserves_canonical_bytes() {
-        let s = spec(4, Precision::I8);
-        let hash = "ab".repeat(32);
-        let record = vec![1, 2, 3, 4];
-        let raw = encode_peer_artifact(&hash, &record, [7; 32]).unwrap();
-        assert_eq!(decode_peer_artifact(&raw, &s, &hash).unwrap(), record);
-        assert!(
-            decode_peer_artifact(&raw, &s, &"cd".repeat(32))
-                .unwrap_err()
-                .to_string()
-                .contains("requested")
-        );
-    }
-
-    #[test]
-    fn peer_artifact_length_is_exact_and_overflow_checked() {
-        for (precision, width) in [(Precision::I8, 1), (Precision::F16, 2), (Precision::F32, 4)] {
-            let s = spec(4, precision);
-            assert_eq!(
-                peer_artifact_len(&s).unwrap(),
-                PEER_ARTIFACT_HEADER_BYTES + 4 * width
-            );
-        }
-        let overflow = spec(usize::MAX, Precision::F32);
-        assert!(
-            peer_artifact_len(&overflow)
-                .unwrap_err()
-                .to_string()
-                .contains("overflows")
-        );
-    }
-
-    #[test]
-    fn peer_artifact_rejects_wrong_width_and_degenerate_bytes() {
-        let s = spec(4, Precision::I8);
-        let hash = "ab".repeat(32);
-        let short = encode_peer_artifact(&hash, &[1, 2], [7; 32]).unwrap();
-        assert!(decode_peer_artifact(&short, &s, &hash).is_err());
-        let zero = encode_peer_artifact(&hash, &[0, 0, 0, 0], [7; 32]).unwrap();
-        assert!(
-            format!("{:#}", decode_peer_artifact(&zero, &s, &hash).unwrap_err())
-                .contains("degenerate")
-        );
-    }
-
-    #[test]
     fn round_trips_vectors_through_the_shared_tree() {
         let brain = tempfile::tempdir().unwrap();
         let s = spec(4, Precision::F16);
@@ -941,7 +865,10 @@ mod tests {
             let mut w = store.begin_write().unwrap();
             assert!(w.put("aa", &[1.0, 0.0, 0.0, 0.0]).unwrap());
             assert!(w.put("bb", &[0.0, 1.0, 0.0, 0.0]).unwrap());
-            assert!(!w.put("aa", &[1.0, 0.0, 0.0, 0.0]).unwrap(), "same bytes: already stored");
+            assert!(
+                !w.put("aa", &[1.0, 0.0, 0.0, 0.0]).unwrap(),
+                "same bytes: already stored"
+            );
             let drift = w.put("aa", &[9.0, 9.0, 9.0, 9.0]).unwrap_err().to_string();
             assert!(drift.contains("derive-once store"), "{drift}");
             w.flush().unwrap();
@@ -952,8 +879,14 @@ mod tests {
         let reopened = VectorStore::open(brain.path(), &s).unwrap();
         assert_eq!(reopened.len(), 2);
         assert!(reopened.contains("aa") && reopened.contains("bb"));
-        assert_eq!(reopened.get("aa").unwrap().unwrap(), vec![1.0, 0.0, 0.0, 0.0]);
-        assert_eq!(reopened.get("bb").unwrap().unwrap(), vec![0.0, 1.0, 0.0, 0.0]);
+        assert_eq!(
+            reopened.get("aa").unwrap().unwrap(),
+            vec![1.0, 0.0, 0.0, 0.0]
+        );
+        assert_eq!(
+            reopened.get("bb").unwrap().unwrap(),
+            vec![0.0, 1.0, 0.0, 0.0]
+        );
         let mut seen = Vec::new();
         reopened
             .for_each(|hash, v| {
@@ -980,19 +913,31 @@ mod tests {
         store.begin_write().unwrap().put("aa", &[1.0; 8]).unwrap();
         let dir = crate::paths::shared_vector_dir(brain.path());
         let stem = "network1-test-profile-vendor_embed-8b-8-f32";
-        assert!(dir.join(format!("{stem}.bin")).is_file(), "slug carries network-profile-model-dim-precision");
+        assert!(
+            dir.join(format!("{stem}.bin")).is_file(),
+            "slug carries network-profile-model-dim-precision"
+        );
         assert!(dir.join(format!("{stem}.idx")).is_file());
         // Derived bytes must never ride into the operator's git history.
-        assert!(dir.join(".gitignore").is_file(), "the store ignores itself in git");
+        assert!(
+            dir.join(".gitignore").is_file(),
+            "the store ignores itself in git"
+        );
     }
 
     #[test]
     fn a_different_spec_is_a_different_store() {
         let brain = tempfile::tempdir().unwrap();
         let mut a = VectorStore::open(brain.path(), &spec(4, Precision::F16)).unwrap();
-        a.begin_write().unwrap().put("aa", &[1.0, 0.0, 0.0, 0.0]).unwrap();
+        a.begin_write()
+            .unwrap()
+            .put("aa", &[1.0, 0.0, 0.0, 0.0])
+            .unwrap();
         let b = VectorStore::open(brain.path(), &spec(8, Precision::F16)).unwrap();
-        assert!(b.is_empty(), "another dimension is another artifact, never a partial read");
+        assert!(
+            b.is_empty(),
+            "another dimension is another artifact, never a partial read"
+        );
         let c = VectorStore::open(brain.path(), &spec(4, Precision::F32)).unwrap();
         assert!(c.is_empty(), "another precision is another artifact");
     }
@@ -1005,16 +950,28 @@ mod tests {
         let brain = tempfile::tempdir().unwrap();
         let mut a = VectorStore::open(
             brain.path(),
-            &VectorSpec { model: "a/b".into(), ..spec(4, Precision::F16) },
+            &VectorSpec {
+                model: "a/b".into(),
+                ..spec(4, Precision::F16)
+            },
         )
         .unwrap();
-        a.begin_write().unwrap().put("aa", &[1.0, 0.0, 0.0, 0.0]).unwrap();
+        a.begin_write()
+            .unwrap()
+            .put("aa", &[1.0, 0.0, 0.0, 0.0])
+            .unwrap();
         let err = VectorStore::open(
             brain.path(),
-            &VectorSpec { model: "a_b".into(), ..spec(4, Precision::F16) },
+            &VectorSpec {
+                model: "a_b".into(),
+                ..spec(4, Precision::F16)
+            },
         )
         .unwrap_err();
-        assert!(err.to_string().contains("a/b"), "the stored model is named: {err}");
+        assert!(
+            err.to_string().contains("a/b"),
+            "the stored model is named: {err}"
+        );
     }
 
     #[test]
@@ -1059,20 +1016,41 @@ mod tests {
         std::fs::write(brain.path().join("knowledge/a.md"), "- one\n").unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = index::open(state.path()).unwrap();
-        index::scan(&mut conn, brain.path(), None, &crate::config::RingRules::default()).unwrap();
+        index::scan(
+            &mut conn,
+            brain.path(),
+            None,
+            &crate::config::RingRules::default(),
+        )
+        .unwrap();
 
-        let old = VectorSpec { model: "old-model".into(), ..spec(2, Precision::F16) };
+        let old = VectorSpec {
+            model: "old-model".into(),
+            ..spec(2, Precision::F16)
+        };
         index::ensure_vector_spec(&conn, &old).unwrap();
         let hash = crate::embedding_input::hash("- one");
         index::insert_vector(&conn, &hash, &old, &[1.0, 0.0]).unwrap();
 
         let s = spec(2, Precision::F16);
         let mut store = VectorStore::open(brain.path(), &s).unwrap();
-        store.begin_write().unwrap().put(&hash, &[0.0, 1.0]).unwrap();
+        store
+            .begin_write()
+            .unwrap()
+            .put(&hash, &[0.0, 1.0])
+            .unwrap();
         assert_eq!(hydrate(&conn, &store).unwrap(), 1);
-        assert_eq!(index::stored_vector_spec(&conn).as_ref(), Some(&s), "meta follows the cache");
+        assert_eq!(
+            index::stored_vector_spec(&conn).as_ref(),
+            Some(&s),
+            "meta follows the cache"
+        );
         assert_eq!(index::vector_coverage(&conn, &s).unwrap(), (1, 1));
-        assert_eq!(index::vector_coverage(&conn, &old).unwrap(), (0, 1), "the old spec is gone");
+        assert_eq!(
+            index::vector_coverage(&conn, &old).unwrap(),
+            (0, 1),
+            "the old spec is gone"
+        );
     }
 
     #[test]
@@ -1082,7 +1060,13 @@ mod tests {
         std::fs::write(brain.path().join("knowledge/a.md"), "- one\n- two\n").unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = index::open(state.path()).unwrap();
-        index::scan(&mut conn, brain.path(), None, &crate::config::RingRules::default()).unwrap();
+        index::scan(
+            &mut conn,
+            brain.path(),
+            None,
+            &crate::config::RingRules::default(),
+        )
+        .unwrap();
 
         let s = spec(2, Precision::F16);
         let mut store = VectorStore::open(brain.path(), &s).unwrap();
@@ -1095,10 +1079,18 @@ mod tests {
             }
             w.flush().unwrap();
         }
-        assert_eq!(index::vector_coverage(&conn, &s).unwrap(), (0, 2), "cache is not the record");
+        assert_eq!(
+            index::vector_coverage(&conn, &s).unwrap(),
+            (0, 2),
+            "cache is not the record"
+        );
         assert_eq!(hydrate(&conn, &store).unwrap(), 2);
         assert_eq!(index::vector_coverage(&conn, &s).unwrap(), (2, 2));
-        assert_eq!(hydrate(&conn, &store).unwrap(), 0, "a second hydrate imports nothing");
+        assert_eq!(
+            hydrate(&conn, &store).unwrap(),
+            0,
+            "a second hydrate imports nothing"
+        );
     }
 
     #[test]
@@ -1136,12 +1128,20 @@ mod tests {
         }
         hydrate(&left_conn, &left_store).unwrap();
         hydrate(&right_conn, &right_store).unwrap();
-        std::fs::write(left.path().join("knowledge/a.md"), "# Beta\n\n- Keep backups.\n").unwrap();
+        std::fs::write(
+            left.path().join("knowledge/a.md"),
+            "# Beta\n\n- Keep backups.\n",
+        )
+        .unwrap();
         index::scan(&mut left_conn, left.path(), None, &rules).unwrap();
         assert_eq!(hydrate(&left_conn, &left_store).unwrap(), 0);
         assert_eq!(index::vector_coverage(&left_conn, &s).unwrap(), (0, 2));
         let changed = index::hashes_without_vectors(&left_conn, &s, 10).unwrap();
-        assert!(changed.iter().all(|(hash, _)| original.iter().all(|(old, _)| old != hash)));
+        assert!(
+            changed
+                .iter()
+                .all(|(hash, _)| original.iter().all(|(old, _)| old != hash))
+        );
         {
             let mut writer = left_store.begin_write().unwrap();
             for (hash, _) in &changed {
@@ -1149,27 +1149,38 @@ mod tests {
             }
             writer.flush().unwrap();
         }
-        // Exchange the actual wire representation, including old payloads.
+        // Copy encoded records, including old payloads, without overwriting existing hashes.
         {
             let mut writer = right_store.begin_write().unwrap();
             for (hash, _) in original.iter().chain(changed.iter()) {
                 let record = left_store.get_blob(hash).unwrap().unwrap();
-                let wire = encode_peer_artifact(hash, &record, [4; 32]).unwrap();
-                let decoded = decode_peer_artifact(&wire, &s, hash).unwrap();
-                let inserted = writer.put_encoded(hash, &decoded).unwrap();
+                let inserted = writer.put_encoded(hash, &record).unwrap();
                 assert_eq!(inserted, changed.iter().any(|(new, _)| new == hash));
             }
             writer.flush().unwrap();
         }
         for (hash, _) in &original {
-            assert_eq!(left_store.get_blob(hash).unwrap().unwrap(), index::vec_to_blob(&first, Precision::I8));
-            assert_eq!(right_store.get_blob(hash).unwrap().unwrap(), index::vec_to_blob(&second, Precision::I8));
+            assert_eq!(
+                left_store.get_blob(hash).unwrap().unwrap(),
+                index::vec_to_blob(&first, Precision::I8)
+            );
+            assert_eq!(
+                right_store.get_blob(hash).unwrap().unwrap(),
+                index::vec_to_blob(&second, Precision::I8)
+            );
         }
-        std::fs::write(right.path().join("knowledge/a.md"), "# Beta\n\n- Keep backups.\n").unwrap();
+        std::fs::write(
+            right.path().join("knowledge/a.md"),
+            "# Beta\n\n- Keep backups.\n",
+        )
+        .unwrap();
         index::scan(&mut right_conn, right.path(), None, &rules).unwrap();
         assert_eq!(hydrate(&right_conn, &right_store).unwrap(), 2);
         assert_eq!(index::vector_coverage(&right_conn, &s).unwrap(), (2, 2));
-        assert_eq!(index::catalog_checksum(&left_conn).unwrap(), index::catalog_checksum(&right_conn).unwrap());
+        assert_eq!(
+            index::catalog_checksum(&left_conn).unwrap(),
+            index::catalog_checksum(&right_conn).unwrap()
+        );
     }
 
     #[test]
@@ -1181,7 +1192,13 @@ mod tests {
         std::fs::write(brain.path().join("knowledge/a.md"), "- us\n").unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = index::open(state.path()).unwrap();
-        index::scan(&mut conn, brain.path(), None, &crate::config::RingRules::default()).unwrap();
+        index::scan(
+            &mut conn,
+            brain.path(),
+            None,
+            &crate::config::RingRules::default(),
+        )
+        .unwrap();
 
         let s = spec(2, Precision::F16);
         // The legacy key for "- US" was SHA256("- us"), even though the
@@ -1209,8 +1226,15 @@ mod tests {
         let reopened = VectorStore::open(brain.path(), &s).unwrap();
         assert_eq!(hydrate(&conn, &reopened).unwrap(), 1);
         assert_eq!(index::vector_coverage(&conn, &s).unwrap(), (1, 1));
-        assert_eq!(reopened.len(), 2, "legacy artifacts remain in the append-only store");
-        assert_eq!(reopened.get_blob(&legacy_hash).unwrap().unwrap(), legacy_record);
+        assert_eq!(
+            reopened.len(),
+            2,
+            "legacy artifacts remain in the append-only store"
+        );
+        assert_eq!(
+            reopened.get_blob(&legacy_hash).unwrap().unwrap(),
+            legacy_record
+        );
         let cached: Vec<u8> = conn
             .query_row("SELECT embedding FROM vectors", [], |row| row.get(0))
             .unwrap();
@@ -1238,7 +1262,10 @@ mod tests {
         let raw = slug(&spec_pfx(4, ""));
         let pfx = slug(&spec_pfx(4, "passage: "));
         assert_ne!(raw, pfx);
-        assert!(pfx.starts_with(&raw), "the prefixed name extends the base: {pfx}");
+        assert!(
+            pfx.starts_with(&raw),
+            "the prefixed name extends the base: {pfx}"
+        );
         // Stable across runs, and different prefixes never collide.
         assert_eq!(pfx, slug(&spec_pfx(4, "passage: ")));
         assert_ne!(pfx, slug(&spec_pfx(4, "query: ")));
@@ -1260,7 +1287,11 @@ mod tests {
         // header check catches it, since the filename tag is only a hint.
         let idx = VectorStore::open(brain.path(), &a).unwrap().idx_path();
         let raw = std::fs::read_to_string(&idx).unwrap();
-        std::fs::write(&idx, raw.replace("doc_prefix passage: ", "doc_prefix other: ")).unwrap();
+        std::fs::write(
+            &idx,
+            raw.replace("doc_prefix passage: ", "doc_prefix other: "),
+        )
+        .unwrap();
         let e = VectorStore::open(brain.path(), &a).unwrap_err().to_string();
         assert!(e.contains("document prefix"), "{e}");
     }
@@ -1274,20 +1305,30 @@ mod tests {
             let mut w = store.begin_write().unwrap();
             w.put("hash-one", &[1.0, 0.0]).unwrap();
         }
-        let idx = VectorStore::open(brain.path(), &raw_spec).unwrap().idx_path();
+        let idx = VectorStore::open(brain.path(), &raw_spec)
+            .unwrap()
+            .idx_path();
         let head = std::fs::read_to_string(&idx).unwrap();
-        assert!(head.starts_with(MAGIC), "profile store carries the current format: {head}");
+        assert!(
+            head.starts_with(MAGIC),
+            "profile store carries the current format: {head}"
+        );
         assert!(head.contains("network_major 1\n"));
         assert!(head.contains("profile_id test-profile\n"));
         assert!(head.contains("vector_encoding f16x2\n"));
-        assert!(head.contains("doc_prefix \n"), "an empty prompt is still explicit");
+        assert!(
+            head.contains("doc_prefix \n"),
+            "an empty prompt is still explicit"
+        );
         assert_eq!(VectorStore::open(brain.path(), &raw_spec).unwrap().len(), 1);
     }
 
     #[test]
     fn a_prefix_containing_a_newline_is_refused_before_it_corrupts_a_header() {
         let brain = tempfile::tempdir().unwrap();
-        let e = VectorStore::open(brain.path(), &spec_pfx(2, "a\nb")).unwrap_err().to_string();
+        let e = VectorStore::open(brain.path(), &spec_pfx(2, "a\nb"))
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("must not contain newlines"), "{e}");
     }
 
@@ -1306,9 +1347,21 @@ mod tests {
         // All zeros: what a partly-supported graph returns. Every cosine
         // against it is 0, so it would rank the same against every query.
         assert!(degenerate(&[0.0, 0.0, 0.0]).unwrap().contains("all zeros"));
-        assert!(degenerate(&[f32::NAN, 1.0]).unwrap().contains("component 0"));
-        assert!(degenerate(&[1.0, f32::INFINITY]).unwrap().contains("component 1"));
-        assert!(degenerate(&[1.0, f32::NEG_INFINITY]).unwrap().contains("component 1"));
+        assert!(
+            degenerate(&[f32::NAN, 1.0])
+                .unwrap()
+                .contains("component 0")
+        );
+        assert!(
+            degenerate(&[1.0, f32::INFINITY])
+                .unwrap()
+                .contains("component 1")
+        );
+        assert!(
+            degenerate(&[1.0, f32::NEG_INFINITY])
+                .unwrap()
+                .contains("component 1")
+        );
         assert!(degenerate(&[]).unwrap().contains("no components"));
     }
 
@@ -1323,7 +1376,10 @@ mod tests {
             let mut w = store.begin_write().unwrap();
             let e = w.put("hash-zero", &[0.0, 0.0]).unwrap_err().to_string();
             assert!(e.contains("degenerate"), "{e}");
-            assert!(e.contains("cannot actually run this model"), "the cause is named: {e}");
+            assert!(
+                e.contains("cannot actually run this model"),
+                "the cause is named: {e}"
+            );
             assert!(w.put("hash-nan", &[f32::NAN, 1.0]).is_err());
             // A good vector still goes in, so the guard is not a blanket refusal.
             assert!(w.put("hash-good", &[0.6, 0.8]).unwrap());

@@ -9,20 +9,14 @@
 //!       yield EQUAL checksums;
 //!   (d) crash-restart: the stat-fingerprint backstop catches up on writes
 //!       made while the daemon was dead;
-//!   (e) the same guarantees over the serving TCP listener (bearer-token
-//!       gated) as over the LOCAL control channel.
 //!
 //! The local channel is the platform's: a unix socket on unix, token-gated
 //! loopback TCP on Windows (see `src/ipc.rs`). [`Local`] is the one place
 //! that difference exists in this harness — every test below speaks to it
 //! identically.
 //!
-//! The same harness runs against a LIVE deployment: set CFETCH_TORTURE_ADDR
-//! and CFETCH_TORTURE_TOKEN (optionally CFETCH_TORTURE_QUERY) and the
-//! read-only live test exercises generation monotonicity, per-generation
-//! checksum stability and freshness labeling on the real serving host.
-
 use std::io::{BufRead as _, BufReader, Write as _};
+#[cfg(windows)]
 use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -124,20 +118,6 @@ impl Daemon {
         Local::published(&self.state).expect("daemon published its local endpoint")
     }
 
-    /// Actual TCP address once bound (written by the daemon; resolves ":0").
-    fn tcp_addr(&self) -> String {
-        let p = self.state.join("serve.addr");
-        for _ in 0..100 {
-            if let Ok(s) = std::fs::read_to_string(&p)
-                && !s.trim().is_empty()
-            {
-                return s.trim().to_string();
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        panic!("daemon never wrote {}", p.display());
-    }
-
     fn kill(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -161,30 +141,18 @@ fn start_daemon_cfg(brain: &Path, state: &Path, serve_extra: Value, cfg_extra: V
     start_daemon_env(brain, state, serve_extra, cfg_extra, &[])
 }
 
-/// `start_daemon_cfg` plus extra environment for the daemon process — how the
-/// drain barrier's mode is forced (`CFETCH_BARRIER_MODE`), so the path a
-/// platform other than this one would take is still exercised HERE.
+/// Spawn the daemon with explicit test environment overrides.
 fn start_daemon_env(
     brain: &Path,
     state: &Path,
-    serve_extra: Value,
+    _serve_extra: Value,
     cfg_extra: Value,
     env: &[(&str, &str)],
 ) -> Daemon {
     std::fs::create_dir_all(state).unwrap();
     let home = tempfile::tempdir().unwrap();
     let cfg_path = state.join("config.json");
-    let mut serve = json!({"enabled": true});
-    if let Some(map) = serve_extra.as_object() {
-        for (k, v) in map {
-            serve[k] = v.clone();
-        }
-    }
-    let mut cfg = json!({
-        "resident": [],
-        "capture": {"enabled": false},
-        "serve": serve,
-    });
+    let mut cfg = json!({"resident": [], "capture": {"enabled": false}});
     if let Some(map) = cfg_extra.as_object() {
         for (k, v) in map {
             cfg[k] = v.clone();
@@ -207,7 +175,11 @@ fn start_daemon_env(
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn daemon");
-    let d = Daemon { child, state: state.to_path_buf(), _home: home };
+    let d = Daemon {
+        child,
+        state: state.to_path_buf(),
+        _home: home,
+    };
     for _ in 0..200 {
         if Local::published(&d.state)
             .and_then(|l| l.req_opt(&json!({"op": "ping"})))
@@ -218,19 +190,6 @@ fn start_daemon_env(
         std::thread::sleep(Duration::from_millis(50));
     }
     panic!("daemon did not become ready in {}", d.state.display());
-}
-
-fn tcp_req(addr: &str, token: &str, body: &Value) -> Value {
-    let mut body = body.clone();
-    body["token"] = Value::String(token.to_string());
-    body["network_major"] = json!(1);
-    let mut s = TcpStream::connect(addr).expect("tcp connect");
-    s.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
-    s.set_write_timeout(Some(Duration::from_secs(15))).unwrap();
-    writeln!(s, "{body}").unwrap();
-    let mut line = String::new();
-    BufReader::new(s).read_line(&mut line).expect("tcp read");
-    serde_json::from_str(&line).expect("tcp response parses")
 }
 
 /// All hit snippets of a recall response, concatenated for containment checks.
@@ -248,42 +207,21 @@ fn snippet_blob(resp: &Value) -> String {
 
 fn append_line(path: &Path, line: &str) {
     use std::io::Write as _;
-    let mut f = std::fs::OpenOptions::new().append(true).create(true).open(path).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
+        .unwrap();
     // One write syscall per line: a concurrent scan sees whole lines only.
     f.write_all(line.as_bytes()).unwrap();
-}
-
-fn write_token_file(dir: &Path, token: &str) -> PathBuf {
-    let p = dir.join("token");
-    std::fs::write(&p, format!("{token}\n")).unwrap();
-    // The serving daemon refuses a group/other-readable token file. Windows
-    // has no mode bits and `serve::read_token` documents that gap.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
-    p
 }
 
 // ---- (a) read-your-writes + observed-committed prefix, concurrent ----
 
 #[test]
 fn read_your_writes_under_concurrent_writers() {
-    // The platform's own barrier mode: `ordered (sentinel)` on Linux CI,
-    // `unordered (fingerprint)` on the macOS runner.
+    // All filesystems use the fingerprint barrier.
     concurrent_writer_torture(4, 75, &[]); // 300 barrier round-trips
-}
-
-/// The SAME zero-tolerance torture with the barrier forced onto the unordered
-/// path — the one macOS takes, and the one that has to be provable on a host
-/// that can actually be debugged. Fewer round-trips because each query on this
-/// path stats the tree and may force a rebuild pass; the invariant is
-/// identical, and the failure it guards against is intermittent, so the
-/// iteration count is a budget, not a threshold.
-#[test]
-fn read_your_writes_with_the_unordered_barrier() {
-    concurrent_writer_torture(3, 25, &[("CFETCH_BARRIER_MODE", "unordered")]);
 }
 
 /// N writers, each appending a uniquely tokenized line and then querying: a
@@ -307,10 +245,19 @@ fn concurrent_writer_torture(writers: usize, iters: usize, env: &[(&str, &str)])
 
     // The mode must be VISIBLE to an operator, and must be the one asked for.
     let status = local.req(&json!({"op": "serve-status"}));
-    let mode = status["serve"]["barrier_mode"].as_str().unwrap_or_default().to_string();
-    assert!(!mode.is_empty(), "serve-status must name the barrier mode: {status}");
+    let mode = status["serve"]["barrier_mode"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        !mode.is_empty(),
+        "serve-status must name the barrier mode: {status}"
+    );
     if let Some((_, want)) = env.iter().find(|(k, _)| *k == "CFETCH_BARRIER_MODE") {
-        assert!(mode.starts_with(want), "forced {want}, daemon reports {mode}");
+        assert!(
+            mode.starts_with(want),
+            "forced {want}, daemon reports {mode}"
+        );
     }
 
     // Every (writer, seq) whose append has COMPLETED. A query snapshotting
@@ -424,7 +371,10 @@ fn checksum_deterministic_fresh_vs_incremental() {
         .unwrap();
         std::thread::sleep(Duration::from_millis(20));
     }
-    append_line(&brain.path().join("knowledge/base.md"), "- appended after start\n");
+    append_line(
+        &brain.path().join("knowledge/base.md"),
+        "- appended after start\n",
+    );
     let a = daemon_a.local().req(&json!({"op": "checksum"}));
     assert_eq!(a["ok"], true, "{a}");
     assert_eq!(a["fresh"], true, "{a}");
@@ -462,8 +412,15 @@ fn crash_restart_backstop_catches_up() {
 
     // SIGKILL mid-life; write while nothing is watching.
     daemon.kill();
-    append_line(&brain.path().join("knowledge/a.md"), "- fact two, written while daemon dead\n");
-    std::fs::write(brain.path().join("knowledge/new.md"), "- born during the outage\n").unwrap();
+    append_line(
+        &brain.path().join("knowledge/a.md"),
+        "- fact two, written while daemon dead\n",
+    );
+    std::fs::write(
+        brain.path().join("knowledge/new.md"),
+        "- born during the outage\n",
+    )
+    .unwrap();
 
     // Restart on the SAME state dir: the startup fingerprint backstop must
     // reconcile before the first barrier releases.
@@ -472,7 +429,10 @@ fn crash_restart_backstop_catches_up() {
     assert_eq!(after["ok"], true, "{after}");
     assert_eq!(after["fresh"], true, "{after}");
     let checksum_after = after["checksum"].as_str().unwrap().to_string();
-    assert_ne!(checksum_after, checksum_before, "outage writes must change the catalog");
+    assert_ne!(
+        checksum_after, checksum_before,
+        "outage writes must change the catalog"
+    );
 
     // Ground truth: a fresh derivation over the final tree.
     let state_c = tempfile::tempdir().unwrap();
@@ -481,81 +441,11 @@ fn crash_restart_backstop_catches_up() {
     assert_eq!(fresh["checksum"].as_str().unwrap(), checksum_after);
 
     // And recall actually surfaces the outage write.
-    let resp = daemon2.local().req(&json!({"op": "recall", "query": "outage", "limit": 10}));
+    let resp = daemon2
+        .local()
+        .req(&json!({"op": "recall", "query": "outage", "limit": 10}));
     assert_eq!(resp["ok"], true);
     assert!(snippet_blob(&resp).contains("born during the outage"));
-}
-
-// ---- (e) remote client over TCP: same guarantees, token-gated ----
-
-#[test]
-fn tcp_client_gets_the_same_guarantees() {
-    let brain = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
-    std::fs::write(brain.path().join("knowledge/a.md"), "- seed fact\n").unwrap();
-
-    let state = tempfile::tempdir().unwrap();
-    let token_dir = tempfile::tempdir().unwrap();
-    let token = "torture-bearer-token";
-    let token_file = write_token_file(token_dir.path(), token);
-    let daemon = start_daemon(
-        brain.path(),
-        state.path(),
-        json!({
-            "bind": "127.0.0.1:0",
-            "origin": "tcp-origin",
-            "token_file": token_file.to_string_lossy(),
-        }),
-    );
-    let addr = daemon.tcp_addr();
-
-    // Wrong/missing token: refused, no data.
-    let denied = tcp_req(&addr, "wrong-token", &json!({"op": "recall", "query": "seed"}));
-    assert_eq!(denied["ok"], false);
-    assert_eq!(denied["error"], "unauthorized");
-    assert!(denied.get("hits").is_none());
-
-    // Read-your-writes over TCP, exactly like the unix path.
-    for n in 1..=20 {
-        append_line(
-            &brain.path().join("knowledge/a.md"),
-            &format!("- torture remote seq{n} rtk{n}\n"),
-        );
-        let resp = tcp_req(&addr, token, &json!({"op": "recall", "query": "torture", "limit": 1000}));
-        assert_eq!(resp["ok"], true, "{resp}");
-        assert_eq!(resp["fresh"], true, "{resp}");
-        assert_eq!(resp["origin"], "tcp-origin");
-        let blob = snippet_blob(&resp);
-        for m in 1..=n {
-            assert!(blob.contains(&format!("rtk{m}")), "remote seq {m} missing at iteration {n}");
-        }
-    }
-
-    // Generation + checksum ops over TCP; the serving listener and the local
-    // control channel agree on the catalog.
-    let g = tcp_req(&addr, token, &json!({"op": "generation"}));
-    assert_eq!(g["ok"], true);
-    assert!(g["generation"].as_u64().unwrap() >= 1);
-    let tcp_sum = tcp_req(&addr, token, &json!({"op": "checksum"}));
-    let local_sum = daemon.local().req(&json!({"op": "checksum"}));
-    assert_eq!(tcp_sum["checksum"], local_sum["checksum"]);
-
-    // find + slices answer over TCP too (empty here — no code scan ran —
-    // but shaped and labeled).
-    let f = tcp_req(&addr, token, &json!({"op": "find", "query": "anything"}));
-    assert_eq!(f["ok"], true, "{f}");
-    assert!(f["fresh"].is_boolean() && f["origin"] == "tcp-origin");
-    assert!(f["code_hits"].as_array().unwrap().is_empty());
-    let s = tcp_req(&addr, token, &json!({"op": "slices", "path": "/x.rs", "limit": 3}));
-    assert_eq!(s["ok"], true, "{s}");
-    assert!(s["slices"].as_array().unwrap().is_empty());
-
-    // Expand round-trip: cite from a TCP recall expands over TCP.
-    let resp = tcp_req(&addr, token, &json!({"op": "recall", "query": "rtk7", "limit": 5}));
-    let cite = resp["hits"][0]["cite"].as_str().unwrap().to_string();
-    let expanded = tcp_req(&addr, token, &json!({"op": "expand", "cite": cite}));
-    assert_eq!(expanded["ok"], true);
-    assert!(expanded["blocks"][0]["text"].as_str().unwrap().contains("rtk7"));
 }
 
 // ---- the daemon scans code by itself, and serves `map` ----
@@ -564,7 +454,7 @@ fn tcp_client_gets_the_same_guarantees() {
 /// hits" forever, because a code scan only ever ran when someone sent
 /// `scan-code` by hand. Nobody sends it here.
 #[test]
-fn daemon_scans_code_itself_and_serves_the_same_map_locally_and_remotely() {
+fn daemon_scans_code_and_explains_local_dependencies() {
     let brain = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
     std::fs::write(brain.path().join("knowledge/a.md"), "- seed statement\n").unwrap();
@@ -584,52 +474,55 @@ fn daemon_scans_code_itself_and_serves_the_same_map_locally_and_remotely() {
     .unwrap();
 
     let state = tempfile::tempdir().unwrap();
-    let token_dir = tempfile::tempdir().unwrap();
-    let token = "map-bearer-token";
-    let token_file = write_token_file(token_dir.path(), token);
     let daemon = start_daemon_cfg(
         brain.path(),
         state.path(),
-        json!({
-            "bind": "127.0.0.1:0",
-            "origin": "storage-host",
-            "token_file": token_file.to_string_lossy(),
-        }),
+        json!({}),
         json!({"code_roots": [code.path().to_string_lossy()]}),
     );
-    let addr = daemon.tcp_addr();
 
     // Nobody sends `scan-code`: the daemon must kick its own scan once the
     // tree watches are registered.
     let mut counts = None;
     for _ in 0..300 {
         let s = daemon.local().req(&json!({"op": "scan-status"}));
-        if s["scan"]["last_finished"].is_number() && !s["scan"]["running"].as_bool().unwrap_or(true) {
+        if s["scan"]["last_finished"].is_number() && !s["scan"]["running"].as_bool().unwrap_or(true)
+        {
             counts = Some(s);
             break;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
     let s = counts.expect("the daemon must run a code scan on its own, unasked");
-    assert_eq!(s["scan"]["last_error"], Value::Null, "self-triggered scan failed: {s}");
+    assert_eq!(
+        s["scan"]["last_error"],
+        Value::Null,
+        "self-triggered scan failed: {s}"
+    );
     assert!(
         s["scan"]["last_counts"]["files"].as_u64().unwrap_or(0) >= 2,
         "the self-triggered scan must have indexed the code tree: {s}"
     );
 
     // `find` now answers on a host nobody scanned by hand.
-    let f = daemon.local().req(&json!({"op": "find", "query": "alpha_helper"}));
+    let f = daemon
+        .local()
+        .req(&json!({"op": "find", "query": "alpha_helper"}));
     assert_eq!(f["ok"], true, "{f}");
     assert!(
         !f["code_hits"].as_array().unwrap().is_empty(),
         "a self-scanned host must answer find: {f}"
     );
 
-    // `map` is servable: same lines over the socket, over TCP, and from the
-    // local CLI on the serving host itself.
-    let sock_map = daemon.local().req(&json!({"op": "map", "budget_tokens": 4000}));
+    // The daemon and local CLI expose the same committed map.
+    let sock_map = daemon
+        .local()
+        .req(&json!({"op": "map", "budget_tokens": 4000}));
     assert_eq!(sock_map["ok"], true, "{sock_map}");
-    assert_eq!(sock_map["origin"], "storage-host", "map must carry the coherence labels: {sock_map}");
+    assert!(
+        sock_map["origin"].is_string(),
+        "map must carry the coherence labels: {sock_map}"
+    );
     assert!(sock_map["generation"].is_number(), "{sock_map}");
     let lines: Vec<String> = sock_map["map"]["lines"]
         .as_array()
@@ -638,12 +531,11 @@ fn daemon_scans_code_itself_and_serves_the_same_map_locally_and_remotely() {
         .map(|l| l.as_str().unwrap().to_string())
         .collect();
     assert!(
-        lines.iter().any(|l| l.contains("proj/src/lib.rs") && l.contains("alpha_helper")),
+        lines
+            .iter()
+            .any(|l| l.contains("proj/src/lib.rs") && l.contains("alpha_helper")),
         "map must list the indexed files with their symbols: {lines:?}"
     );
-
-    let tcp_map = tcp_req(&addr, token, &json!({"op": "map", "budget_tokens": 4000}));
-    assert_eq!(tcp_map["map"]["lines"], sock_map["map"]["lines"], "tcp map must equal socket map");
 
     // Dependency explanations use the same committed graph and coherence
     // envelope on both serving transports. Host-absolute paths must never
@@ -657,19 +549,26 @@ fn daemon_scans_code_itself_and_serves_the_same_map_locally_and_remotely() {
     let sock_path = daemon.local().req(&path_request);
     assert_eq!(sock_path["ok"], true, "{sock_path}");
     assert_eq!(sock_path["dependency_path"]["found"], true, "{sock_path}");
-    assert_eq!(sock_path["dependency_path"]["edges"][0]["relation"], "imports");
-    assert_eq!(sock_path["dependency_path"]["edges"][0]["evidence"]["class"], "resolved");
-    assert_eq!(sock_path["dependency_path"]["edges"][0]["evidence"]["path"], "proj/src/main.rs");
-    assert_eq!(sock_path["dependency_path"]["edges"][0]["evidence"]["start_line"], 1);
+    assert_eq!(
+        sock_path["dependency_path"]["edges"][0]["relation"],
+        "imports"
+    );
+    assert_eq!(
+        sock_path["dependency_path"]["edges"][0]["evidence"]["class"],
+        "resolved"
+    );
+    assert_eq!(
+        sock_path["dependency_path"]["edges"][0]["evidence"]["path"],
+        "proj/src/main.rs"
+    );
+    assert_eq!(
+        sock_path["dependency_path"]["edges"][0]["evidence"]["start_line"],
+        1
+    );
     let storage_root = code.path().to_string_lossy();
     assert!(
         !sock_path.to_string().contains(storage_root.as_ref()),
         "served dependency paths must not expose the storage host root: {sock_path}"
-    );
-    let tcp_path = tcp_req(&addr, token, &path_request);
-    assert_eq!(
-        tcp_path["dependency_path"], sock_path["dependency_path"],
-        "TCP and local serving must explain the identical path"
     );
 
     let impact_request = json!({
@@ -680,12 +579,13 @@ fn daemon_scans_code_itself_and_serves_the_same_map_locally_and_remotely() {
     });
     let sock_impact = daemon.local().req(&impact_request);
     assert_eq!(sock_impact["ok"], true, "{sock_impact}");
-    assert_eq!(sock_impact["dependency_impact"]["total"], 1, "{sock_impact}");
-    assert_eq!(sock_impact["dependency_impact"]["nodes"][0]["path"], "proj/src/main.rs");
-    let tcp_impact = tcp_req(&addr, token, &impact_request);
     assert_eq!(
-        tcp_impact["dependency_impact"], sock_impact["dependency_impact"],
-        "TCP and local serving must expose the identical blast radius"
+        sock_impact["dependency_impact"]["total"], 1,
+        "{sock_impact}"
+    );
+    assert_eq!(
+        sock_impact["dependency_impact"]["nodes"][0]["path"],
+        "proj/src/main.rs"
     );
 
     let context_request = json!({
@@ -696,7 +596,10 @@ fn daemon_scans_code_itself_and_serves_the_same_map_locally_and_remotely() {
     });
     let sock_context = daemon.local().req(&context_request);
     assert_eq!(sock_context["ok"], true, "{sock_context}");
-    assert_eq!(sock_context["dependency_context"]["total"], 1, "{sock_context}");
+    assert_eq!(
+        sock_context["dependency_context"]["total"], 1,
+        "{sock_context}"
+    );
     assert_eq!(
         sock_context["dependency_context"]["nodes"][0]["edge"]["source"],
         "proj/src/main.rs"
@@ -709,16 +612,14 @@ fn daemon_scans_code_itself_and_serves_the_same_map_locally_and_remotely() {
         !sock_context.to_string().contains(storage_root.as_ref()),
         "served dependency context must not expose the storage host root: {sock_context}"
     );
-    let tcp_context = tcp_req(&addr, token, &context_request);
-    assert_eq!(
-        tcp_context["dependency_context"], sock_context["dependency_context"],
-        "TCP and local serving must expose identical dependency context"
-    );
 
     let symbol_request = json!({"op": "code-symbol", "query": "main", "limit": 10});
     let sock_symbol = daemon.local().req(&symbol_request);
     assert_eq!(sock_symbol["ok"], true, "{sock_symbol}");
-    assert_eq!(sock_symbol["symbol_context"]["total_symbols"], 1, "{sock_symbol}");
+    assert_eq!(
+        sock_symbol["symbol_context"]["total_symbols"], 1,
+        "{sock_symbol}"
+    );
     assert_eq!(
         sock_symbol["symbol_context"]["edges"]
             .as_array()
@@ -732,11 +633,6 @@ fn daemon_scans_code_itself_and_serves_the_same_map_locally_and_remotely() {
         !sock_symbol.to_string().contains(storage_root.as_ref()),
         "served symbol context must not expose the storage host root: {sock_symbol}"
     );
-    let tcp_symbol = tcp_req(&addr, token, &symbol_request);
-    assert_eq!(
-        tcp_symbol["symbol_context"], sock_symbol["symbol_context"],
-        "TCP and local serving must expose identical symbol context"
-    );
 
     // The serving host's own CLI, reading its local index directly.
     let cli_home = tempfile::tempdir().unwrap();
@@ -748,241 +644,18 @@ fn daemon_scans_code_itself_and_serves_the_same_map_locally_and_remotely() {
         .env_remove("XDG_RUNTIME_DIR")
         .output()
         .unwrap();
-    assert!(local_out.status.success(), "{}", String::from_utf8_lossy(&local_out.stderr));
+    assert!(
+        local_out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&local_out.stderr)
+    );
     let local_lines: Vec<String> = String::from_utf8_lossy(&local_out.stdout)
         .lines()
         .filter(|l| !l.trim().is_empty())
         .map(str::to_string)
         .collect();
-    assert_eq!(local_lines, lines, "the local map and the served map must be the same lines");
-
-    // And a none-tier host gets exactly those lines from the serving host,
-    // instead of "map needs a local index".
-    let client_home = tempfile::tempdir().unwrap();
-    let client_state = tempfile::tempdir().unwrap();
-    let empty_brain = tempfile::tempdir().unwrap();
-    let client_cfg = client_state.path().join("config.json");
-    std::fs::write(
-        &client_cfg,
-        serde_json::to_string(&json!({
-            "resident": [],
-            "client": {"serving": {"addr": addr, "token_file": token_file.to_string_lossy()}},
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    let remote_out = Command::new(BIN)
-        .args(["map", "--budget-tokens", "4000"])
-        .env("CFETCH_STATE_DIR", client_state.path())
-        .env("CFETCH_CONFIG", &client_cfg)
-        .env("CFETCH_BRAIN", empty_brain.path())
-        .env("HOME", client_home.path())
-        .env_remove("XDG_RUNTIME_DIR")
-        .output()
-        .unwrap();
-    let remote_stdout = String::from_utf8_lossy(&remote_out.stdout);
-    assert!(
-        remote_out.status.success(),
-        "none-tier map failed: {remote_stdout}\n{}",
-        String::from_utf8_lossy(&remote_out.stderr)
+    assert_eq!(
+        local_lines, lines,
+        "the local map and the served map must be the same lines"
     );
-    let remote_lines: Vec<String> = remote_stdout
-        .lines()
-        .filter(|l| !l.trim().is_empty() && !l.starts_with("served by "))
-        .map(str::to_string)
-        .collect();
-    assert_eq!(remote_lines, lines, "map must read the same locally and remotely");
-    assert!(remote_stdout.contains("served by storage-host"), "coherence footer missing: {remote_stdout}");
-
-    let remote_path = Command::new(BIN)
-        .args([
-            "code-graph",
-            "path",
-            "proj/src/main.rs",
-            "proj/src/lib.rs",
-            "--depth",
-            "4",
-            "--json",
-        ])
-        .env("CFETCH_STATE_DIR", client_state.path())
-        .env("CFETCH_CONFIG", &client_cfg)
-        .env("HOME", client_home.path())
-        .env_remove("XDG_RUNTIME_DIR")
-        .output()
-        .unwrap();
-    assert!(
-        remote_path.status.success(),
-        "none-tier dependency path failed: {}",
-        String::from_utf8_lossy(&remote_path.stderr)
-    );
-    let remote_path: Value = serde_json::from_slice(&remote_path.stdout).unwrap();
-    assert_eq!(remote_path["path"], sock_path["dependency_path"]);
-    assert_eq!(remote_path["origin"], "storage-host");
-
-    let remote_context = Command::new(BIN)
-        .args([
-            "code-graph",
-            "context",
-            "proj/src/lib.rs",
-            "--depth",
-            "1",
-            "--limit",
-            "10",
-            "--json",
-        ])
-        .env("CFETCH_STATE_DIR", client_state.path())
-        .env("CFETCH_CONFIG", &client_cfg)
-        .env("HOME", client_home.path())
-        .env_remove("XDG_RUNTIME_DIR")
-        .output()
-        .unwrap();
-    assert!(
-        remote_context.status.success(),
-        "none-tier dependency context failed: {}",
-        String::from_utf8_lossy(&remote_context.stderr)
-    );
-    let remote_context: Value = serde_json::from_slice(&remote_context.stdout).unwrap();
-    assert_eq!(remote_context["context"], sock_context["dependency_context"]);
-    assert_eq!(remote_context["origin"], "storage-host");
-
-    let remote_symbol = Command::new(BIN)
-        .args(["code-graph", "symbol", "main", "--limit", "10", "--json"])
-        .env("CFETCH_STATE_DIR", client_state.path())
-        .env("CFETCH_CONFIG", &client_cfg)
-        .env("HOME", client_home.path())
-        .env_remove("XDG_RUNTIME_DIR")
-        .output()
-        .unwrap();
-    assert!(
-        remote_symbol.status.success(),
-        "none-tier symbol context failed: {}",
-        String::from_utf8_lossy(&remote_symbol.stderr)
-    );
-    let remote_symbol: Value = serde_json::from_slice(&remote_symbol.stdout).unwrap();
-    assert_eq!(remote_symbol["symbol"], sock_symbol["symbol_context"]);
-    assert_eq!(remote_symbol["origin"], "storage-host");
-    assert!(
-        !client_state.path().join("index.db").exists(),
-        "none-tier map and graph queries must open no local index"
-    );
-}
-
-// ---- none-tier CLI routing against a serving host ----
-
-#[test]
-fn none_tier_cli_routes_remotely_and_opens_no_local_index() {
-    let brain = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
-    std::fs::write(brain.path().join("knowledge/a.md"), "- unique remotefact zylkor\n").unwrap();
-
-    let state = tempfile::tempdir().unwrap();
-    let token_dir = tempfile::tempdir().unwrap();
-    let token_file = write_token_file(token_dir.path(), "cli-token");
-    let daemon = start_daemon(
-        brain.path(),
-        state.path(),
-        json!({
-            "bind": "127.0.0.1:0",
-            "origin": "storage-host",
-            "token_file": token_file.to_string_lossy(),
-        }),
-    );
-    let addr = daemon.tcp_addr();
-
-    // The none-tier client: empty brain, no local index, remote routing.
-    let client_home = tempfile::tempdir().unwrap();
-    let client_state = tempfile::tempdir().unwrap();
-    let empty_brain = tempfile::tempdir().unwrap();
-    let client_cfg = client_state.path().join("config.json");
-    std::fs::write(
-        &client_cfg,
-        serde_json::to_string(&json!({
-            "resident": [],
-            "client": {"serving": {"addr": addr, "token_file": token_file.to_string_lossy()}},
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    let run = |args: &[&str]| {
-        Command::new(BIN)
-            .args(args)
-            .env("CFETCH_STATE_DIR", client_state.path())
-            .env("CFETCH_CONFIG", &client_cfg)
-            .env("CFETCH_BRAIN", empty_brain.path())
-            .env("HOME", client_home.path())
-            .env_remove("XDG_RUNTIME_DIR")
-            .output()
-            .unwrap()
-    };
-
-    let out = run(&["recall", "zylkor"]);
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "recall failed: {stdout}\n{}", String::from_utf8_lossy(&out.stderr));
-    assert!(stdout.contains("zylkor"), "remote hit missing: {stdout}");
-    assert!(stdout.contains("served by storage-host"), "coherence footer missing: {stdout}");
-    assert!(stdout.contains("fresh"), "freshness label missing: {stdout}");
-    assert!(
-        !client_state.path().join("index.db").exists(),
-        "none-tier host must open NO local index at all"
-    );
-
-    // A none-tier host refuses to build a parallel local truth.
-    let out = run(&["scan"]);
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("none-tier"));
-
-    // Unreachable serving host: explicit error naming the host, nonzero exit,
-    // never a silent local fallback.
-    std::fs::write(
-        &client_cfg,
-        serde_json::to_string(&json!({
-            "resident": [],
-            "client": {"serving": {"addr": "127.0.0.1:9", "token_file": token_file.to_string_lossy()}},
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    let out = run(&["recall", "zylkor"]);
-    assert!(!out.status.success(), "unreachable serving host must be a hard error");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("127.0.0.1:9"), "error must name the serving host: {stderr}");
-}
-
-// ---- live-fleet run (read-only), env-gated ----
-
-#[test]
-fn live_serving_host_coherence() {
-    let Ok(addr) = std::env::var("CFETCH_TORTURE_ADDR") else {
-        eprintln!("skipped: CFETCH_TORTURE_ADDR not set (live run only)");
-        return;
-    };
-    let token = std::env::var("CFETCH_TORTURE_TOKEN")
-        .expect("CFETCH_TORTURE_TOKEN must be set together with CFETCH_TORTURE_ADDR");
-
-    let g1 = tcp_req(&addr, &token, &json!({"op": "generation"}));
-    assert_eq!(g1["ok"], true, "{g1}");
-    assert!(g1["fresh"].is_boolean(), "freshness must be labeled: {g1}");
-    let gen1 = g1["generation"].as_u64().unwrap();
-
-    let c1 = tcp_req(&addr, &token, &json!({"op": "checksum"}));
-    let c2 = tcp_req(&addr, &token, &json!({"op": "checksum"}));
-    assert_eq!(c1["ok"], true);
-    assert_eq!(c2["ok"], true);
-    if c1["generation"] == c2["generation"] {
-        assert_eq!(
-            c1["checksum"], c2["checksum"],
-            "same generation must mean same catalog checksum"
-        );
-    }
-
-    let g2 = tcp_req(&addr, &token, &json!({"op": "generation"}));
-    assert!(
-        g2["generation"].as_u64().unwrap() >= gen1,
-        "generation must be monotonic: {gen1} then {g2}"
-    );
-
-    let query = std::env::var("CFETCH_TORTURE_QUERY").unwrap_or_else(|_| "readme".to_string());
-    let r = tcp_req(&addr, &token, &json!({"op": "recall", "query": query, "limit": 5}));
-    assert_eq!(r["ok"], true, "{r}");
-    assert!(r["origin"].is_string() && r["fresh"].is_boolean(), "coherence labels missing: {r}");
 }

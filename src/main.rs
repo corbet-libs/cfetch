@@ -293,11 +293,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Review ring-5 staging: auto-flagged exhaust in the tree, shared across
+    /// Review ring-5 memories: auto-flagged exhaust in the tree, shared across
     /// hosts, never injected
-    Staging {
+    Memories {
         #[command(subcommand)]
-        action: StagingAction,
+        action: MemoriesAction,
     },
     /// Continuous second-brain maintenance, history, exceptions, and debugging
     Maintain {
@@ -470,7 +470,7 @@ enum CardsAction {
 }
 
 #[derive(Subcommand)]
-enum StagingAction {
+enum MemoriesAction {
     /// List flagged, unconsumed candidates, newest first
     List {
         #[arg(long)]
@@ -697,7 +697,7 @@ fn selfcheck() -> anyhow::Result<()> {
             );
         }
         println!(
-            "ok    ring-5 staging: {} ({} candidate(s) pending, all hosts)",
+            "ok    ring-5 memories: {} ({} candidate(s) pending, selected mind)",
             staging.display(),
             staging::pending_count(&staging)
         );
@@ -1698,12 +1698,12 @@ fn recall(
 /// Manual/debug view over ring-5 evidence in the shared tree. The autonomous
 /// worker normally settles these candidates; this surface remains available
 /// for intervention and inspection across every host.
-fn staging_cmd(action: StagingAction) -> anyhow::Result<()> {
+fn staging_cmd(action: MemoriesAction) -> anyhow::Result<()> {
     let cfg = config::Config::load()?;
     let ex = exhaust::Exhaust::from_config(&cfg);
     let dir = ex.staging_dir.clone();
     match action {
-        StagingAction::List { json } => {
+        MemoriesAction::List { json } => {
             let rows = staging::list(&dir);
             if json {
                 let arr: Vec<_> = rows
@@ -1718,7 +1718,7 @@ fn staging_cmd(action: StagingAction) -> anyhow::Result<()> {
                     .collect();
                 println!("{}", serde_json::json!(arr));
             } else if rows.is_empty() {
-                println!("staging is empty — no captured evidence awaiting maintenance");
+                println!("memories are empty — no captured evidence awaiting maintenance");
                 println!("  ({})", dir.display());
             } else {
                 for c in &rows {
@@ -1728,10 +1728,12 @@ fn staging_cmd(action: StagingAction) -> anyhow::Result<()> {
                         c.id, c.reason, c.kind, c.host, session, c.payload
                     );
                 }
-                println!("\ndebug manually: cfetch maintain packet <id> | staging dismiss <id>");
+                println!(
+                    "\ndebug manually: cfetch maintain packet <id> | cfetch memories dismiss <id>"
+                );
             }
         }
-        StagingAction::Consume { id } => {
+        MemoriesAction::Consume { id } => {
             if staging::consume(&dir, &id)? {
                 // The file is gone, so the stream is what remembers the
                 // decision and keeps the trap from re-staging it.
@@ -1743,7 +1745,7 @@ fn staging_cmd(action: StagingAction) -> anyhow::Result<()> {
                 );
             }
         }
-        StagingAction::Dismiss { id } => {
+        MemoriesAction::Dismiss { id } => {
             if staging::dismiss(&dir, &id)? {
                 let _ = ex.record_decision(&id, "dismiss");
                 println!("dismissed {id} (kept in {}/dismissed)", dir.display());
@@ -2214,7 +2216,7 @@ fn failures_cmd(query: &str, limit: usize, json: bool) -> anyhow::Result<()> {
             println!("  last: {}", m.last_command);
         }
         if m.staged {
-            println!("  already a ring-5 candidate (cfetch staging list)");
+            println!("  already a ring-5 candidate (cfetch memories list)");
         }
         println!();
     }
@@ -2407,7 +2409,7 @@ fn status() -> anyhow::Result<()> {
             .collect::<Vec<_>>()
             .join(", ");
         println!(
-            "staging: {} ring-5 candidate(s) awaiting autonomous maintenance [{reasons}] in {}",
+            "memories: {} ring-5 candidate(s) awaiting autonomous maintenance [{reasons}] in {}",
             ring56.staged_total,
             ex.staging_dir.display()
         );
@@ -2416,10 +2418,10 @@ fn status() -> anyhow::Result<()> {
         // anywhere in the tree, no turn has ever been examined, so an empty
         // queue says nothing about whether anything was worth flagging.
         println!(
-            "staging: 0 ring-5 candidates — UNOBSERVED: no ring-6 exhaust has ever been written, so no turn has been examined"
+            "memories: 0 ring-5 candidates — UNOBSERVED: no ring-6 exhaust has ever been written, so no turn has been examined"
         );
     } else {
-        println!("staging: no ring-5 candidates awaiting maintenance (measured)");
+        println!("memories: no ring-5 candidates awaiting maintenance (measured)");
     }
     println!(
         "exhaust: {} of ring-6 stream in {}",
@@ -2946,9 +2948,9 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Command::Staging { action } => {
+        Command::Memories { action } => {
             if let Err(e) = staging_cmd(action) {
-                eprintln!("cfetch staging: {e}");
+                eprintln!("cfetch memories: {e}");
                 std::process::exit(1);
             }
         }

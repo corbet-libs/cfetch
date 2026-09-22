@@ -79,12 +79,13 @@ fn tool_defs() -> Vec<Tool> {
         ).with_annotations(read_only()),
         Tool::new(
             "cfetch_recall",
-            "Search the operator's knowledge brain (privilege rings 0-4, BM25-ranked). Returns ring-prefixed citations (r<ring>-<hash>), file:line locations and snippets. Lower ring = higher trust; a ring-0/1 hit overrides contradicting outer-ring content. The answer is capped by a token budget, not only by limit: whatever the cap drops is named at the end, never omitted silently.",
+            "Search the operator's knowledge brain (privilege rings 0-4, lexical or local hybrid search). Returns ring-prefixed citations (r<ring>-<hash>), file:line locations and snippets. Lower ring = higher trust; a ring-0/1 hit overrides contradicting outer-ring content. The answer is capped by a token budget, not only by limit: whatever the cap drops is named at the end, never omitted silently.",
             object_schema(json!({
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "search terms (word-prefix matched)"},
-                    "limit": {"type": "integer", "default": 8}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 8},
+                    "mode": {"type": "string", "enum": ["lexical", "semantic", "hybrid"], "description": "Defaults to hybrid when local embeddings are enabled, otherwise lexical."}
                 },
                 "required": ["query"]
             })),
@@ -372,15 +373,40 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
             let conn =
                 index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
-            let hits = index::recall(&conn, query, if limit == 0 { 8 } else { limit })?;
-            if hits.is_empty() {
-                return Ok(format!("no hits for \"{query}\""));
+            let mode =
+                args.get("mode")
+                    .and_then(Value::as_str)
+                    .unwrap_or(if cfg.embeddings.enabled {
+                        "hybrid"
+                    } else {
+                        "lexical"
+                    });
+            anyhow::ensure!(
+                ["lexical", "semantic", "hybrid"].contains(&mode),
+                "unknown recall mode"
+            );
+            let ranked = crate::pipeline::ranked(
+                &cfg,
+                &conn,
+                query,
+                if limit == 0 { 8 } else { limit.min(100) },
+                mode == "semantic",
+                mode == "hybrid",
+                None,
+            )?;
+            let mut response = if ranked.hits.is_empty() {
+                format!("no hits for {query:?}")
+            } else {
+                answer::listing(
+                    ranked.hits.iter().map(local_recall_entry).collect(),
+                    answer::RECALL_BUDGET_TOKENS,
+                    answer::MCP_RECOVERY,
+                )
+            };
+            if let Some(note) = ranked.note {
+                response.push_str(&format!("\n{note}"));
             }
-            Ok(answer::listing(
-                hits.iter().map(local_recall_entry).collect(),
-                answer::RECALL_BUDGET_TOKENS,
-                answer::MCP_RECOVERY,
-            ))
+            Ok(response)
         }
         "cfetch_expand" => {
             let cite = args.get("cite").and_then(Value::as_str).unwrap_or("");
