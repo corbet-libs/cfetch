@@ -526,7 +526,7 @@ impl ServeState {
         p.last_error = None;
         drop(p);
         crate::runtime_status::record_generation(
-            crate::runtime_status::MemoryRoute::Serving,
+            crate::runtime_status::MemoryRoute::Local,
             generation,
         );
         self.cv.notify_all();

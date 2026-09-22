@@ -440,7 +440,7 @@ fn serve_query(
     resp.stale_note = outcome.note;
     resp.barrier_ms = Some(outcome.waited_ms);
     crate::runtime_status::record_memory_answer(
-        crate::runtime_status::MemoryRoute::Serving,
+        crate::runtime_status::MemoryRoute::Local,
         resp.generation,
         resp.fresh,
         true,
