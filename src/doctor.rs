@@ -627,7 +627,7 @@ fn memory_diagnostic(
     cfg: Option<&Config>,
     state_dir: &Path,
     runtime: &runtime_status::RuntimeStatusV1,
-    daemon_running: bool,
+    _daemon_running: bool,
     findings: &mut Vec<Finding>,
 ) -> MemoryDiagnostic {
     let Some(cfg) = cfg else {
@@ -661,7 +661,9 @@ fn memory_diagnostic(
             }
         };
 
-    let production_unavailable = embedding_profile::production_availability()
+    let production_unavailable = cfg
+        .embeddings
+        .available()
         .err()
         .map(|error| short_error(&error.to_string()));
 
@@ -754,7 +756,7 @@ fn inference_diagnostic(
                                 .into(),
                         ),
                     });
-                } else if let Err(error) = embedding_profile::production_availability() {
+                } else if let Err(error) = cfg.embeddings.available() {
                     findings.push(Finding {
                         code: "embedding_profile_not_active".into(),
                         severity: FindingSeverity::Critical,

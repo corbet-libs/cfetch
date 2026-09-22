@@ -58,3 +58,7 @@ commands = [["python3", "scripts/release_maintenance.py"]]
 [checks.staging]
 kind = "commands"
 commands = [["bash", "scripts/ci-check.sh", "staging"]]
+
+[checks.local-model]
+kind = "commands"
+commands = [["bash", "scripts/ci-local-model.sh"]]

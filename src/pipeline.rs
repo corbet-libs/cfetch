@@ -383,7 +383,7 @@ mod tests {
         for (rel, body) in [
             ("knowledge/hosts/server.md", "- item about the server\n"),
             ("knowledge/world/vendor.md", "- item about a vendor\n"),
-            ("mind/memories/pref.md", "- item about a preference\n"),
+            ("preferences.md", "- item about a preference\n"),
         ] {
             let p = brain.path().join(rel);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();

@@ -246,21 +246,6 @@ fn tool_defs() -> Vec<Tool> {
     ]
 }
 
-/// Wire and local hits carry the same fields under different types (the
-/// serving protocol owns one, the index the other), so each answer kind gets
-/// one adapter per shape and exactly one renderer.
-fn recall_entry(h: &serve::WireHit) -> String {
-    answer::hit_entry(
-        &h.cite,
-        &h.path,
-        h.ring,
-        h.start_line,
-        h.end_line,
-        &h.snippet,
-        &h.mirrors,
-    )
-}
-
 fn local_recall_entry(h: &index::Hit) -> String {
     answer::hit_entry(
         &h.cite,
@@ -273,17 +258,6 @@ fn local_recall_entry(h: &index::Hit) -> String {
     )
 }
 
-fn expand_entry(b: &serve::WireBlock) -> answer::BlockIn {
-    answer::BlockIn {
-        cite: b.cite.clone(),
-        path: b.path.clone(),
-        ring: b.ring,
-        start_line: b.start_line,
-        end_line: b.end_line,
-        text: b.text.clone(),
-    }
-}
-
 fn local_expand_entry(b: &index::Block) -> answer::BlockIn {
     answer::BlockIn {
         cite: b.cite.clone(),
@@ -292,22 +266,6 @@ fn local_expand_entry(b: &index::Block) -> answer::BlockIn {
         start_line: b.start_line,
         end_line: b.end_line,
         text: b.text.clone(),
-    }
-}
-
-/// Coherence footer appended to every remotely-served MCP answer.
-fn served_footer(resp: &crate::daemon::Response) -> String {
-    let origin = resp.origin.clone().unwrap_or_default();
-    let generation = resp.generation.unwrap_or(0);
-    if resp.fresh == Some(false) {
-        format!(
-            "\n[served by {origin}, generation {generation} — STALE: {}]",
-            resp.stale_note
-                .clone()
-                .unwrap_or_else(|| "barrier expired".to_string())
-        )
-    } else {
-        format!("\n[served by {origin}, generation {generation}, fresh]")
     }
 }
 

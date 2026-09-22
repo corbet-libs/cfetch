@@ -136,7 +136,11 @@ impl Inbox {
         let mut records: Vec<Record> = maintenance::history(cfg)
             .into_iter()
             .map(Record::Event)
-            .chain(staging::list(&candidate_dir).into_iter().map(Record::Candidate))
+            .chain(
+                staging::list(&candidate_dir)
+                    .into_iter()
+                    .map(Record::Candidate),
+            )
             .chain(maintenance::list(cfg).into_iter().map(Record::Proposal))
             .collect();
         records.sort_by(|a, b| {
@@ -173,9 +177,7 @@ impl Inbox {
         } else {
             "setup needed"
         };
-        self.status = format!(
-            "{events} event(s) · {candidates} staged · {mode}"
-        );
+        self.status = format!("{events} event(s) · {candidates} staged · {mode}");
         self.load_selected(cfg, can_verify_locally);
     }
 
@@ -348,12 +350,18 @@ fn event_detail(event: &maintenance::MaintenanceEvent) -> DetailDocument {
     if event.candidate_ids.is_empty() {
         lines.push(DetailLine::new("No candidate ids recorded.", Tone::Muted));
     } else {
-        lines.extend(event.candidate_ids.iter().map(|id| {
-            DetailLine::new(format!("• candidate {id}"), Tone::Normal)
-        }));
+        lines.extend(
+            event
+                .candidate_ids
+                .iter()
+                .map(|id| DetailLine::new(format!("• candidate {id}"), Tone::Normal)),
+        );
     }
     if let Some(proposal) = &event.proposal_id {
-        lines.push(DetailLine::new(format!("• proposal {proposal}"), Tone::Normal));
+        lines.push(DetailLine::new(
+            format!("• proposal {proposal}"),
+            Tone::Normal,
+        ));
     }
     if let Some(review) = &event.review_id {
         lines.push(DetailLine::new(format!("• review {review}"), Tone::Normal));
@@ -373,7 +381,10 @@ fn event_detail(event: &maintenance::MaintenanceEvent) -> DetailDocument {
 
     heading(&mut lines, "Checks");
     if event.checks.is_empty() {
-        lines.push(DetailLine::new("No deterministic checks recorded.", Tone::Muted));
+        lines.push(DetailLine::new(
+            "No deterministic checks recorded.",
+            Tone::Muted,
+        ));
     } else {
         lines.extend(event.checks.iter().map(|check| {
             DetailLine::new(
@@ -888,9 +899,7 @@ mod tests {
         };
         let staging_dir = paths::staging_dir(root.path());
         staging::write(&staging_dir, &candidate("fix-discovered-a1b2c3d4", 42)).unwrap();
-        let finalized = root
-            .path()
-            .join("scratch/cfetch-staging/maintenance/finalized/maintenance-000000000000.md");
+        let finalized = staging_dir.join("maintenance/finalized/maintenance-000000000000.md");
         std::fs::create_dir_all(finalized.parent().unwrap()).unwrap();
         let proposal = maintenance::Proposal {
             schema_version: maintenance::SCHEMA_VERSION,
@@ -1036,9 +1045,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(rendered.contains("without routine approval"));
-        assert!(rendered.contains(
-            "cfetch maintain auto-apply maintenance-001122334455"
-        ));
+        assert!(rendered.contains("cfetch maintain auto-apply maintenance-001122334455"));
         assert!(!rendered.contains("--approval-token"));
         assert!(!rendered.contains("maintain verify"));
     }

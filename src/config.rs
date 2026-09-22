@@ -520,6 +520,9 @@ impl VectorSpec {
 /// user-selectable vector-space parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingsConfig {
+    /// Offline, qualified CPU model pack (manifest plus pinned files).
+    #[serde(default)]
+    pub local_model: Option<PathBuf>,
     #[serde(default)]
     pub enabled: bool,
     /// Explicit remote/base URL; `/embeddings` is appended. Empty selects the
@@ -582,14 +585,17 @@ impl EmbeddingsConfig {
         // before use. Keeping deliberately non-canonical specs out of network
         // major 1 also lets migration/unit callers exercise the generic store
         // without accidentally claiming shareable v1 artifacts.
-        let canonical = self.model == crate::embedding_profile::MODEL;
+        let canonical = self.local_model.is_none() && self.model == crate::embedding_profile::MODEL;
         VectorSpec {
             network_major: if canonical {
                 crate::embedding_profile::NETWORK_MAJOR
             } else {
                 0
             },
-            profile_id: if canonical {
+            profile_id: if let Some(dir) = &self.local_model {
+                crate::local_embedding::profile_id(dir)
+                    .unwrap_or_else(|_| "unavailable-local-model".into())
+            } else if canonical {
                 crate::embedding_profile::PROFILE_ID.to_string()
             } else {
                 "unmanaged-embedding-profile".to_string()
@@ -602,7 +608,23 @@ impl EmbeddingsConfig {
     }
 
     pub fn validate_profile(&self) -> anyhow::Result<()> {
-        crate::embedding_profile::validate(self)
+        crate::embedding_profile::validate(self)?;
+        if let Some(dir) = &self.local_model {
+            anyhow::ensure!(
+                self.endpoint.is_empty(),
+                "local_model and endpoint are mutually exclusive"
+            );
+            crate::local_embedding::profile_id(dir)?;
+        }
+        Ok(())
+    }
+
+    pub fn available(&self) -> anyhow::Result<()> {
+        if let Some(dir) = &self.local_model {
+            crate::local_embedding::available(dir)
+        } else {
+            crate::embedding_profile::production_availability()
+        }
     }
 }
 
@@ -657,6 +679,7 @@ impl Default for RerankConfig {
 impl Default for EmbeddingsConfig {
     fn default() -> Self {
         EmbeddingsConfig {
+            local_model: None,
             enabled: false,
             endpoint: String::new(),
             model: crate::embedding_profile::MODEL.to_string(),
@@ -1886,7 +1909,7 @@ mod tests {
         // Longest matching prefix wins, whatever order they are declared in.
         assert_eq!(m.slice_for("knowledge/hosts/server/zfs.md"), "hosts");
         assert_eq!(m.slice_for("knowledge/world/cloudflare.md"), "work");
-        assert_eq!(m.slice_for("knowledge/behaviours/x.md"), ROOT_SLICE);
+        assert_eq!(m.slice_for("AGENT.md"), ROOT_SLICE);
     }
 
     #[test]

@@ -763,7 +763,7 @@ mod watch_scope_tests {
         let brain = tempfile::tempdir().unwrap();
         for d in [
             "knowledge/hosts",
-            "mind/memories",
+            "knowledge/behaviours",
             "mind/secrets",
             "logs/x",
             "projects/repo/src",
@@ -789,7 +789,7 @@ mod watch_scope_tests {
             .collect();
 
         assert!(rel.iter().any(|r| r == "knowledge/hosts"));
-        assert!(rel.iter().any(|r| r == "mind/memories"));
+        assert!(rel.iter().any(|r| r == "knowledge/behaviours"));
         assert!(
             !rel.iter().any(|r| r.starts_with("mind/secrets")),
             "secrets never watched: {rel:?}"
@@ -828,7 +828,7 @@ mod watch_scope_tests {
         let dirs = [
             "knowledge/hosts",
             "knowledge/generated/api",
-            "mind/memories",
+            "knowledge/behaviours",
             "bulk",
             "scratch/deep",
         ];
@@ -846,7 +846,7 @@ mod watch_scope_tests {
             std::fs::write(root.join(format!("knowledge/hosts/h{i}.md")), "# h\n").unwrap();
         }
         for i in 0..4 {
-            std::fs::write(root.join(format!("mind/memories/m{i}.md")), "# m\n").unwrap();
+            std::fs::write(root.join(format!("knowledge/behaviours/m{i}.md")), "# m\n").unwrap();
         }
         std::fs::write(root.join("AGENT.md"), "# agent\n").unwrap();
         for i in 0..3 {

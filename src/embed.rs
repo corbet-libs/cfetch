@@ -203,6 +203,8 @@ fn resolve_auth_with(
 }
 
 enum EmbedBackend {
+    #[cfg(feature = "embedded-embeddings")]
+    Cpu(std::sync::Arc<std::sync::Mutex<crate::local_embedding::Model>>),
     Endpoint {
         agent: ureq::Agent,
         /// Full `./embeddings` URL, endpoint trailing slashes normalized away.
@@ -955,6 +957,8 @@ impl std::fmt::Debug for EmbedClient {
     // interesting identity is (url, model) anyway.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let backend = match &self.backend {
+            #[cfg(feature = "embedded-embeddings")]
+            EmbedBackend::Cpu(_) => "local-cpu",
             EmbedBackend::Endpoint { url, .. } => url.as_str(),
             EmbedBackend::Local { .. } => "package-local",
         };
@@ -975,7 +979,7 @@ impl EmbedClient {
             "embeddings disabled (set embeddings.enabled=true in config)"
         );
         anyhow::ensure!(!cfg.model.is_empty(), "embeddings.model is required");
-        if cfg.model == crate::embedding_profile::MODEL {
+        if cfg.local_model.is_none() && cfg.model == crate::embedding_profile::MODEL {
             // Every producer of canonical vectors must be admitted before it
             // can write into the shared vector space, regardless of whether
             // the transport is package-local or a configured endpoint.
@@ -988,7 +992,17 @@ impl EmbedClient {
             .http_status_as_error(false) // status checked explicitly below
             .build()
             .new_agent();
-        let backend = if cfg.endpoint.is_empty() {
+        let backend = if let Some(dir) = &cfg.local_model {
+            #[cfg(feature = "embedded-embeddings")]
+            {
+                EmbedBackend::Cpu(crate::local_embedding::load(dir, true)?)
+            }
+            #[cfg(not(feature = "embedded-embeddings"))]
+            {
+                let _ = dir;
+                anyhow::bail!("local vectors require the embedded-embeddings build");
+            }
+        } else if cfg.endpoint.is_empty() {
             build_package_local_backend(cfg, agent)?
         } else {
             // A configured endpoint is an explicit route and never a hidden
@@ -1108,7 +1122,24 @@ impl EmbedClient {
         texts: &[&str],
         timeout: std::time::Duration,
     ) -> anyhow::Result<Vec<Vec<f32>>> {
+        #[cfg(feature = "embedded-embeddings")]
+        if let EmbedBackend::Cpu(model) = &self.backend {
+            let result = model
+                .lock()
+                .map_err(|_| anyhow::anyhow!("local model poisoned"))?
+                .embed(texts);
+            crate::runtime_status::record_inference_attempt(
+                crate::runtime_status::InferenceMode::Local,
+                crate::runtime_status::InferenceRoute::Local,
+                "fastembed-ort-cpu",
+                Some("cpu"),
+                result.is_ok(),
+            );
+            return result;
+        }
         let (mode, route, result) = match &self.backend {
+            #[cfg(feature = "embedded-embeddings")]
+            EmbedBackend::Cpu(_) => unreachable!("CPU path returned above"),
             EmbedBackend::Endpoint { agent, url, auth } => (
                 crate::runtime_status::InferenceMode::Endpoint,
                 crate::runtime_status::endpoint_route(url),
@@ -1555,7 +1586,7 @@ pub fn run(
 pub fn sync_configured(cfg: &Config, batch: usize) -> anyhow::Result<(EmbedIndexReport, usize)> {
     // Hydration and peer ingress can publish canonical artifacts without
     // constructing an EmbedClient, so they enforce admission independently.
-    crate::embedding_profile::production_availability()?;
+    cfg.embeddings.available()?;
     let spec = cfg.embeddings.spec();
     let mut store = vectors::VectorStore::open(&cfg.brain_root, &spec)?;
     let mut conn = index::ensure_fresh(

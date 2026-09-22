@@ -684,7 +684,7 @@ fn is_prohibition(text: &str) -> bool {
 /// exactly as true as the answers it advertises. No catalog (a none-tier host,
 /// or one that has never scanned) means NO line: "0 files" would state an
 /// absence nobody measured.
-fn recallable_tail(cfg: &Config, state_dir: &Path, injected: &[Section]) -> Vec<(u8, usize, u64)> {
+fn recallable_tail(_cfg: &Config, state_dir: &Path, injected: &[Section]) -> Vec<(u8, usize, u64)> {
     let Ok(conn) = crate::index::open_ro(state_dir) else {
         return Vec::new();
     };
@@ -1557,7 +1557,7 @@ mod tests {
         std::fs::write(brain.path().join("AGENT.md"), "# contract\nbe good\n").unwrap();
         std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
         std::fs::write(brain.path().join("knowledge/a.md"), "x".repeat(3500)).unwrap();
-        let mut cfg = Config {
+        let cfg = Config {
             brain_root: brain.path().to_path_buf(),
             resident: vec![entry("AGENT.md", 1, None)],
             ..Config::default()

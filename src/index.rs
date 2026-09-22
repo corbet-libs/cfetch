@@ -1,4 +1,4 @@
-﻿//! The recall index: SQLite + FTS5 over the brain's markdown, rings 0-4.
+//! The recall index: SQLite + FTS5 over the brain's markdown, rings 0-4.
 //!
 //! The DB is a per-host DERIVED, DISPOSABLE cache of the shared tree â€” it
 //! lives in the local state dir (SQLite WAL cannot live on NFS), is rebuilt
@@ -74,7 +74,11 @@ pub struct Hit {
 /// platform whose separator is already `/`, a backslash is an ordinary
 /// filename character and is left untouched.
 pub(crate) fn normalize_separators(rel: &str, sep: char) -> String {
-    if sep == '/' { rel.to_string() } else { rel.replace(sep, "/") }
+    if sep == '/' {
+        rel.to_string()
+    } else {
+        rel.replace(sep, "/")
+    }
 }
 
 /// Canonical doc path for a brain-root-relative path, on any platform.
@@ -120,7 +124,9 @@ const GENERATED_DIRS: &[&str] = &["node_modules", "__pycache__"];
 /// Whether any path component names a [`GENERATED_DIRS`] tree. Component-wise,
 /// not substring: `knowledge/node_modules-migration.md` is a real note.
 fn under_generated_dir(rel: &str) -> bool {
-    rel.trim_end_matches('/').split('/').any(|c| GENERATED_DIRS.contains(&c))
+    rel.trim_end_matches('/')
+        .split('/')
+        .any(|c| GENERATED_DIRS.contains(&c))
 }
 
 /// Paths that must never enter the index: the compiled-in boundary (secrets,
@@ -188,7 +194,9 @@ pub(crate) fn frontmatter_ring(text: &str) -> (Option<u8>, usize) {
     // comparison fail and the whole frontmatter - including a `ring: 5`
     // quarantine marker - silently invisible: fail-open by encoding
     // accident. Strip it before the comparison.
-    let first = lines.next().map(|l| l.trim_start_matches('\u{FEFF}').trim());
+    let first = lines
+        .next()
+        .map(|l| l.trim_start_matches('\u{FEFF}').trim());
     if first != Some("---") {
         return (None, 0);
     }
@@ -551,8 +559,11 @@ fn open_at(path: &Path) -> anyhow::Result<Connection> {
     conn.pragma_update(None, "foreign_keys", true)?;
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if version != SCHEMA_VERSION {
-        let tables: i64 =
-            conn.query_row("SELECT count(*) FROM sqlite_master WHERE type='table'", [], |r| r.get(0))?;
+        let tables: i64 = conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table'",
+            [],
+            |r| r.get(0),
+        )?;
         if tables > 0 {
             anyhow::bail!("index schema v{version} != v{SCHEMA_VERSION}; rebuild required");
         }
@@ -683,13 +694,17 @@ pub fn brain_walker(brain_root: &Path, rules: &RingRules) -> ignore::WalkBuilder
     let mut builder = tree_walker(brain_root);
     let root = brain_root.to_path_buf();
     let policy = rules.clone();
-    builder.git_ignore(false).git_exclude(false).git_global(false).parents(false)
+    builder
+        .git_ignore(false)
+        .git_exclude(false)
+        .git_global(false)
+        .parents(false)
         .filter_entry(move |entry| {
-            let Ok(rel) = entry.path().strip_prefix(&root) else { return false; };
-            if rel.as_os_str().is_empty() { return true; }
-            if entry.file_type().is_some_and(|kind| kind.is_dir())
-                && matches!(entry.file_name().to_str(), Some("target" | "node_modules" | ".venv")) {
+            let Ok(rel) = entry.path().strip_prefix(&root) else {
                 return false;
+            };
+            if rel.as_os_str().is_empty() {
+                return true;
             }
             !policy.excluded(&rel_doc_path(rel))
         });
@@ -784,8 +799,7 @@ impl DocCensus {
         let mut candidates: Vec<(&String, usize)> =
             self.by_prefix.iter().map(|(p, &n)| (p, n)).collect();
         candidates.sort_by(|a, b| depth_of(b.0).cmp(&depth_of(a.0)).then_with(|| a.0.cmp(b.0)));
-        let mut claimed: std::collections::HashMap<&str, usize> =
-            std::collections::HashMap::new();
+        let mut claimed: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
         let mut out: Vec<(String, usize)> = Vec::new();
         for (prefix, count) in candidates {
             let already_named = claimed.get(prefix.as_str()).copied().unwrap_or(0);
@@ -830,7 +844,9 @@ fn collect_files(
             if !meta.is_file() || !seen.insert(entry.path().to_path_buf()) {
                 continue;
             }
-            let Ok(rel) = entry.path().strip_prefix(brain_root) else { continue };
+            let Ok(rel) = entry.path().strip_prefix(brain_root) else {
+                continue;
+            };
             let rel = rel_doc_path(rel);
             if !indexable_doc(&rel, rules) {
                 continue;
@@ -849,7 +865,9 @@ fn collect_files(
         for project in projects.flatten() {
             let slug = project.file_name().to_string_lossy().to_string();
             let mem_dir = project.path().join("memory");
-            let Ok(files) = std::fs::read_dir(&mem_dir) else { continue };
+            let Ok(files) = std::fs::read_dir(&mem_dir) else {
+                continue;
+            };
             for f in files.flatten() {
                 let Ok(meta) = f.metadata() else { continue };
                 let name = f.file_name().to_string_lossy().to_string();
@@ -902,7 +920,12 @@ pub fn tree_fingerprint(
 /// The fingerprint of the tree state the COMMITTED catalog describes, written
 /// inside each scan's transaction. `None` = never scanned.
 pub fn stored_fingerprint(conn: &Connection) -> Option<String> {
-    conn.query_row("SELECT value FROM meta WHERE key='source_fingerprint'", [], |r| r.get(0)).ok()
+    conn.query_row(
+        "SELECT value FROM meta WHERE key='source_fingerprint'",
+        [],
+        |r| r.get(0),
+    )
+    .ok()
 }
 
 /// One stat walk answering both questions the backstop asks: is the catalog
@@ -916,7 +939,9 @@ pub fn staleness(
 ) -> anyhow::Result<(bool, String)> {
     let current = tree_fingerprint(brain_root, native_root, rules);
     let root_meta: Option<String> = conn
-        .query_row("SELECT value FROM meta WHERE key='brain_root'", [], |r| r.get(0))
+        .query_row("SELECT value FROM meta WHERE key='brain_root'", [], |r| {
+            r.get(0)
+        })
         .ok();
     if root_meta.as_deref() != Some(brain_root.to_string_lossy().as_ref()) {
         return Ok((true, current));
@@ -1025,7 +1050,11 @@ fn insert_doc(
         rusqlite::params![src.doc_path, ring, src.mtime as i64, src.size as i64],
     )?;
     let doc_id = tx.last_insert_rowid();
-    let targets = if native { markdown_links(&blanked) } else { wikilinks(&blanked) };
+    let targets = if native {
+        markdown_links(&blanked)
+    } else {
+        wikilinks(&blanked)
+    };
     for target in targets {
         tx.execute(
             "INSERT INTO doc_links(doc_id, target) VALUES(?1, ?2)",
@@ -1129,8 +1158,10 @@ fn resolve_links(tx: &rusqlite::Transaction<'_>) -> anyhow::Result<()> {
         let mut stmt = tx.prepare("SELECT id, path FROM docs")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
         for (id, path) in rows.filter_map(Result::ok) {
-            let stemless =
-                path.strip_suffix(".md").unwrap_or(&path).to_ascii_lowercase();
+            let stemless = path
+                .strip_suffix(".md")
+                .unwrap_or(&path)
+                .to_ascii_lowercase();
             let parts: Vec<&str> = stemless.split('/').collect();
             for k in 1..=parts.len() {
                 let key = parts[parts.len() - k..].join("/");
@@ -1146,7 +1177,11 @@ fn resolve_links(tx: &rusqlite::Transaction<'_>) -> anyhow::Result<()> {
             "SELECT dl.doc_id, d.path, dl.target FROM doc_links dl JOIN docs d ON d.id = dl.doc_id",
         )?;
         let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
         })?;
         rows.filter_map(Result::ok).collect()
     };
@@ -1182,7 +1217,9 @@ fn resolve_links(tx: &rusqlite::Transaction<'_>) -> anyhow::Result<()> {
 /// versa.
 fn bump_generation(tx: &rusqlite::Transaction<'_>) -> anyhow::Result<u64> {
     let generation: u64 = tx
-        .query_row("SELECT value FROM meta WHERE key='generation'", [], |r| r.get::<_, String>(0))
+        .query_row("SELECT value FROM meta WHERE key='generation'", [], |r| {
+            r.get::<_, String>(0)
+        })
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0)
@@ -1276,13 +1313,18 @@ pub fn scan(
 /// file keeps them alive; [`prune_vectors`] settles that at the end of a scan.
 fn delete_doc(tx: &rusqlite::Transaction<'_>, path: &str) -> anyhow::Result<()> {
     tx.execute("DELETE FROM skipped_docs WHERE path=?1", [path])?;
-    let doc_id: Option<i64> =
-        tx.query_row("SELECT id FROM docs WHERE path=?1", [path], |r| r.get(0)).ok();
+    let doc_id: Option<i64> = tx
+        .query_row("SELECT id FROM docs WHERE path=?1", [path], |r| r.get(0))
+        .ok();
     let Some(doc_id) = doc_id else { return Ok(()) };
     {
         let mut stmt = tx.prepare("SELECT id, text, ctx FROM blocks WHERE doc_id=?1")?;
         let rows = stmt.query_map([doc_id], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
         })?;
         let blocks: Vec<(i64, String, String)> = rows.filter_map(Result::ok).collect();
         for (id, text, ctx) in blocks {
@@ -1316,17 +1358,22 @@ pub fn rescan_changed(
     rules: &RingRules,
 ) -> anyhow::Result<Option<ScanReport>> {
     let root_meta: Option<String> = conn
-        .query_row("SELECT value FROM meta WHERE key='brain_root'", [], |r| r.get(0))
+        .query_row("SELECT value FROM meta WHERE key='brain_root'", [], |r| {
+            r.get(0)
+        })
         .ok();
-    if root_meta.as_deref() != Some(brain_root.to_string_lossy().as_ref())
-        || generation(conn) == 0
+    if root_meta.as_deref() != Some(brain_root.to_string_lossy().as_ref()) || generation(conn) == 0
     {
         return Ok(None);
     }
     let files = collect_files(brain_root, native_root, rules);
     let fingerprint = source_fingerprint(&files);
     let stored: Option<String> = conn
-        .query_row("SELECT value FROM meta WHERE key='source_fingerprint'", [], |r| r.get(0))
+        .query_row(
+            "SELECT value FROM meta WHERE key='source_fingerprint'",
+            [],
+            |r| r.get(0),
+        )
         .ok();
     if stored.as_deref() == Some(fingerprint.as_str()) {
         // The committed catalog already describes this tree.
@@ -1348,7 +1395,10 @@ pub fn rescan_changed(
     for table in ["docs", "skipped_docs"] {
         let mut stmt = conn.prepare(&format!("SELECT path, mtime, size FROM {table}"))?;
         let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
+            Ok((
+                r.get::<_, String>(0)?,
+                (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?),
+            ))
         })?;
         for (path, stat) in rows.filter_map(Result::ok) {
             stored_stats.insert(path, stat);
@@ -1423,10 +1473,12 @@ pub fn rescan_changed(
 /// transaction, so any reader always sees a (catalog, generation) pair from
 /// one commit. 0 = never scanned.
 pub fn generation(conn: &Connection) -> u64 {
-    conn.query_row("SELECT value FROM meta WHERE key='generation'", [], |r| r.get::<_, String>(0))
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0)
+    conn.query_row("SELECT value FROM meta WHERE key='generation'", [], |r| {
+        r.get::<_, String>(0)
+    })
+    .ok()
+    .and_then(|s| s.parse().ok())
+    .unwrap_or(0)
 }
 
 /// Deterministic digest of the catalog: sha256 over the sorted
@@ -1450,7 +1502,12 @@ pub fn catalog_checksum_matching(
          ORDER BY b.cite, d.path, d.ring, b.embedding_hash",
     )?;
     let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, String>(3)?))
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?,
+            r.get::<_, String>(3)?,
+        ))
     })?;
     let mut hasher = sha2::Sha256::new();
     for (cite, path, ring, embedding_hash) in rows.filter_map(Result::ok) {
@@ -1486,7 +1543,11 @@ pub fn open_ro(state_dir: &Path) -> anyhow::Result<Connection> {
 /// Docs linked (either direction, human-curated wikilinks) to the docs of the
 /// given citation paths â€” the deterministic 1-hop graph expansion of a recall
 /// result. Returns (path, ring) sorted by ring then path, deduped.
-pub fn linked_docs(conn: &Connection, hit_paths: &[String], limit: usize) -> anyhow::Result<Vec<(String, u8)>> {
+pub fn linked_docs(
+    conn: &Connection,
+    hit_paths: &[String],
+    limit: usize,
+) -> anyhow::Result<Vec<(String, u8)>> {
     let mut out: Vec<(String, u8)> = Vec::new();
     for path in hit_paths {
         let mut stmt = conn.prepare(
@@ -1498,7 +1559,9 @@ pub fn linked_docs(conn: &Connection, hit_paths: &[String], limit: usize) -> any
              JOIN links l ON l.to_doc = d1.id JOIN docs d2 ON d2.id = l.from_doc
              WHERE d1.path = ?1",
         )?;
-        let rows = stmt.query_map([path], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u8)))?;
+        let rows = stmt.query_map([path], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u8))
+        })?;
         for row in rows.filter_map(Result::ok) {
             if !hit_paths.contains(&row.0) && !out.contains(&row) {
                 out.push(row);
@@ -1559,7 +1622,11 @@ fn snippet_of(text: &str) -> String {
 /// a lone table row is unreadable without it.
 fn snippet_with_ctx(ctx: &str, text: &str) -> String {
     let s = snippet_of(text);
-    if ctx.is_empty() { s } else { format!("[{ctx}] {s}") }
+    if ctx.is_empty() {
+        s
+    } else {
+        format!("[{ctx}] {s}")
+    }
 }
 
 /// The content-hash part of a citation id (after the `r<ring>-` prefix): the
@@ -1652,7 +1719,11 @@ fn ranked_match_sql(select: &str, prefix_count: usize) -> String {
 fn ranked_params(fts: &str, limit: usize, prefixes: &[String]) -> Vec<rusqlite::types::Value> {
     use rusqlite::types::Value;
     let mut p = vec![Value::Text(fts.to_string()), Value::Integer(limit as i64)];
-    p.extend(prefixes.iter().map(|s| Value::Text(s.trim_end_matches('/').to_string())));
+    p.extend(
+        prefixes
+            .iter()
+            .map(|s| Value::Text(s.trim_end_matches('/').to_string())),
+    );
     p
 }
 
@@ -1696,21 +1767,24 @@ pub fn recall_in(
             "b.cite, d.path, d.ring, b.start_line, b.end_line, b.text, b.ctx, b.chain, b.embedding_text",
             prefixes.len(),
         ))?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(ranked_params(&fts, pool, prefixes)), |r| {
-            let text: String = r.get(5)?;
-            Ok(Hit {
-                cite: r.get(0)?,
-                path: r.get(1)?,
-                ring: r.get::<_, i64>(2)? as u8,
-                start_line: r.get::<_, i64>(3)? as usize,
-                end_line: r.get::<_, i64>(4)? as usize,
-                snippet: snippet_with_ctx(&r.get::<_, String>(6)?, &text),
-                mirrors: Vec::new(),
-                chain: r.get(7)?,
-                payload_hash: crate::embedding_input::hash(&r.get::<_, String>(8)?),
-                text,
-            })
-        })?;
+        let rows = stmt.query_map(
+            rusqlite::params_from_iter(ranked_params(&fts, pool, prefixes)),
+            |r| {
+                let text: String = r.get(5)?;
+                Ok(Hit {
+                    cite: r.get(0)?,
+                    path: r.get(1)?,
+                    ring: r.get::<_, i64>(2)? as u8,
+                    start_line: r.get::<_, i64>(3)? as usize,
+                    end_line: r.get::<_, i64>(4)? as usize,
+                    snippet: snippet_with_ctx(&r.get::<_, String>(6)?, &text),
+                    mirrors: Vec::new(),
+                    chain: r.get(7)?,
+                    payload_hash: crate::embedding_input::hash(&r.get::<_, String>(8)?),
+                    text,
+                })
+            },
+        )?;
         hits = dedup_by_content(rows.filter_map(Result::ok).collect());
         if hits.len() >= limit || pool >= limit * 16 {
             break;
@@ -1733,7 +1807,9 @@ pub fn doc_block_counts(conn: &Connection) -> anyhow::Result<Vec<(String, usize)
          LEFT JOIN blocks b ON b.doc_id = d.id
          GROUP BY d.id ORDER BY d.path",
     )?;
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize)))?;
+    let rows = stmt.query_map([], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize))
+    })?;
     Ok(rows.filter_map(Result::ok).collect())
 }
 
@@ -1806,7 +1882,8 @@ fn f32_to_f16(value: f32) -> u16 {
     }
     let half = ((unbiased as u32) << 10) | (mantissa >> 13);
     let round_bit = 1u32 << 12;
-    let round_up = (mantissa & round_bit) != 0 && ((mantissa & (round_bit - 1)) != 0 || (half & 1) != 0);
+    let round_up =
+        (mantissa & round_bit) != 0 && ((mantissa & (round_bit - 1)) != 0 || (half & 1) != 0);
     sign | (half + u32::from(round_up)) as u16
 }
 
@@ -1877,7 +1954,10 @@ pub fn blob_to_vec(b: &[u8], precision: Precision) -> Vec<f32> {
         }
         Precision::F16 => {
             let (chunks, _remainder) = b.as_chunks::<2>();
-            chunks.iter().map(|c| f16_to_f32(u16::from_le_bytes(*c))).collect()
+            chunks
+                .iter()
+                .map(|c| f16_to_f32(u16::from_le_bytes(*c)))
+                .collect()
         }
         Precision::F32 => {
             let (chunks, _remainder) = b.as_chunks::<4>();
@@ -1903,7 +1983,8 @@ pub fn dot(a: &[f32], b: &[f32]) -> f32 {
 }
 
 fn meta_get(conn: &Connection, key: &str) -> Option<String> {
-    conn.query_row("SELECT value FROM meta WHERE key=?1", [key], |r| r.get(0)).ok()
+    conn.query_row("SELECT value FROM meta WHERE key=?1", [key], |r| r.get(0))
+        .ok()
 }
 
 fn meta_set(conn: &Connection, key: &str, value: &str) -> anyhow::Result<()> {
@@ -1931,7 +2012,14 @@ pub fn stored_vector_spec(conn: &Connection) -> Option<VectorSpec> {
     // prefixes existed held raw-document vectors, which is exactly what an
     // empty prefix means today.
     let doc_prefix = meta_get(conn, "embed_doc_prefix").unwrap_or_default();
-    Some(VectorSpec { network_major, profile_id, model, dim, precision, doc_prefix })
+    Some(VectorSpec {
+        network_major,
+        profile_id,
+        model,
+        dim,
+        precision,
+        doc_prefix,
+    })
 }
 
 /// Records `(model, dim, precision, doc_prefix)` in meta; a DIFFERENT stored spec drops
@@ -1959,7 +2047,10 @@ pub fn ensure_vector_spec(conn: &Connection, spec: &VectorSpec) -> anyhow::Resul
 /// A body or context edit retires the old vector only when no other block
 /// still uses that payload. Unchanged payloads keep their vectors.
 fn prune_vectors(tx: &rusqlite::Transaction<'_>) -> anyhow::Result<()> {
-    tx.execute("DELETE FROM vectors WHERE content_hash NOT IN (SELECT embedding_hash FROM blocks)", [])?;
+    tx.execute(
+        "DELETE FROM vectors WHERE content_hash NOT IN (SELECT embedding_hash FROM blocks)",
+        [],
+    )?;
     Ok(())
 }
 
@@ -1980,10 +2071,9 @@ pub fn hashes_without_vectors(
     // SQLite reads a negative LIMIT as unbounded â€” which is exactly what a
     // caller asking for usize::MAX (a full hydrate) means.
     let bound = i64::try_from(limit).unwrap_or(-1);
-    let rows = stmt.query_map(
-        rusqlite::params![spec.model, spec.dim as i64, bound],
-        |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-    )?;
+    let rows = stmt.query_map(rusqlite::params![spec.model, spec.dim as i64, bound], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    })?;
     Ok(rows.filter_map(Result::ok).collect())
 }
 
@@ -2096,14 +2186,20 @@ fn semantic_block_ids(
         rusqlite::types::Value::Integer(spec.dim as i64),
     ];
     params.extend(
-        prefixes.iter().map(|p| rusqlite::types::Value::Text(p.trim_end_matches('/').to_string())),
+        prefixes
+            .iter()
+            .map(|p| rusqlite::types::Value::Text(p.trim_end_matches('/').to_string())),
     );
     let rows = stmt.query_map(rusqlite::params_from_iter(params), |r| {
         Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
     })?;
     if spec.precision == Precision::I8 {
         let query = vec_to_blob(query_vec, Precision::I8);
-        anyhow::ensure!(query.len() == spec.dim, "query vector width does not match {}", spec.dim);
+        anyhow::ensure!(
+            query.len() == spec.dim,
+            "query vector width does not match {}",
+            spec.dim
+        );
         let mut scored: Vec<I8Score> = rows
             .filter_map(Result::ok)
             .filter_map(|(id, blob)| i8_score(id, &query, &blob))
@@ -2119,7 +2215,11 @@ fn semantic_block_ids(
             (v.len() == query_vec.len()).then(|| (id, dot(&v, query_vec)))
         })
         .collect();
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+    scored.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.cmp(&b.0))
+    });
     scored.truncate(limit);
     Ok(scored.into_iter().map(|(id, _)| id).collect())
 }
@@ -2143,7 +2243,11 @@ fn i8_score(id: i64, query: &[u8], document: &[u8]) -> Option<I8Score> {
         dot += q * d;
         document_norm_sq += (d * d) as u64;
     }
-    (document_norm_sq > 0).then_some(I8Score { id, dot, document_norm_sq })
+    (document_norm_sq > 0).then_some(I8Score {
+        id,
+        dot,
+        document_norm_sq,
+    })
 }
 
 /// Exact descending cosine order for INT8 documents. The query norm is the
@@ -2217,7 +2321,11 @@ pub fn rrf_fuse(lists: &[Vec<i64>], k: f64) -> Vec<i64> {
         }
     }
     let mut items: Vec<(i64, f64)> = score.into_iter().collect();
-    items.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+    items.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.cmp(&b.0))
+    });
     items.into_iter().map(|(id, _)| id).collect()
 }
 
@@ -2256,7 +2364,10 @@ pub fn ensure_fresh(
     let mut conn = open(state_dir).context("open index")?;
     if stale(&conn, brain_root, native_root, rules)? {
         let lock = crate::lockfile::acquire(&state_dir.join("scan.lock"), 500, 120);
-        anyhow::ensure!(lock.is_some(), "index refresh is busy; retry when the current scan completes");
+        anyhow::ensure!(
+            lock.is_some(),
+            "index refresh is busy; retry when the current scan completes"
+        );
         // Re-check under the lock: the previous holder may have rebuilt
         // exactly what we were about to.
         if lock.is_some() && stale(&conn, brain_root, native_root, rules)? {
@@ -2272,8 +2383,14 @@ mod path_shape_tests {
 
     #[test]
     fn doc_paths_are_slash_separated_whatever_the_platform_uses() {
-        assert_eq!(normalize_separators(r"mind\secrets\age.key", '\\'), "mind/secrets/age.key");
-        assert_eq!(normalize_separators("mind/secrets/age.key", '/'), "mind/secrets/age.key");
+        assert_eq!(
+            normalize_separators(r"mind\secrets\age.key", '\\'),
+            "mind/secrets/age.key"
+        );
+        assert_eq!(
+            normalize_separators("mind/secrets/age.key", '/'),
+            "mind/secrets/age.key"
+        );
         // A backslash is a legal filename character on unix and must survive.
         assert_eq!(normalize_separators(r"odd\name.md", '/'), r"odd\name.md");
     }
@@ -2282,27 +2399,63 @@ mod path_shape_tests {
     fn the_exclusion_boundary_holds_for_backslash_separated_paths() {
         // Without normalization every one of these slips past the prefix
         // match and lands in the catalog â€” secrets first.
-        for raw in [r"mind\secrets\age.key.md", r"logs\session.md", r"projects\repo\a.md", r"knowledge\archive\old.md", r".git\COMMIT_EDITMSG.md"] {
+        for raw in [
+            r"mind\secrets\age.key.md",
+            r"logs\session.md",
+            r"projects\repo\a.md",
+            r"knowledge\archive\old.md",
+            r".git\COMMIT_EDITMSG.md",
+        ] {
             let rel = normalize_separators(raw, '\\');
-            assert!(excluded(&rel, &RingRules::default()), "{raw} normalized to {rel} must be excluded");
+            assert!(
+                excluded(&rel, &RingRules::default()),
+                "{raw} normalized to {rel} must be excluded"
+            );
         }
         for raw in [r"mind\secrets", r"logs", r"projects", r"knowledge\archive"] {
-            assert!(excluded_dir(&normalize_separators(raw, '\\'), &RingRules::default()), "{raw}");
+            assert!(
+                excluded_dir(&normalize_separators(raw, '\\'), &RingRules::default()),
+                "{raw}"
+            );
         }
     }
 
     #[test]
     fn ring_defaults_survive_the_separator() {
         let rules = RingRules::default();
-        assert_eq!(default_ring(&normalize_separators(r"mind\memories\MEMORY.md", '\\'), &rules), 1);
-        assert_eq!(default_ring(&normalize_separators(r"mind\memories\topic.md", '\\'), &rules), 2);
-        assert_eq!(default_ring(&normalize_separators(r"todo\active\x\STATUS.md", '\\'), &rules), 4);
+        assert_eq!(
+            default_ring(
+                &normalize_separators(r"knowledge\rules\README.md", '\\'),
+                &rules
+            ),
+            0
+        );
+        assert_eq!(
+            default_ring(
+                &normalize_separators(r"knowledge\behaviours\topic.md", '\\'),
+                &rules
+            ),
+            2
+        );
+        assert_eq!(
+            default_ring(
+                &normalize_separators(r"todo\active\x\STATUS.md", '\\'),
+                &rules
+            ),
+            4
+        );
     }
 
     #[test]
     fn secret_shaped_names_are_caught_after_normalization() {
-        assert!(secret_shaped(&normalize_separators(r"knowledge\hosts\my.pem", '\\')));
-        assert!(secret_shaped(&normalize_separators(r"knowledge\hosts\password-notes.md", '\\')));
+        assert!(secret_shaped(&normalize_separators(
+            r"knowledge\hosts\my.pem",
+            '\\'
+        )));
+        assert!(secret_shaped(&normalize_separators(
+            r"knowledge\hosts\password-notes.md",
+            '\\'
+        )));
     }
 }
 
@@ -2337,8 +2490,11 @@ mod scoping_tests {
         std::fs::create_dir_all(cards.join(".git")).unwrap();
         std::fs::create_dir_all(cards.join("cloud/certificates/example")).unwrap();
         std::fs::write(root.join(".gitignore"), "knowledge/cards/\n").unwrap();
-        std::fs::write(cards.join("catalog.json"), "{\"schema_version\":1,\"sets\":[]}")
-            .unwrap();
+        std::fs::write(
+            cards.join("catalog.json"),
+            "{\"schema_version\":1,\"sets\":[]}",
+        )
+        .unwrap();
         std::fs::write(
             cards.join("cloud/certificates/example/question.md"),
             "# Question?\n\nAnswer.\n",
@@ -2377,7 +2533,13 @@ mod scoping_tests {
             .into_iter()
             .map(|f| f.doc_path)
             .collect();
-        assert_eq!(docs, vec!["keep.md".to_string()]);
+        assert_eq!(
+            docs,
+            vec![
+                "keep.md".to_string(),
+                "knowledge/behaviours/how.md".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -2400,7 +2562,11 @@ mod scoping_tests {
             "a write under a scoped-out subtree must not make the catalog stale"
         );
         std::fs::write(root.join("keep.md"), "# keep, expanded\n").unwrap();
-        assert_ne!(tree_fingerprint(root, None, &rules), before, "an indexed write still must");
+        assert_ne!(
+            tree_fingerprint(root, None, &rules),
+            before,
+            "an indexed write still must"
+        );
     }
 
     /// Fixture: 20 generated API docs, a real knowledge subtree, some
@@ -2464,19 +2630,28 @@ mod scoping_tests {
         // No child of `todo/done` clears the bar alone, so `todo/done` is the
         // deepest honest name â€” descending further would advise excluding one
         // quarter and leaving three behind.
-        assert_eq!(census.concentrations(0.5), vec![("todo/done".to_string(), 20)]);
+        assert_eq!(
+            census.concentrations(0.5),
+            vec![("todo/done".to_string(), 20)]
+        );
     }
 
     #[test]
     fn a_tree_that_is_all_one_subtree_yields_no_advice_at_all() {
         let mut census = DocCensus::default();
-        for area in ["hosts", "world", "projects", "coding", "health", "finance", "career"] {
+        for area in [
+            "hosts", "world", "projects", "coding", "health", "finance", "career",
+        ] {
             census.record(&format!("knowledge/{area}/one.md"));
         }
         // `knowledge/` holds everything and every child is equal. There is
         // nothing to scope out, and "exclude your entire brain" is worse than
         // saying nothing at all.
-        assert!(census.concentrations(0.15).is_empty(), "{:?}", census.concentrations(0.15));
+        assert!(
+            census.concentrations(0.15).is_empty(),
+            "{:?}",
+            census.concentrations(0.15)
+        );
     }
 }
 
@@ -2488,14 +2663,23 @@ mod tests {
         // A per-vector scale means the largest component always maps to
         // exactly 127, so the error is bounded by half a step of THIS
         // vector's range rather than of an assumed [-1,1].
-        let v: Vec<f32> = (0..256).map(|i| ((i as f32) * 0.017).sin() * 0.31).collect();
+        let v: Vec<f32> = (0..256)
+            .map(|i| ((i as f32) * 0.017).sin() * 0.31)
+            .collect();
         let blob = vec_to_blob(&v, Precision::I8);
-        assert_eq!(blob.len(), Precision::I8.record_bytes(256), "one byte per component");
+        assert_eq!(
+            blob.len(),
+            Precision::I8.record_bytes(256),
+            "one byte per component"
+        );
         let back = blob_to_vec(&blob, Precision::I8);
         assert_eq!(back.len(), 256);
         let mut expected = v.clone();
         l2_normalize(&mut expected);
-        assert!(dot(&expected, &back) > 0.9999, "INT8 record preserves direction");
+        assert!(
+            dot(&expected, &back) > 0.9999,
+            "INT8 record preserves direction"
+        );
     }
 
     #[test]
@@ -2513,7 +2697,11 @@ mod tests {
     #[test]
     fn int8_codec_is_byte_exact_ties_even_and_idempotent() {
         let blob = vec_to_blob(&[1.0, 0.5, -1.0, 0.0], Precision::I8);
-        assert_eq!(blob, vec![127, 64, 129, 0], "-127 is stored as its two's-complement byte");
+        assert_eq!(
+            blob,
+            vec![127, 64, 129, 0],
+            "-127 is stored as its two's-complement byte"
+        );
         assert_eq!(
             vec_to_blob(&blob_to_vec(&blob, Precision::I8), Precision::I8),
             blob,
@@ -2544,7 +2732,11 @@ mod tests {
     fn each_precision_reports_the_bytes_it_actually_occupies() {
         assert_eq!(Precision::F32.record_bytes(10), 40);
         assert_eq!(Precision::F16.record_bytes(10), 20);
-        assert_eq!(Precision::I8.record_bytes(10), 10, "exactly one byte per component");
+        assert_eq!(
+            Precision::I8.record_bytes(10),
+            10,
+            "exactly one byte per component"
+        );
         // The reason i8 is worth having: half of f16 on the scan path.
         assert!(Precision::I8.record_bytes(1024) * 2 < Precision::F16.record_bytes(1024) * 2 + 8);
     }
@@ -2619,10 +2811,20 @@ mod tests {
         let mut conn = open(state.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert_eq!(report.docs, 1, "only the ring-3 knowledge file is indexed");
-        assert_eq!(report.skipped_high_ring, 2, "provisional mind evidence stays outside recall");
+        assert_eq!(
+            report.skipped_high_ring, 2,
+            "provisional mind evidence stays outside recall"
+        );
         assert_eq!(report.skipped.len(), 2);
-        assert_eq!(recall(&conn, "zulqar", 10).unwrap().len(), 1, "only the ring-3 hit");
-        assert_eq!(recall(&conn, "zulqar", 10).unwrap()[0].path, "knowledge/live.md");
+        assert_eq!(
+            recall(&conn, "zulqar", 10).unwrap().len(),
+            1,
+            "only the ring-3 hit"
+        );
+        assert_eq!(
+            recall(&conn, "zulqar", 10).unwrap()[0].path,
+            "knowledge/live.md"
+        );
         assert!(
             recall(&conn, "hot-file", 10).unwrap().is_empty(),
             "no staged candidate is recallable, by any of its words"
@@ -2636,20 +2838,36 @@ mod tests {
             ("laws.md", "kwenty is the hard law\n"),
             ("handbook/style.md", "trakkel is the house style\n"),
             ("misc/loose.md", "vurpel is a loose fact\n"),
-            ("scratch/dump.md", "pargast is scratch\n"),
+            ("provisional/dump.md", "pargast is scratch\n"),
         ]);
         let rules = RingRules {
             rules: vec![
-                RingRule { prefix: "laws.md".into(), ring: 0 },
-                RingRule { prefix: "handbook/".into(), ring: 1 },
-                RingRule { prefix: "scratch/".into(), ring: 5 },
-                RingRule { prefix: String::new(), ring: 4 },
+                RingRule {
+                    prefix: "laws.md".into(),
+                    ring: 0,
+                },
+                RingRule {
+                    prefix: "handbook/".into(),
+                    ring: 1,
+                },
+                RingRule {
+                    prefix: "provisional/".into(),
+                    ring: 5,
+                },
+                RingRule {
+                    prefix: String::new(),
+                    ring: 4,
+                },
             ],
             exclude_prefixes: Vec::new(),
         };
         let mut conn = open(dir.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &rules).unwrap();
-        assert_eq!(report.skipped, vec!["scratch/dump.md".to_string()], "ring 5 is never indexed");
+        assert_eq!(
+            report.skipped,
+            vec!["provisional/dump.md".to_string()],
+            "ring 5 is never indexed"
+        );
         let ring_of = |q: &str| recall(&conn, q, 5).unwrap().first().map(|h| h.ring);
         assert_eq!(ring_of("kwenty"), Some(0));
         assert_eq!(ring_of("trakkel"), Some(1));
@@ -2670,8 +2888,14 @@ mod tests {
         };
         let mut conn = open(dir.path()).unwrap();
         scan(&mut conn, dir.path(), None, &rules).unwrap();
-        assert!(recall(&conn, "hyllvar", 5).unwrap().is_empty(), "secrets stay out, always");
-        assert!(recall(&conn, "nogrant", 5).unwrap().is_empty(), "configured exclusion applies");
+        assert!(
+            recall(&conn, "hyllvar", 5).unwrap().is_empty(),
+            "secrets stay out, always"
+        );
+        assert!(
+            recall(&conn, "nogrant", 5).unwrap().is_empty(),
+            "configured exclusion applies"
+        );
         assert_eq!(recall(&conn, "kavender", 5).unwrap().len(), 1);
     }
 
@@ -2683,7 +2907,10 @@ mod tests {
     fn citation_preserves_exact_body_identity_and_ring() {
         let a = cite_id(3, "The  Quick   Fox");
         let b = cite_id(3, "the quick fox");
-        assert_ne!(a, b, "different embedding input must not share a citation hash");
+        assert_ne!(
+            a, b,
+            "different embedding input must not share a citation hash"
+        );
         assert_eq!(a, cite_id(3, "The  Quick   Fox"));
         assert!(a.starts_with("r3-"));
         assert_ne!(a, cite_id(3, "the quick foxes"));
@@ -2700,7 +2927,10 @@ mod tests {
         assert!(bodies.contains(&"- item two"));
         assert!(bodies.contains(&"| a | b |"));
         assert!(bodies.contains(&"para one\npara two"));
-        let (start, end, _) = blocks.iter().find(|(_, _, b)| b.starts_with("- item one")).unwrap();
+        let (start, end, _) = blocks
+            .iter()
+            .find(|(_, _, b)| b.starts_with("- item one"))
+            .unwrap();
         assert_eq!((*start, *end), (3, 4));
     }
 
@@ -2708,8 +2938,14 @@ mod tests {
     fn scan_and_recall_end_to_end() {
         let dir = brain(&[
             ("AGENT.md", "# Rules\n\n- never rsync zfs to zfs\n"),
-            ("knowledge/world/opentofu.md", "OpenTofu state is AES encrypted.\n\nPulumi is retired.\n"),
-            ("todo/active/x/STATUS.md", "current quest: ship the recall index\n"),
+            (
+                "knowledge/world/opentofu.md",
+                "OpenTofu state is AES encrypted.\n\nPulumi is retired.\n",
+            ),
+            (
+                "todo/active/x/STATUS.md",
+                "current quest: ship the recall index\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
@@ -2751,12 +2987,18 @@ mod tests {
         // fail-closed — the hiding is the design; the silence was the bug.
         let dir = brain(&[
             ("knowledge/good.md", "public fact\n"),
-            ("knowledge/mentioned.md", "we use <private> blocks here\nand this tail is gone too\n"),
+            (
+                "knowledge/mentioned.md",
+                "we use <private> blocks here\nand this tail is gone too\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
-        assert_eq!(report.private_swallowed, vec!["knowledge/mentioned.md".to_string()]);
+        assert_eq!(
+            report.private_swallowed,
+            vec!["knowledge/mentioned.md".to_string()]
+        );
         // Balanced private regions stay unreported.
         assert!(report.unreadable.is_empty());
         // The tail is really gone from recall (fail-closed held) ...
@@ -2777,7 +3019,11 @@ mod tests {
         let mut conn = open(state.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert_eq!(report.unreadable, vec!["knowledge/binary.md".to_string()]);
-        assert!(report.skipped.is_empty(), "not under the ring-5+ reason: {:?}", report.skipped);
+        assert!(
+            report.skipped.is_empty(),
+            "not under the ring-5+ reason: {:?}",
+            report.skipped
+        );
         assert_eq!(report.docs, 1, "the readable file indexed normally");
     }
 
@@ -2801,8 +3047,14 @@ mod tests {
     #[test]
     fn frontmatter_ring_overrides_and_high_rings_are_skipped() {
         let dir = brain(&[
-            ("knowledge/promoted.md", "---\nring: 1\n---\nlocked decision here\n"),
-            ("knowledge/staged.md", "---\nring: 5\n---\nquarantined candidate\n"),
+            (
+                "knowledge/promoted.md",
+                "---\nring: 1\n---\nlocked decision here\n",
+            ),
+            (
+                "knowledge/staged.md",
+                "---\nring: 5\n---\nquarantined candidate\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
@@ -2820,17 +3072,29 @@ mod tests {
         // location decides for ring-5+ directories, so the file must stay
         // unindexed exactly like one whose frontmatter was stripped.
         let dir = brain(&[
-            (&format!("mind/{}/memories/smuggled.md", crate::paths::mind_id()), "---\nring: 2\n---\nself promoted candidate\n"),
-            ("knowledge/honest.md", "---\nring: 1\n---\nlegitimate promotion\n"),
+            (
+                &format!("mind/{}/memories/smuggled.md", crate::paths::mind_id()),
+                "---\nring: 2\n---\nself promoted candidate\n",
+            ),
+            (
+                "knowledge/honest.md",
+                "---\nring: 1\n---\nlegitimate promotion\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert_eq!(report.docs, 1, "only the knowledge file is indexed");
-        assert_eq!(report.skipped_high_ring, 1, "the staging candidate is skipped, not promoted");
+        assert_eq!(
+            report.skipped_high_ring, 1,
+            "the staging candidate is skipped, not promoted"
+        );
         assert!(recall(&conn, "self promoted", 5).unwrap().is_empty());
         let hits = recall(&conn, "legitimate promotion", 5).unwrap();
-        assert_eq!(hits[0].ring, 1, "knowledge-directory promotion keeps working");
+        assert_eq!(
+            hits[0].ring, 1,
+            "knowledge-directory promotion keeps working"
+        );
     }
 
     #[test]
@@ -2840,14 +3104,26 @@ mod tests {
         // marker has to quarantine, and a BOM'd `ring: 1` promotion has to
         // promote.
         let dir = brain(&[
-            (&format!("mind/{}/memories/bomq.md", crate::paths::mind_id()), "\u{FEFF}---\nring: 5\n---\nzebraxq quarantined payload\n"),
-            ("knowledge/bomp.md", "\u{FEFF}---\nring: 1\n---\npluvixq promoted decision\n"),
+            (
+                &format!("mind/{}/memories/bomq.md", crate::paths::mind_id()),
+                "\u{FEFF}---\nring: 5\n---\nzebraxq quarantined payload\n",
+            ),
+            (
+                "knowledge/bomp.md",
+                "\u{FEFF}---\nring: 1\n---\npluvixq promoted decision\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
-        assert_eq!(report.docs, 1, "only the promoted knowledge file is indexed");
-        assert_eq!(report.skipped_high_ring, 1, "the BOM'd quarantine marker still quarantines");
+        assert_eq!(
+            report.docs, 1,
+            "only the promoted knowledge file is indexed"
+        );
+        assert_eq!(
+            report.skipped_high_ring, 1,
+            "the BOM'd quarantine marker still quarantines"
+        );
         assert!(recall(&conn, "zebraxq", 5).unwrap().is_empty());
         assert_eq!(recall(&conn, "pluvixq", 5).unwrap()[0].ring, 1);
     }
@@ -2865,7 +3141,11 @@ mod tests {
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert_eq!(recall(&conn, "alamo", 5).unwrap().len(), 1);
-        std::fs::write(dir.path().join("knowledge/gone.md"), b"remember \xff\xfe broken").unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/gone.md"),
+            b"remember \xff\xfe broken",
+        )
+        .unwrap();
 
         // Full rebuild: reported, not invisible.
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
@@ -2879,7 +3159,11 @@ mod tests {
         // unreadable: keep the last good content.
         let dir2 = brain(&[("knowledge/gone2.md", "remember the alamo incident\n")]);
         scan(&mut conn, dir2.path(), None, &RingRules::default()).unwrap();
-        std::fs::write(dir2.path().join("knowledge/gone2.md"), b"remember \xff\xfe broken").unwrap();
+        std::fs::write(
+            dir2.path().join("knowledge/gone2.md"),
+            b"remember \xff\xfe broken",
+        )
+        .unwrap();
         let report = rescan_changed(&mut conn, dir2.path(), None, &RingRules::default())
             .unwrap()
             .expect("incremental rescan should handle one changed file");
@@ -2916,14 +3200,20 @@ mod tests {
             ("node_modules/left-pad/README.md", "hurbeck pads a string\n"),
             ("site/node_modules/dep/README.md", "hurbeck nested copy\n"),
             ("scripts/__pycache__/notes.md", "quelber cached\n"),
-            ("knowledge/node_modules-migration.md", "vantrel dropping the dep tree\n"),
+            (
+                "knowledge/node_modules-migration.md",
+                "vantrel dropping the dep tree\n",
+            ),
             ("knowledge/live.md", "kavender fact\n"),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert_eq!(report.docs, 2, "only the two authored knowledge files");
-        assert!(recall(&conn, "hurbeck", 5).unwrap().is_empty(), "at any depth");
+        assert!(
+            recall(&conn, "hurbeck", 5).unwrap().is_empty(),
+            "at any depth"
+        );
         assert!(recall(&conn, "quelber", 5).unwrap().is_empty());
         assert_eq!(
             recall(&conn, "vantrel", 5).unwrap().len(),
@@ -2981,23 +3271,42 @@ mod tests {
         // a pasted minified bundle, a base64 data URI. Indexing it hands FTS
         // a statement that matches almost any query and means nothing; this
         // fixture tokenizes, so without the refusal it is genuinely findable.
-        let blob = format!("<script>{}</script>", "function qk1(t){return t+1};".repeat(5_000));
+        let blob = format!(
+            "<script>{}</script>",
+            "function qk1(t){return t+1};".repeat(5_000)
+        );
         let page = format!("# Notes\n\nkavender is the finding.\n\n{blob}\n\nvantrel follows.\n");
         let dir = brain(&[("knowledge/page.md", page.as_str())]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         let report = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
-        assert_eq!(report.docs, 1, "the page itself is knowledge and stays indexed");
-        assert_eq!(report.blocks, 3, "heading and both paragraphs, not the blob");
-        assert!(recall(&conn, "qk1", 5).unwrap().is_empty(), "the blob is unreachable");
+        assert_eq!(
+            report.docs, 1,
+            "the page itself is knowledge and stays indexed"
+        );
+        assert_eq!(
+            report.blocks, 3,
+            "heading and both paragraphs, not the blob"
+        );
+        assert!(
+            recall(&conn, "qk1", 5).unwrap().is_empty(),
+            "the blob is unreachable"
+        );
         assert_eq!(recall(&conn, "kavender", 5).unwrap().len(), 1);
-        assert_eq!(recall(&conn, "vantrel", 5).unwrap().len(), 1, "prose after it survives");
+        assert_eq!(
+            recall(&conn, "vantrel", 5).unwrap().len(),
+            1,
+            "prose after it survives"
+        );
     }
 
     #[test]
     fn a_wholly_generated_file_contributes_nothing() {
         let dir = brain(&[
-            ("knowledge/bundle.md", &format!("hurbeck={};\n", "x".repeat(300_000))),
+            (
+                "knowledge/bundle.md",
+                &format!("hurbeck={};\n", "x".repeat(300_000)),
+            ),
             ("knowledge/live.md", "kavender fact\n"),
         ]);
         let state = tempfile::tempdir().unwrap();
@@ -3014,12 +3323,22 @@ mod tests {
         // generated. A regression that tightened it would delete real rows
         // from recall without a word.
         let wide_row = format!("| kavender | {} |", "a note about the row ".repeat(150));
-        assert!(wide_row.len() > 3_000, "the fixture must reach the measured ceiling");
+        assert!(
+            wide_row.len() > 3_000,
+            "the fixture must reach the measured ceiling"
+        );
         assert!(!generated_blob(&wide_row));
         assert!(generated_blob(&"b".repeat(MAX_PROSE_LINE + 1)));
-        assert!(!generated_blob(&"b".repeat(MAX_PROSE_LINE)), "the cap itself is prose");
         assert!(
-            !generated_blob(&format!("{}\n{}", "c".repeat(MAX_PROSE_LINE), "d".repeat(MAX_PROSE_LINE))),
+            !generated_blob(&"b".repeat(MAX_PROSE_LINE)),
+            "the cap itself is prose"
+        );
+        assert!(
+            !generated_blob(&format!(
+                "{}\n{}",
+                "c".repeat(MAX_PROSE_LINE),
+                "d".repeat(MAX_PROSE_LINE)
+            )),
             "a long block of ordinary lines is prose; only a single long LINE is not"
         );
     }
@@ -3030,7 +3349,11 @@ mod tests {
         let native = tempfile::tempdir().unwrap();
         let mem = native.path().join("-home-user/memory");
         std::fs::create_dir_all(&mem).unwrap();
-        std::fs::write(mem.join("MEMORY.md"), "# Memory\n\n- [zvol trap](f.md) nossd required\n").unwrap();
+        std::fs::write(
+            mem.join("MEMORY.md"),
+            "# Memory\n\n- [zvol trap](f.md) nossd required\n",
+        )
+        .unwrap();
         std::fs::write(
             mem.join("feedback_zvol.md"),
             "---\nname: feedback_zvol\ndescription: x\n---\nzvol on btrfs needs nossd mount option\n",
@@ -3038,14 +3361,26 @@ mod tests {
         .unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
-        let report = scan(&mut conn, brain.path(), Some(native.path()), &RingRules::default()).unwrap();
+        let report = scan(
+            &mut conn,
+            brain.path(),
+            Some(native.path()),
+            &RingRules::default(),
+        )
+        .unwrap();
         assert_eq!(report.docs, 3);
         let hits = recall(&conn, "nossd", 5).unwrap();
         assert_eq!(hits.len(), 2);
         assert!(hits.iter().all(|h| h.ring == 2));
-        assert!(hits.iter().any(|h| h.path == "native:-home-user/feedback_zvol.md"));
+        assert!(
+            hits.iter()
+                .any(|h| h.path == "native:-home-user/feedback_zvol.md")
+        );
         // frontmatter of native files has no `ring:` â€” must not shift line numbers wrongly
-        let fb = hits.iter().find(|h| h.path.ends_with("feedback_zvol.md")).unwrap();
+        let fb = hits
+            .iter()
+            .find(|h| h.path.ends_with("feedback_zvol.md"))
+            .unwrap();
         assert_eq!(fb.start_line, 5);
     }
 
@@ -3058,10 +3393,32 @@ mod tests {
         std::fs::write(mem.join("MEMORY.md"), "first\n").unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
-        scan(&mut conn, brain.path(), Some(native.path()), &RingRules::default()).unwrap();
-        assert!(!stale(&conn, brain.path(), Some(native.path()), &RingRules::default()).unwrap());
+        scan(
+            &mut conn,
+            brain.path(),
+            Some(native.path()),
+            &RingRules::default(),
+        )
+        .unwrap();
+        assert!(
+            !stale(
+                &conn,
+                brain.path(),
+                Some(native.path()),
+                &RingRules::default()
+            )
+            .unwrap()
+        );
         std::fs::write(mem.join("MEMORY.md"), "second, and quite a bit longer\n").unwrap();
-        assert!(stale(&conn, brain.path(), Some(native.path()), &RingRules::default()).unwrap());
+        assert!(
+            stale(
+                &conn,
+                brain.path(),
+                Some(native.path()),
+                &RingRules::default()
+            )
+            .unwrap()
+        );
     }
 
     #[test]
@@ -3070,7 +3427,13 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         let absent = brain.path().join("no-such-dir");
-        let report = scan(&mut conn, brain.path(), Some(&absent), &RingRules::default()).unwrap();
+        let report = scan(
+            &mut conn,
+            brain.path(),
+            Some(&absent),
+            &RingRules::default(),
+        )
+        .unwrap();
         assert_eq!(report.docs, 1);
         assert!(!stale(&conn, brain.path(), Some(&absent), &RingRules::default()).unwrap());
     }
@@ -3078,8 +3441,14 @@ mod tests {
     #[test]
     fn malformed_ring_frontmatter_fails_closed() {
         let dir = brain(&[
-            ("knowledge/bad.md", "---\nring: banana\n---\nzweptahl must stay hidden\n"),
-            ("knowledge/spaced.md", "---\nRing: 1 # promoted\n---\nquorvex is promoted\n"),
+            (
+                "knowledge/bad.md",
+                "---\nring: banana\n---\nzweptahl must stay hidden\n",
+            ),
+            (
+                "knowledge/spaced.md",
+                "---\nRing: 1 # promoted\n---\nquorvex is promoted\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
@@ -3087,7 +3456,10 @@ mod tests {
         assert_eq!(report.skipped_high_ring, 1);
         assert!(recall(&conn, "zweptahl", 5).unwrap().is_empty());
         let hits = recall(&conn, "quorvex", 5).unwrap();
-        assert_eq!(hits[0].ring, 1, "case-insensitive key + trailing token tolerated");
+        assert_eq!(
+            hits[0].ring, 1,
+            "case-insensitive key + trailing token tolerated"
+        );
     }
 
     #[test]
@@ -3096,13 +3468,26 @@ mod tests {
         let native = tempfile::tempdir().unwrap();
         let mem = native.path().join("p/memory");
         std::fs::create_dir_all(&mem).unwrap();
-        std::fs::write(mem.join("sneaky.md"), "---\nring: 0\n---\ni claim to be an invariant\n").unwrap();
+        std::fs::write(
+            mem.join("sneaky.md"),
+            "---\nring: 0\n---\ni claim to be an invariant\n",
+        )
+        .unwrap();
         std::fs::write(mem.join("quarantined.md"), "---\nring: 5\n---\nhidden\n").unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
-        let report = scan(&mut conn, brain_dir.path(), Some(native.path()), &RingRules::default()).unwrap();
+        let report = scan(
+            &mut conn,
+            brain_dir.path(),
+            Some(native.path()),
+            &RingRules::default(),
+        )
+        .unwrap();
         let hits = recall(&conn, "invariant", 5).unwrap();
-        assert_eq!(hits[0].ring, 2, "promotion clamped to the store's contract ring");
+        assert_eq!(
+            hits[0].ring, 2,
+            "promotion clamped to the store's contract ring"
+        );
         assert_eq!(report.skipped_high_ring, 1, "demotion to 5+ is honored");
     }
 
@@ -3124,7 +3509,13 @@ mod tests {
         std::fs::write(mem.join("feedback_zvol.md"), "zvol on btrfs needs nossd\n").unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
-        scan(&mut conn, brain.path(), Some(native.path()), &RingRules::default()).unwrap();
+        scan(
+            &mut conn,
+            brain.path(),
+            Some(native.path()),
+            &RingRules::default(),
+        )
+        .unwrap();
 
         let index = "native:proj-a/MEMORY.md".to_string();
         let entry = "native:proj-a/feedback_zvol.md".to_string();
@@ -3152,11 +3543,21 @@ mod tests {
             let mem = native.path().join(slug).join("memory");
             std::fs::create_dir_all(&mem).unwrap();
             std::fs::write(mem.join("MEMORY.md"), "- [rule](feedback_rule.md)\n").unwrap();
-            std::fs::write(mem.join("feedback_rule.md"), format!("the rule of {slug}\n")).unwrap();
+            std::fs::write(
+                mem.join("feedback_rule.md"),
+                format!("the rule of {slug}\n"),
+            )
+            .unwrap();
         }
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
-        scan(&mut conn, brain.path(), Some(native.path()), &RingRules::default()).unwrap();
+        scan(
+            &mut conn,
+            brain.path(),
+            Some(native.path()),
+            &RingRules::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             linked_docs(&conn, &["native:proj-a/MEMORY.md".to_string()], 8).unwrap(),
@@ -3170,14 +3571,19 @@ mod tests {
         // Reading markdown links in the brain too would silently add edges
         // brain-lint does not see, to the graph this project trusts most.
         let dir = brain(&[
-            ("knowledge/zfs.md", "see [the shares doc](hosts/shares.md)\n"),
+            (
+                "knowledge/zfs.md",
+                "see [the shares doc](hosts/shares.md)\n",
+            ),
             ("knowledge/hosts/shares.md", "SMB share layout\n"),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert!(
-            linked_docs(&conn, &["knowledge/zfs.md".to_string()], 8).unwrap().is_empty(),
+            linked_docs(&conn, &["knowledge/zfs.md".to_string()], 8)
+                .unwrap()
+                .is_empty(),
             "the vault's edges are its curated wikilinks, nothing else"
         );
     }
@@ -3227,10 +3633,17 @@ mod tests {
         assert_eq!(r1.generation, 1);
         assert_eq!(generation(&conn), 1);
         let r2 = scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
-        assert_eq!(r2.generation, 2, "generation is monotonic per committed scan");
+        assert_eq!(
+            r2.generation, 2,
+            "generation is monotonic per committed scan"
+        );
         drop(conn);
         let conn = open(state.path()).unwrap();
-        assert_eq!(generation(&conn), 2, "generation is persisted in index meta");
+        assert_eq!(
+            generation(&conn),
+            2,
+            "generation is persisted in index meta"
+        );
     }
 
     #[test]
@@ -3253,7 +3666,11 @@ mod tests {
         assert!(!k1.is_empty());
         assert_eq!(k1, k2, "same tree must yield the same catalog checksum");
         // A content change must change the digest.
-        std::fs::write(dir.path().join("knowledge/b.md"), "- gamma\n- delta prime\n").unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/b.md"),
+            "- gamma\n- delta prime\n",
+        )
+        .unwrap();
         scan(&mut c1, dir.path(), None, &RingRules::default()).unwrap();
         assert_ne!(catalog_checksum(&c1).unwrap(), k2);
     }
@@ -3267,33 +3684,60 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
-        let shared = |path: &str| path == "knowledge/shared" || path.starts_with("knowledge/shared/");
+        let shared =
+            |path: &str| path == "knowledge/shared" || path.starts_with("knowledge/shared/");
         let before = catalog_checksum_matching(&conn, shared).unwrap();
-        std::fs::write(dir.path().join("knowledge/private/b.md"), "changed private fact\n").unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/private/b.md"),
+            "changed private fact\n",
+        )
+        .unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert_eq!(catalog_checksum_matching(&conn, shared).unwrap(), before);
-        std::fs::write(dir.path().join("knowledge/shared/a.md"), "changed visible fact\n").unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/shared/a.md"),
+            "changed visible fact\n",
+        )
+        .unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert_ne!(catalog_checksum_matching(&conn, shared).unwrap(), before);
     }
 
     #[test]
     fn catalog_checksum_detects_context_changes_with_the_same_body_citations() {
-        let dir = brain(&[("knowledge/a.md", "# First\n\n- alpha\n\n# Second\n\n- beta\n")]);
+        let dir = brain(&[(
+            "knowledge/a.md",
+            "# First\n\n- alpha\n\n# Second\n\n- beta\n",
+        )]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let citations = |conn: &Connection| -> Vec<String> {
-            conn.prepare("SELECT cite FROM blocks ORDER BY cite").unwrap()
-                .query_map([], |row| row.get(0)).unwrap()
-                .collect::<Result<_, _>>().unwrap()
+            conn.prepare("SELECT cite FROM blocks ORDER BY cite")
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
         };
         let before_citations = citations(&conn);
         let before_checksum = catalog_checksum(&conn).unwrap();
-        std::fs::write(dir.path().join("knowledge/a.md"), "# First\n\n- beta\n\n# Second\n\n- alpha\n").unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/a.md"),
+            "# First\n\n- beta\n\n# Second\n\n- alpha\n",
+        )
+        .unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
-        assert_eq!(citations(&conn), before_citations, "the source-body multiset is unchanged");
-        assert_ne!(catalog_checksum(&conn).unwrap(), before_checksum, "context changed the semantic inputs");
+        assert_eq!(
+            citations(&conn),
+            before_citations,
+            "the source-body multiset is unchanged"
+        );
+        assert_ne!(
+            catalog_checksum(&conn).unwrap(),
+            before_checksum,
+            "context changed the semantic inputs"
+        );
     }
 
     #[test]
@@ -3305,7 +3749,8 @@ mod tests {
         let ro = open_ro(state.path()).unwrap();
         assert_eq!(recall(&ro, "royw", 5).unwrap().len(), 1);
         assert!(
-            ro.execute("INSERT INTO meta(key,value) VALUES('x','y')", []).is_err(),
+            ro.execute("INSERT INTO meta(key,value) VALUES('x','y')", [])
+                .is_err(),
             "read-only handle must not be able to write"
         );
     }
@@ -3326,28 +3771,45 @@ mod tests {
             .unwrap();
             ensure_vector_spec(&conn, &spec).unwrap();
             insert_vector(&conn, &legacy_hash, &spec, &[1.0, 0.0]).unwrap();
-            conn.execute("INSERT INTO meta(key,value) VALUES('marker','old')", []).unwrap();
+            conn.execute("INSERT INTO meta(key,value) VALUES('marker','old')", [])
+                .unwrap();
             conn.pragma_update(None, "user_version", 7i64).unwrap();
 
             for result in [open_ro(state.path()), open_read_only(state.path())] {
                 let error = result.expect_err("read-only opens must reject normalized-body schema");
-                assert!(error.to_string().contains("index schema v7 != v9"), "{error}");
+                assert!(
+                    error.to_string().contains("index schema v7 != v9"),
+                    "{error}"
+                );
             }
-            let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+            let version: i64 = conn
+                .query_row("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap();
             assert_eq!(version, 7, "read-only opens do not migrate the catalog");
             assert_eq!(vector_coverage(&conn, &spec).unwrap(), (1, 1));
         }
         let conn = ensure_fresh(state.path(), dir.path(), None, &RingRules::default()).unwrap();
-        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, SCHEMA_VERSION);
         let marker: Option<String> = conn
-            .query_row("SELECT value FROM meta WHERE key='marker'", [], |r| r.get(0))
+            .query_row("SELECT value FROM meta WHERE key='marker'", [], |r| {
+                r.get(0)
+            })
             .ok();
-        assert!(marker.is_none(), "old-schema DB must be discarded, not reused");
+        assert!(
+            marker.is_none(),
+            "old-schema DB must be discarded, not reused"
+        );
         let hits = recall(&conn, "US", 5).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].cite, cite_id(3, "- US"));
-        assert!(expand(&conn, &cite_from_hash(3, &legacy_hash)).unwrap().is_empty());
+        assert!(
+            expand(&conn, &cite_from_hash(3, &legacy_hash))
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(vector_coverage(&conn, &spec).unwrap(), (0, 1));
         assert_eq!(
             hashes_without_vectors(&conn, &spec, 10).unwrap(),
@@ -3365,32 +3827,56 @@ mod tests {
         {
             let mut conn = open(state.path()).unwrap();
             scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
-            conn.execute("UPDATE blocks SET embedding_hash=hash, embedding_text=text", []).unwrap();
+            conn.execute(
+                "UPDATE blocks SET embedding_hash=hash, embedding_text=text",
+                [],
+            )
+            .unwrap();
             ensure_vector_spec(&conn, &spec).unwrap();
             insert_vector(&conn, &body_hash, &spec, &[1.0, 0.0]).unwrap();
             conn.pragma_update(None, "user_version", 8i64).unwrap();
             for result in [open_ro(state.path()), open_read_only(state.path())] {
                 let error = result.expect_err("body-key vector schema needs a rebuild");
-                assert!(error.to_string().contains("index schema v8 != v9"), "{error}");
+                assert!(
+                    error.to_string().contains("index schema v8 != v9"),
+                    "{error}"
+                );
             }
         }
         let conn = ensure_fresh(state.path(), dir.path(), None, &RingRules::default()).unwrap();
-        assert_eq!(expand(&conn, &cite).unwrap().len(), 1, "context migration preserves body citations");
+        assert_eq!(
+            expand(&conn, &cite).unwrap().len(),
+            1,
+            "context migration preserves body citations"
+        );
         assert_eq!(vector_coverage(&conn, &spec).unwrap(), (0, 2));
         // Even an old record arriving after the rebuild cannot satisfy the
         // new queue or join semantically, including context-free headings.
         insert_vector(&conn, &body_hash, &spec, &[1.0, 0.0]).unwrap();
         insert_vector(&conn, &content_hash("# Policy"), &spec, &[1.0, 0.0]).unwrap();
         assert_eq!(vector_coverage(&conn, &spec).unwrap(), (0, 2));
-        assert!(semantic_recall(&conn, &spec, &[1.0, 0.0], 10, &[]).unwrap().is_empty());
-        let pending: std::collections::BTreeMap<_, _> = hashes_without_vectors(&conn, &spec, 10).unwrap().into_iter().collect();
+        assert!(
+            semantic_recall(&conn, &spec, &[1.0, 0.0], 10, &[])
+                .unwrap()
+                .is_empty()
+        );
+        let pending: std::collections::BTreeMap<_, _> = hashes_without_vectors(&conn, &spec, 10)
+            .unwrap()
+            .into_iter()
+            .collect();
         assert_eq!(pending.len(), 2);
-        assert_eq!(pending.get(&crate::embedding_input::hash("Policy\n\n- unchanged")).map(String::as_str), Some("Policy\n\n- unchanged"));
+        assert_eq!(
+            pending
+                .get(&crate::embedding_input::hash("Policy\n\n- unchanged"))
+                .map(String::as_str),
+            Some("Policy\n\n- unchanged")
+        );
     }
 
     #[test]
     fn wikilink_extraction_handles_alias_and_anchor() {
-        let links = wikilinks("see [[Zfs-Dataset|the dataset doc]] and [[shares#SMB]] but not [[]]");
+        let links =
+            wikilinks("see [[Zfs-Dataset|the dataset doc]] and [[shares#SMB]] but not [[]]");
         assert_eq!(links, vec!["zfs-dataset", "shares"]);
     }
 
@@ -3407,8 +3893,14 @@ mod tests {
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let linked = linked_docs(&conn, &["knowledge/zfs.md".to_string()], 8).unwrap();
         let paths: Vec<&str> = linked.iter().map(|(p, _)| p.as_str()).collect();
-        assert!(paths.contains(&"knowledge/hosts/shares.md"), "outgoing link followed");
-        assert!(paths.contains(&"knowledge/backup.md"), "incoming link followed");
+        assert!(
+            paths.contains(&"knowledge/hosts/shares.md"),
+            "outgoing link followed"
+        );
+        assert!(
+            paths.contains(&"knowledge/backup.md"),
+            "incoming link followed"
+        );
         assert!(!paths.contains(&"knowledge/unrelated.md"));
     }
 
@@ -3434,7 +3926,10 @@ mod tests {
         assert_eq!(&blob[0..4], &0.25f32.to_le_bytes());
         assert_eq!(blob_to_vec(&blob, Precision::F32), v);
         // corrupt trailing partial chunk is dropped, not misread
-        assert_eq!(blob_to_vec(&blob[..10], Precision::F32), vec![0.25f32, -1.5]);
+        assert_eq!(
+            blob_to_vec(&blob[..10], Precision::F32),
+            vec![0.25f32, -1.5]
+        );
         // f16 is little-endian too, and exact for these values
         let blob = vec_to_blob(&v, Precision::F16);
         assert_eq!(blob.len(), 6);
@@ -3477,11 +3972,20 @@ mod tests {
         assert_eq!(fts_query("bug-400"), "\"bug-400\" OR \"bug\"* OR \"400\"*");
         // ...while the recall contract survives: a hyphenated concept still
         // matches its words scattered across a sentence.
-        assert_eq!(fts_query("state-machine"), "\"state-machine\" OR \"state\"* OR \"machine\"*");
+        assert_eq!(
+            fts_query("state-machine"),
+            "\"state-machine\" OR \"state\"* OR \"machine\"*"
+        );
         // Plain terms are unchanged prefix terms.
-        assert_eq!(fts_query("database migration"), "\"database\"* OR \"migration\"*");
+        assert_eq!(
+            fts_query("database migration"),
+            "\"database\"* OR \"migration\"*"
+        );
         // Duplicate terms are not double-counted.
-        assert_eq!(fts_query("bug bug-400"), "\"bug\"* OR \"bug-400\" OR \"400\"*");
+        assert_eq!(
+            fts_query("bug bug-400"),
+            "\"bug\"* OR \"bug-400\" OR \"400\"*"
+        );
     }
 
     #[test]
@@ -3526,14 +4030,22 @@ mod tests {
         let hits = recall(&conn, "bug-400", 8).unwrap();
         assert!(!hits.is_empty(), "the id note must be findable at all");
         assert_eq!(
-            hits[0].path, "knowledge/bugs/bug-400.md",
+            hits[0].path,
+            "knowledge/bugs/bug-400.md",
             "the literal compound outranks everything; got: {}",
-            hits.iter().map(|h| h.path.clone()).collect::<Vec<_>>().join(", ")
+            hits.iter()
+                .map(|h| h.path.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
         // The recall contract holds on the same shape: any other bug note is
         // found by its id too, not just the one the phrase boosted hardest.
         let scatter = recall(&conn, "bug-060", 8).unwrap();
-        assert!(scatter.iter().any(|h| h.path == "knowledge/bugs/bug-060.md"));
+        assert!(
+            scatter
+                .iter()
+                .any(|h| h.path == "knowledge/bugs/bug-060.md")
+        );
     }
 
     #[test]
@@ -3566,9 +4078,17 @@ mod tests {
         // context under a separate payload address.
         let h = content_hash("The  Quick   Fox");
         assert_eq!(h.len(), 64, "full sha256 hex");
-        assert_ne!(h, content_hash("the quick fox"), "body identity is case and whitespace sensitive");
+        assert_ne!(
+            h,
+            content_hash("the quick fox"),
+            "body identity is case and whitespace sensitive"
+        );
         assert_eq!(cite_id(3, "The  Quick   Fox"), format!("r3-{}", &h[..10]));
-        assert_eq!(cite_id(1, "The  Quick   Fox"), format!("r1-{}", &h[..10]), "ring labels, hash addresses");
+        assert_eq!(
+            cite_id(1, "The  Quick   Fox"),
+            format!("r1-{}", &h[..10]),
+            "ring labels, hash addresses"
+        );
         assert_ne!(h, content_hash("the quick foxes"));
     }
 
@@ -3589,15 +4109,35 @@ mod tests {
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let spec = test_spec(2);
         let pending: std::collections::BTreeMap<String, String> =
-            hashes_without_vectors(&conn, &spec, 20).unwrap().into_iter().collect();
+            hashes_without_vectors(&conn, &spec, 20)
+                .unwrap()
+                .into_iter()
+                .collect();
         let bodies = [
-            "- US", "- us", "- us  value", "- us value", "- us\tvalue", "US\nstate", "US state",
+            "- US",
+            "- us",
+            "- us  value",
+            "- us value",
+            "- us\tvalue",
+            "US\nstate",
+            "US state",
         ];
         assert_eq!(pending.len(), bodies.len());
         for body in bodies {
-            assert_eq!(pending.get(&crate::embedding_input::hash(body)).map(String::as_str), Some(body));
+            assert_eq!(
+                pending
+                    .get(&crate::embedding_input::hash(body))
+                    .map(String::as_str),
+                Some(body)
+            );
         }
-        insert_vector(&conn, &crate::embedding_input::hash("- US"), &spec, &[1.0, 0.0]).unwrap();
+        insert_vector(
+            &conn,
+            &crate::embedding_input::hash("- US"),
+            &spec,
+            &[1.0, 0.0],
+        )
+        .unwrap();
         assert_eq!(
             vector_coverage(&conn, &spec).unwrap(),
             (2, 8),
@@ -3622,19 +4162,26 @@ mod tests {
             let spec = test_spec(2);
             embed_everything(&conn, &spec, &[1.0, 0.0]);
             let mut previous = "- US";
-            for (step, body) in ["- us", "- us  ", "- us\t ", "- us\n  value"].into_iter().enumerate() {
+            for (step, body) in ["- us", "- us  ", "- us\t ", "- us\n  value"]
+                .into_iter()
+                .enumerate()
+            {
                 std::fs::write(&path, format!("{body}\n- unchanged\n")).unwrap();
                 // Make same-size edits visible on filesystems with coarse mtimes.
                 std::fs::File::options()
                     .write(true)
                     .open(&path)
                     .unwrap()
-                    .set_times(std::fs::FileTimes::new().set_modified(
-                        modified + std::time::Duration::from_secs(step as u64 + 1),
-                    ))
+                    .set_times(
+                        std::fs::FileTimes::new().set_modified(
+                            modified + std::time::Duration::from_secs(step as u64 + 1),
+                        ),
+                    )
                     .unwrap();
                 if incremental {
-                    rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().unwrap();
+                    rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+                        .unwrap()
+                        .unwrap();
                 } else {
                     scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
                 }
@@ -3645,7 +4192,9 @@ mod tests {
                 );
                 assert_eq!(vector_coverage(&conn, &spec).unwrap(), (1, 2));
                 assert!(expand(&conn, &cite_id(3, previous)).unwrap().is_empty());
-                let rows: i64 = conn.query_row("SELECT count(*) FROM vectors", [], |r| r.get(0)).unwrap();
+                let rows: i64 = conn
+                    .query_row("SELECT count(*) FROM vectors", [], |r| r.get(0))
+                    .unwrap();
                 assert_eq!(rows, 1, "the superseded vector is pruned");
                 embed_everything(&conn, &spec, &[0.0, 1.0]);
                 previous = body;
@@ -3662,8 +4211,14 @@ mod tests {
     fn context_edits_requeue_only_dependents_and_keep_vectors_needed_by_other_occurrences() {
         for incremental in [false, true] {
             let dir = brain(&[
-                ("knowledge/a.md", "# First\n\n- shared\n\n# Stable\n\n- keep\n"),
-                ("knowledge/copy.md", "---\nring: 1\n---\n# First\n\n- shared\n"),
+                (
+                    "knowledge/a.md",
+                    "# First\n\n- shared\n\n# Stable\n\n- keep\n",
+                ),
+                (
+                    "knowledge/copy.md",
+                    "---\nring: 1\n---\n# First\n\n- shared\n",
+                ),
                 ("knowledge/other.md", "# Second\n\n- shared\n"),
             ]);
             let state = tempfile::tempdir().unwrap();
@@ -3672,43 +4227,100 @@ mod tests {
             let spec = test_spec(2);
             let first = crate::embedding_input::hash("First\n\n- shared");
             let second = crate::embedding_input::hash("Second\n\n- shared");
-            let pending: std::collections::BTreeMap<_, _> = hashes_without_vectors(&conn, &spec, 20).unwrap().into_iter().collect();
-            assert_eq!(pending.len(), 6, "same payload across files and rings is queued once");
-            assert_eq!(pending.get(&first).map(String::as_str), Some("First\n\n- shared"));
-            assert_eq!(pending.get(&second).map(String::as_str), Some("Second\n\n- shared"));
+            let pending: std::collections::BTreeMap<_, _> =
+                hashes_without_vectors(&conn, &spec, 20)
+                    .unwrap()
+                    .into_iter()
+                    .collect();
+            assert_eq!(
+                pending.len(),
+                6,
+                "same payload across files and rings is queued once"
+            );
+            assert_eq!(
+                pending.get(&first).map(String::as_str),
+                Some("First\n\n- shared")
+            );
+            assert_eq!(
+                pending.get(&second).map(String::as_str),
+                Some("Second\n\n- shared")
+            );
             assert_ne!(first, second);
             assert_eq!(expand(&conn, &cite_id(3, "- shared")).unwrap().len(), 3);
             insert_vector(&conn, &first, &spec, &[1.0, 0.0]).unwrap();
             insert_vector(&conn, &second, &spec, &[0.0, 1.0]).unwrap();
             assert_eq!(vector_coverage(&conn, &spec).unwrap(), (3, 8));
             let hits = semantic_recall(&conn, &spec, &[0.0, 1.0], 10, &[]).unwrap();
-            assert_eq!(hits[0].path, "knowledge/other.md", "same body can rank differently under different headings");
+            assert_eq!(
+                hits[0].path, "knowledge/other.md",
+                "same body can rank differently under different headings"
+            );
             assert_eq!(hits[0].cite, cite_id(3, "- shared"));
             embed_everything(&conn, &spec, &[1.0, 0.0]);
 
-            std::fs::write(dir.path().join("knowledge/a.md"), "# Changed\n\n- shared\n\n# Stable\n\n- keep\n").unwrap();
+            std::fs::write(
+                dir.path().join("knowledge/a.md"),
+                "# Changed\n\n- shared\n\n# Stable\n\n- keep\n",
+            )
+            .unwrap();
             if incremental {
-                rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().unwrap();
+                rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+                    .unwrap()
+                    .unwrap();
             } else {
                 scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
             }
-            let queued: std::collections::BTreeSet<_> = hashes_without_vectors(&conn, &spec, 20).unwrap().into_iter().map(|(_, text)| text).collect();
-            assert_eq!(queued, ["# Changed".to_string(), "Changed\n\n- shared".to_string()].into_iter().collect());
+            let queued: std::collections::BTreeSet<_> = hashes_without_vectors(&conn, &spec, 20)
+                .unwrap()
+                .into_iter()
+                .map(|(_, text)| text)
+                .collect();
+            assert_eq!(
+                queued,
+                ["# Changed".to_string(), "Changed\n\n- shared".to_string()]
+                    .into_iter()
+                    .collect()
+            );
             assert_eq!(vector_coverage(&conn, &spec).unwrap(), (6, 8));
-            assert_eq!(expand(&conn, &cite_id(3, "- shared")).unwrap().len(), 3, "a context edit keeps body citations");
-            let old_present: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM vectors WHERE content_hash=?1)", [&first], |row| row.get(0)).unwrap();
+            assert_eq!(
+                expand(&conn, &cite_id(3, "- shared")).unwrap().len(),
+                3,
+                "a context edit keeps body citations"
+            );
+            let old_present: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM vectors WHERE content_hash=?1)",
+                    [&first],
+                    |row| row.get(0),
+                )
+                .unwrap();
             assert!(old_present, "the mirror still depends on the old payload");
 
             std::fs::remove_file(dir.path().join("knowledge/copy.md")).unwrap();
             if incremental {
-                rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().unwrap();
+                rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+                    .unwrap()
+                    .unwrap();
             } else {
                 scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
             }
-            let old_present: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM vectors WHERE content_hash=?1)", [&first], |row| row.get(0)).unwrap();
-            assert!(!old_present, "the last dependent occurrence left, so its vector is pruned");
+            let old_present: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM vectors WHERE content_hash=?1)",
+                    [&first],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(
+                !old_present,
+                "the last dependent occurrence left, so its vector is pruned"
+            );
             assert_eq!(vector_coverage(&conn, &spec).unwrap(), (4, 6));
-            assert_eq!(hashes_without_vectors(&conn, &spec, 20).unwrap().len(), 2, "unrelated vectors remain usable");
+            assert_eq!(
+                hashes_without_vectors(&conn, &spec, 20).unwrap().len(),
+                2,
+                "unrelated vectors remain usable"
+            );
         }
     }
 
@@ -3717,28 +4329,64 @@ mod tests {
         let old_header = format!("| {} OLD  units | Value |", "column ".repeat(30));
         let new_header = old_header.replace("OLD", "CURRENT");
         let row = "| reading | 42 |";
-        let dir = brain(&[("knowledge/a.md", &format!("# Measurements\n\n{old_header}\n{row}\n\n- unrelated\n"))]);
+        let dir = brain(&[(
+            "knowledge/a.md",
+            &format!("# Measurements\n\n{old_header}\n{row}\n\n- unrelated\n"),
+        )]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let spec = test_spec(2);
         let row_state = |conn: &Connection| -> (String, String, String, String) {
-            conn.query_row("SELECT cite, ctx, embedding_text, embedding_hash FROM blocks WHERE text=?1", [row], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).unwrap()
+            conn.query_row(
+                "SELECT cite, ctx, embedding_text, embedding_hash FROM blocks WHERE text=?1",
+                [row],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap()
         };
         let before = row_state(&conn);
         assert_eq!(before.2, format!("Measurements > {old_header}\n\n{row}"));
-        assert!(!before.1.contains("OLD"), "the fixture changes text beyond the preview boundary");
+        assert!(
+            !before.1.contains("OLD"),
+            "the fixture changes text beyond the preview boundary"
+        );
         embed_everything(&conn, &spec, &[1.0, 0.0]);
-        std::fs::write(dir.path().join("knowledge/a.md"), format!("# Measurements\n\n{new_header}\n{row}\n\n- unrelated\n")).unwrap();
-        rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/a.md"),
+            format!("# Measurements\n\n{new_header}\n{row}\n\n- unrelated\n"),
+        )
+        .unwrap();
+        rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+            .unwrap()
+            .unwrap();
         let after = row_state(&conn);
         assert_eq!(after.0, before.0, "row citation is unchanged");
-        assert_eq!(after.1, before.1, "display context keeps its existing preview behavior");
+        assert_eq!(
+            after.1, before.1,
+            "display context keeps its existing preview behavior"
+        );
         assert_eq!(after.2, format!("Measurements > {new_header}\n\n{row}"));
-        assert_ne!(after.3, before.3, "full header meaning reaches the embedding key");
-        assert_eq!(vector_coverage(&conn, &spec).unwrap(), (2, 4), "heading and unrelated prose keep their vectors");
-        let queued: std::collections::BTreeSet<_> = hashes_without_vectors(&conn, &spec, 10).unwrap().into_iter().map(|(_, text)| text).collect();
-        assert_eq!(queued, [format!("Measurements\n\n{new_header}"), after.2].into_iter().collect());
+        assert_ne!(
+            after.3, before.3,
+            "full header meaning reaches the embedding key"
+        );
+        assert_eq!(
+            vector_coverage(&conn, &spec).unwrap(),
+            (2, 4),
+            "heading and unrelated prose keep their vectors"
+        );
+        let queued: std::collections::BTreeSet<_> = hashes_without_vectors(&conn, &spec, 10)
+            .unwrap()
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect();
+        assert_eq!(
+            queued,
+            [format!("Measurements\n\n{new_header}"), after.2]
+                .into_iter()
+                .collect()
+        );
     }
 
     #[test]
@@ -3778,7 +4426,10 @@ mod tests {
         ];
         for (value, expected) in cases {
             let got = f32_to_f16(value);
-            assert_eq!(got, expected, "f32_to_f16({value:e}) = {got:#06x}, expected {expected:#06x}");
+            assert_eq!(
+                got, expected,
+                "f32_to_f16({value:e}) = {got:#06x}, expected {expected:#06x}"
+            );
             // And back: widening a half is exact, so the round trip is the
             // half's own value, sign of zero included.
             let back = f16_to_f32(got);
@@ -3810,7 +4461,10 @@ mod tests {
         // The values a normalized component actually reaches, plus the edges.
         for x in [0.0f32, 1.0, -1.0, 0.5, -0.03125, 1e-4, -1e-4, 6e-8] {
             let back = blob_to_vec(&vec_to_blob(&[x], Precision::F16), Precision::F16)[0];
-            assert!((back - x).abs() <= 1e-3 * x.abs().max(1e-3), "{x} -> {back}");
+            assert!(
+                (back - x).abs() <= 1e-3 * x.abs().max(1e-3),
+                "{x} -> {back}"
+            );
         }
         // What actually matters: the ranking score survives the narrowing.
         let mut a: Vec<f32> = (0..1024).map(|i| ((i % 17) as f32 - 8.0) / 9.0).collect();
@@ -3822,7 +4476,10 @@ mod tests {
             &blob_to_vec(&vec_to_blob(&a, Precision::F16), Precision::F16),
             &blob_to_vec(&vec_to_blob(&b, Precision::F16), Precision::F16),
         );
-        assert!((exact - narrowed).abs() < 1e-3, "cosine {exact} vs {narrowed}");
+        assert!(
+            (exact - narrowed).abs() < 1e-3,
+            "cosine {exact} vs {narrowed}"
+        );
     }
 
     #[test]
@@ -3842,10 +4499,18 @@ mod tests {
         let missing = hashes_without_vectors(&conn, &spec, 10).unwrap();
         assert_eq!(missing.len(), 1);
         assert_eq!(missing[0].1, "- one");
-        assert_eq!(missing[0].0, crate::embedding_input::hash("- one"), "the queue is keyed by payload address");
+        assert_eq!(
+            missing[0].0,
+            crate::embedding_input::hash("- one"),
+            "the queue is keyed by payload address"
+        );
         insert_vector(&conn, &missing[0].0, &spec, &[3.0, 4.0]).unwrap();
         let blob: Vec<u8> = conn
-            .query_row("SELECT embedding FROM vectors WHERE content_hash=?1", [&missing[0].0], |r| r.get(0))
+            .query_row(
+                "SELECT embedding FROM vectors WHERE content_hash=?1",
+                [&missing[0].0],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(
             blob,
@@ -3866,23 +4531,47 @@ mod tests {
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let spec = test_spec(2);
-        assert!(!ensure_vector_spec(&conn, &spec).unwrap(), "first run: nothing to drop");
+        assert!(
+            !ensure_vector_spec(&conn, &spec).unwrap(),
+            "first run: nothing to drop"
+        );
         embed_everything(&conn, &spec, &[1.0, 0.0]);
         assert_eq!(vector_coverage(&conn, &spec).unwrap(), (2, 2));
-        assert!(!ensure_vector_spec(&conn, &spec).unwrap(), "same spec keeps vectors");
+        assert!(
+            !ensure_vector_spec(&conn, &spec).unwrap(),
+            "same spec keeps vectors"
+        );
         assert_eq!(vector_coverage(&conn, &spec).unwrap(), (2, 2));
 
-        let other_model = VectorSpec { model: "other".into(), ..spec.clone() };
-        assert!(ensure_vector_spec(&conn, &other_model).unwrap(), "model change drops");
+        let other_model = VectorSpec {
+            model: "other".into(),
+            ..spec.clone()
+        };
+        assert!(
+            ensure_vector_spec(&conn, &other_model).unwrap(),
+            "model change drops"
+        );
         assert_eq!(vector_coverage(&conn, &other_model).unwrap(), (0, 2));
         embed_everything(&conn, &other_model, &[1.0, 0.0]);
 
-        let other_dim = VectorSpec { dim: 4, ..other_model.clone() };
-        assert!(ensure_vector_spec(&conn, &other_dim).unwrap(), "dimension change drops");
+        let other_dim = VectorSpec {
+            dim: 4,
+            ..other_model.clone()
+        };
+        assert!(
+            ensure_vector_spec(&conn, &other_dim).unwrap(),
+            "dimension change drops"
+        );
         embed_everything(&conn, &other_dim, &[1.0, 0.0, 0.0, 0.0]);
 
-        let other_precision = VectorSpec { precision: Precision::F32, ..other_dim.clone() };
-        assert!(ensure_vector_spec(&conn, &other_precision).unwrap(), "precision change drops");
+        let other_precision = VectorSpec {
+            precision: Precision::F32,
+            ..other_dim.clone()
+        };
+        assert!(
+            ensure_vector_spec(&conn, &other_precision).unwrap(),
+            "precision change drops"
+        );
         assert_eq!(vector_coverage(&conn, &other_precision).unwrap(), (0, 2));
         assert_eq!(stored_vector_spec(&conn), Some(other_precision));
     }
@@ -3915,7 +4604,11 @@ mod tests {
 
         // The incremental path must agree â€” it is the daemon's hot path.
         embed_everything(&conn, &spec, &[0.0, 1.0]);
-        std::fs::write(dir.path().join("knowledge/a.md"), "- one\n- two\n- three\n- four\n").unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/a.md"),
+            "- one\n- two\n- three\n- four\n",
+        )
+        .unwrap();
         rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
             .unwrap()
             .expect("small diff -> incremental");
@@ -3932,17 +4625,27 @@ mod tests {
         embed_everything(&conn, &spec, &[1.0, 0.0]);
         let gone = crate::embedding_input::hash("- two");
 
-        std::fs::write(dir.path().join("knowledge/a.md"), "- one\n- two, corrected\n").unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/a.md"),
+            "- one\n- two, corrected\n",
+        )
+        .unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let missing = hashes_without_vectors(&conn, &spec, 10).unwrap();
         assert_eq!(missing.len(), 1, "the edited block is queued again");
         assert_eq!(missing[0].1, "- two, corrected");
         assert_eq!(vector_coverage(&conn, &spec).unwrap(), (1, 2));
-        let rows: i64 = conn.query_row("SELECT count(*) FROM vectors", [], |r| r.get(0)).unwrap();
+        let rows: i64 = conn
+            .query_row("SELECT count(*) FROM vectors", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(rows, 1, "the vector of a hash no longer present is pruned");
         assert!(
-            conn.query_row("SELECT 1 FROM vectors WHERE content_hash=?1", [&gone], |r| r.get::<_, i64>(0))
-                .is_err(),
+            conn.query_row(
+                "SELECT 1 FROM vectors WHERE content_hash=?1",
+                [&gone],
+                |r| r.get::<_, i64>(0)
+            )
+            .is_err(),
             "the superseded vector is gone, not orphaned"
         );
     }
@@ -3976,7 +4679,10 @@ mod tests {
         assert_eq!(hits.len(), 2, "unembedded block cannot appear");
         assert!(hits[0].path.ends_with("zfs.md"), "closest vector first");
         assert!(hits[1].path.ends_with("mail.md"));
-        assert!(hits[0].cite.starts_with("r3-"), "hits carry the normal citation shape");
+        assert!(
+            hits[0].cite.starts_with("r3-"),
+            "hits carry the normal citation shape"
+        );
         // limit applies
         assert_eq!(semantic_recall(&conn, &spec, &q, 1, &[]).unwrap().len(), 1);
     }
@@ -3994,16 +4700,28 @@ mod tests {
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let spec = test_spec(2);
-        let mut stmt = conn.prepare("SELECT embedding_hash FROM blocks ORDER BY id").unwrap();
-        let hashes: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().filter_map(Result::ok).collect();
+        let mut stmt = conn
+            .prepare("SELECT embedding_hash FROM blocks ORDER BY id")
+            .unwrap();
+        let hashes: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
         drop(stmt);
         insert_vector(&conn, &hashes[0], &spec, &[1.0, 0.0]).unwrap(); // a.md: far from query
         insert_vector(&conn, &hashes[1], &spec, &[0.0, 1.0]).unwrap(); // b.md: close to query
         let q = vec![0.0f32, 1.0];
         let hits = hybrid_recall(&conn, &spec, "zfs", &q, 10, 2.0, &[]).unwrap();
         let paths: Vec<&str> = hits.iter().map(|h| h.path.as_str()).collect();
-        assert!(paths.contains(&"knowledge/a.md"), "lexical-only hit present");
-        assert!(paths.contains(&"knowledge/b.md"), "semantic-only hit present");
+        assert!(
+            paths.contains(&"knowledge/a.md"),
+            "lexical-only hit present"
+        );
+        assert!(
+            paths.contains(&"knowledge/b.md"),
+            "semantic-only hit present"
+        );
         // a.md: rank 1 lexical (1/3) + rank 2 semantic (1/4) = 0.583
         // b.md: rank 1 semantic (1/3) = 0.333
         assert_eq!(paths[0], "knowledge/a.md");
@@ -4015,26 +4733,52 @@ mod tests {
         let current = "- A production restart needs explicit approval for this particular action, even during maintenance.";
         for ring in [0, 1] {
             let dir = brain(&[
-                ("knowledge/a-old.md", &format!("---\nring: 4\n---\n{obsolete}\n")),
-                ("knowledge/z-current.md", &format!("---\nring: {ring}\n---\n{current}\n")),
+                (
+                    "knowledge/a-old.md",
+                    &format!("---\nring: 4\n---\n{obsolete}\n"),
+                ),
+                (
+                    "knowledge/z-current.md",
+                    &format!("---\nring: {ring}\n---\n{current}\n"),
+                ),
                 // Keep IDF positive so the short obsolete block wins raw BM25.
-                ("knowledge/fill.md", "- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n"),
+                (
+                    "knowledge/fill.md",
+                    "- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n",
+                ),
             ]);
             let state = tempfile::tempdir().unwrap();
             let mut conn = open(state.path()).unwrap();
             scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
             let spec = test_spec(2);
-            insert_vector(&conn, &crate::embedding_input::hash(current), &spec, &[1.0, 0.0]).unwrap();
-            insert_vector(&conn, &crate::embedding_input::hash(obsolete), &spec, &[0.8, 0.6]).unwrap();
+            insert_vector(
+                &conn,
+                &crate::embedding_input::hash(current),
+                &spec,
+                &[1.0, 0.0],
+            )
+            .unwrap();
+            insert_vector(
+                &conn,
+                &crate::embedding_input::hash(obsolete),
+                &spec,
+                &[0.8, 0.6],
+            )
+            .unwrap();
             let query = "approval";
             let vector = [1.0, 0.0];
 
-            let raw_first: String = conn.query_row(
-                &ranked_match_sql("d.path", 0),
-                rusqlite::params_from_iter(ranked_params(&fts_query(query), 20, &[])),
-                |row| row.get(0),
-            ).unwrap();
-            assert_eq!(raw_first, "knowledge/a-old.md", "fixture must exercise the reservation");
+            let raw_first: String = conn
+                .query_row(
+                    &ranked_match_sql("d.path", 0),
+                    rusqlite::params_from_iter(ranked_params(&fts_query(query), 20, &[])),
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                raw_first, "knowledge/a-old.md",
+                "fixture must exercise the reservation"
+            );
             let lexical = recall(&conn, query, 10).unwrap();
             let semantic = semantic_recall(&conn, &spec, &vector, 10, &[]).unwrap();
             assert_eq!(lexical[0].path, "knowledge/z-current.md");
@@ -4048,7 +4792,10 @@ mod tests {
                 "hybrid must receive the same reserved lexical order"
             );
             let hybrid = hybrid_recall(&conn, &spec, query, &vector, 10, 2.0, &[]).unwrap();
-            assert_eq!(hybrid[0].path, "knowledge/z-current.md", "both ranking inputs agree on current policy");
+            assert_eq!(
+                hybrid[0].path, "knowledge/z-current.md",
+                "both ranking inputs agree on current policy"
+            );
             assert_eq!(hybrid[1].path, "knowledge/a-old.md");
         }
     }
@@ -4065,14 +4812,23 @@ mod tests {
         let native = tempfile::tempdir().unwrap();
         let mem = native.path().join("p/memory");
         std::fs::create_dir_all(&mem).unwrap();
-        std::fs::write(mem.join("MEMORY.md"), "- zvol on btrfs needs the nossd mount option\n")
-            .unwrap();
+        std::fs::write(
+            mem.join("MEMORY.md"),
+            "- zvol on btrfs needs the nossd mount option\n",
+        )
+        .unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
-        scan(&mut conn, brain.path(), Some(native.path()), &RingRules::default()).unwrap();
+        scan(
+            &mut conn,
+            brain.path(),
+            Some(native.path()),
+            &RingRules::default(),
+        )
+        .unwrap();
         let hits = recall(&conn, "nossd", 5).unwrap();
         assert_eq!(hits.len(), 1, "one logical block, one hit");
-        assert_eq!(hits[0].ring, 1, "the lowest-ring copy survives");
+        assert_eq!(hits[0].ring, 2, "the lowest-ring copy survives");
         assert_eq!(hits[0].path, "knowledge/behaviours/MEMORY.md");
         assert_eq!(hits[0].mirrors, vec!["native:p/MEMORY.md".to_string()]);
     }
@@ -4093,15 +4849,26 @@ mod tests {
         };
         let hits = vec![
             h("r2-aabbccddee", "native:p/MEMORY.md", 2, "Memory"),
-            h("r1-aabbccddee", "knowledge/behaviours/MEMORY.md", 1, "Memory"),
+            h(
+                "r1-aabbccddee",
+                "knowledge/behaviours/MEMORY.md",
+                1,
+                "Memory",
+            ),
             h("r3-0123456789", "knowledge/x.md", 3, ""),
         ];
         let out = dedup_by_content(hits);
         assert_eq!(out.len(), 2);
-        assert_eq!(out[0].cite, "r1-aabbccddee", "lowest ring wins even when ranked second");
+        assert_eq!(
+            out[0].cite, "r1-aabbccddee",
+            "lowest ring wins even when ranked second"
+        );
         assert_eq!(out[0].mirrors, vec!["native:p/MEMORY.md".to_string()]);
         assert_eq!(out[1].cite, "r3-0123456789");
-        assert!(out[1].mirrors.is_empty(), "a hit without duplicates is untouched");
+        assert!(
+            out[1].mirrors.is_empty(),
+            "a hit without duplicates is untouched"
+        );
     }
 
     #[test]
@@ -4123,7 +4890,11 @@ mod tests {
             h("r3-aabbccddee", "knowledge/b.md", 3, "Backups"),
         ];
         let out = dedup_by_content(hits);
-        assert_eq!(out.len(), 2, "same hash under different heading chains = two statements");
+        assert_eq!(
+            out.len(),
+            2,
+            "same hash under different heading chains = two statements"
+        );
         assert!(out.iter().all(|h| h.mirrors.is_empty()));
     }
 
@@ -4134,7 +4905,10 @@ mod tests {
         let dir = brain(&[
             ("knowledge/temperature.md", temperature),
             ("knowledge/pressure.md", pressure),
-            ("knowledge/mirror.md", &format!("---\nring: 1\n---\n{temperature}")),
+            (
+                "knowledge/mirror.md",
+                &format!("---\nring: 1\n---\n{temperature}"),
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
@@ -4149,10 +4923,20 @@ mod tests {
             recall(&conn, "42", 10).unwrap(),
             semantic_recall(&conn, &spec, &[1.0, 0.0], 10, &[]).unwrap(),
         ] {
-            assert_eq!(hits.len(), 2, "same body and heading can carry different table meaning");
-            let mirror = hits.iter().find(|hit| hit.path == "knowledge/mirror.md").unwrap();
+            assert_eq!(
+                hits.len(),
+                2,
+                "same body and heading can carry different table meaning"
+            );
+            let mirror = hits
+                .iter()
+                .find(|hit| hit.path == "knowledge/mirror.md")
+                .unwrap();
             assert_eq!(mirror.mirrors, ["knowledge/temperature.md"]);
-            assert!(hits.iter().any(|hit| hit.path == "knowledge/pressure.md" && hit.mirrors.is_empty()));
+            assert!(
+                hits.iter()
+                    .any(|hit| hit.path == "knowledge/pressure.md" && hit.mirrors.is_empty())
+            );
         }
     }
 
@@ -4171,13 +4955,26 @@ mod tests {
         std::fs::write(mem.join("MEMORY.md"), "- flumox\n").unwrap();
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
-        scan(&mut conn, brain.path(), Some(native.path()), &RingRules::default()).unwrap();
+        scan(
+            &mut conn,
+            brain.path(),
+            Some(native.path()),
+            &RingRules::default(),
+        )
+        .unwrap();
         let hits = recall(&conn, "flumox", 2).unwrap();
-        assert_eq!(hits.len(), 2, "suppression must not shrink the result count");
+        assert_eq!(
+            hits.len(),
+            2,
+            "suppression must not shrink the result count"
+        );
         let paths: Vec<&str> = hits.iter().map(|h| h.path.as_str()).collect();
         assert!(paths.contains(&"knowledge/behaviours/MEMORY.md"));
         assert!(paths.contains(&"knowledge/other.md"));
-        let kept = hits.iter().find(|h| h.path == "knowledge/behaviours/MEMORY.md").unwrap();
+        let kept = hits
+            .iter()
+            .find(|h| h.path == "knowledge/behaviours/MEMORY.md")
+            .unwrap();
         assert_eq!(kept.mirrors, vec!["native:p/MEMORY.md".to_string()]);
     }
 
@@ -4185,7 +4982,10 @@ mod tests {
     fn expand_matches_hash_across_rings_lowest_first() {
         let dir = brain(&[
             ("knowledge/copy.md", "shared statement body\n"),
-            ("knowledge/promoted.md", "---\nring: 1\n---\nshared statement body\n"),
+            (
+                "knowledge/promoted.md",
+                "---\nring: 1\n---\nshared statement body\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
@@ -4207,7 +5007,10 @@ mod tests {
         let dir = brain(&[
             ("knowledge/ok.md", "fine\n"),
             ("knowledge/staged.md", "---\nring: 5\n---\nquarantined\n"),
-            ("knowledge/broken.md", "---\nring: banana\n---\nunparseable\n"),
+            (
+                "knowledge/broken.md",
+                "---\nring: banana\n---\nunparseable\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
@@ -4215,7 +5018,10 @@ mod tests {
         assert_eq!(report.skipped_high_ring, 2);
         assert_eq!(
             report.skipped,
-            vec!["knowledge/broken.md".to_string(), "knowledge/staged.md".to_string()],
+            vec![
+                "knowledge/broken.md".to_string(),
+                "knowledge/staged.md".to_string()
+            ],
             "skipped paths listed in doc-path order"
         );
     }
@@ -4232,11 +5038,19 @@ mod tests {
         // vice versa.
         let text = "~~~\n```\ninner\n```\n~~~\nafter\n";
         let blocks = segment(text, 0);
-        assert_eq!(blocks.len(), 2, "backtick runs inside a tilde fence do not close it");
+        assert_eq!(
+            blocks.len(),
+            2,
+            "backtick runs inside a tilde fence do not close it"
+        );
         assert_eq!((blocks[0].0, blocks[0].1), (1, 5));
         let text = "```\n~~~\ninner\n~~~\n```\n";
         let blocks = segment(text, 0);
-        assert_eq!(blocks.len(), 1, "tilde runs inside a backtick fence do not close it");
+        assert_eq!(
+            blocks.len(),
+            1,
+            "tilde runs inside a backtick fence do not close it"
+        );
         assert_eq!((blocks[0].0, blocks[0].1), (1, 5));
     }
 
@@ -4245,11 +5059,33 @@ mod tests {
         let text = "Title\n=====\n\nintro paragraph\n\nSection\n-------\n\nbody text\n";
         let blocks = segment(text, 0);
         let bodies: Vec<&str> = blocks.iter().map(|(_, _, b)| b.as_str()).collect();
-        assert_eq!(bodies, vec!["Title\n=====", "intro paragraph", "Section\n-------", "body text"]);
-        assert_eq!((blocks[0].0, blocks[0].1), (1, 2), "H1 spans text + underline");
-        assert_eq!((blocks[2].0, blocks[2].1), (6, 7), "H2 spans text + underline");
-        assert_eq!(heading_of(blocks[0].2.as_str()), Some((1, "Title".to_string())));
-        assert_eq!(heading_of(blocks[2].2.as_str()), Some((2, "Section".to_string())));
+        assert_eq!(
+            bodies,
+            vec![
+                "Title\n=====",
+                "intro paragraph",
+                "Section\n-------",
+                "body text"
+            ]
+        );
+        assert_eq!(
+            (blocks[0].0, blocks[0].1),
+            (1, 2),
+            "H1 spans text + underline"
+        );
+        assert_eq!(
+            (blocks[2].0, blocks[2].1),
+            (6, 7),
+            "H2 spans text + underline"
+        );
+        assert_eq!(
+            heading_of(blocks[0].2.as_str()),
+            Some((1, "Title".to_string()))
+        );
+        assert_eq!(
+            heading_of(blocks[2].2.as_str()),
+            Some((2, "Section".to_string()))
+        );
         // A multi-line paragraph before an underline: only the LAST line is
         // underlined into the heading; earlier lines stay a paragraph.
         let text = "para line\nTitle\n====\n";
@@ -4266,8 +5102,15 @@ mod tests {
         let text = "1. item one\n\n   continuation para of item one\n\n2. item two\n";
         let blocks = segment(text, 0);
         assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0].2, "1. item one\n\n   continuation para of item one");
-        assert_eq!((blocks[0].0, blocks[0].1), (1, 3), "exact line span including the blank");
+        assert_eq!(
+            blocks[0].2,
+            "1. item one\n\n   continuation para of item one"
+        );
+        assert_eq!(
+            (blocks[0].0, blocks[0].1),
+            (1, 3),
+            "exact line span including the blank"
+        );
         assert_eq!(blocks[1].2, "2. item two");
         assert_eq!((blocks[1].0, blocks[1].1), (5, 5));
     }
@@ -4275,7 +5118,11 @@ mod tests {
     #[test]
     fn paren_numbered_items_split_like_dotted_ones() {
         let blocks = segment("1) item one\n2) item two\n", 0);
-        assert_eq!(blocks.len(), 2, "CommonMark `1)` ordered markers are list items");
+        assert_eq!(
+            blocks.len(),
+            2,
+            "CommonMark `1)` ordered markers are list items"
+        );
         assert_eq!(blocks[0].2, "1) item one");
         assert_eq!(blocks[1].2, "2) item two");
     }
@@ -4298,10 +5145,16 @@ mod tests {
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let hits = recall(&conn, "flurbium", 5).unwrap();
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].snippet, "[ProjectX > Setup] Install the flurbium package.");
+        assert_eq!(
+            hits[0].snippet,
+            "[ProjectX > Setup] Install the flurbium package."
+        );
         // A bare heading block carries its ANCESTOR chain.
         let hits = recall(&conn, "setup", 5).unwrap();
-        let heading = hits.iter().find(|h| h.snippet.contains("## Setup")).unwrap();
+        let heading = hits
+            .iter()
+            .find(|h| h.snippet.contains("## Setup"))
+            .unwrap();
         assert_eq!(heading.snippet, "[ProjectX] ## Setup");
     }
 
@@ -4316,10 +5169,16 @@ mod tests {
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let hits = recall(&conn, "serverx", 5).unwrap();
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].snippet, "[Hosts > | Name | IP |] | serverx | 192.0.2.1 |");
+        assert_eq!(
+            hits[0].snippet,
+            "[Hosts > | Name | IP |] | serverx | 192.0.2.1 |"
+        );
         // The header row itself gets only the heading chain.
         let hits = recall(&conn, "name", 5).unwrap();
-        let header = hits.iter().find(|h| h.snippet.contains("| Name | IP |")).unwrap();
+        let header = hits
+            .iter()
+            .find(|h| h.snippet.contains("| Name | IP |"))
+            .unwrap();
         assert_eq!(header.snippet, "[Hosts] | Name | IP |");
     }
 
@@ -4330,7 +5189,10 @@ mod tests {
         let dir = brain(&[
             ("knowledge/a.md", "glorpnik\n"),
             ("knowledge/b.md", "# glorpnik\n\nunrelated words here\n"),
-            ("knowledge/fill.md", "- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n"),
+            (
+                "knowledge/fill.md",
+                "- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
@@ -4377,15 +5239,24 @@ mod tests {
         let dir = brain(&[
             ("knowledge/a/readme2.md", "x\n"),
             ("knowledge/b/readme2.md", "y\n"),
-            ("knowledge/linker.md", "see [[a/readme2]] and [[knowledge/b/readme2]]\n"),
+            (
+                "knowledge/linker.md",
+                "see [[a/readme2]] and [[knowledge/b/readme2]]\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let linked = linked_docs(&conn, &["knowledge/linker.md".to_string()], 8).unwrap();
         let paths: Vec<&str> = linked.iter().map(|(p, _)| p.as_str()).collect();
-        assert!(paths.contains(&"knowledge/a/readme2.md"), "parent/stem suffix resolves: {paths:?}");
-        assert!(paths.contains(&"knowledge/b/readme2.md"), "full-path suffix resolves: {paths:?}");
+        assert!(
+            paths.contains(&"knowledge/a/readme2.md"),
+            "parent/stem suffix resolves: {paths:?}"
+        );
+        assert!(
+            paths.contains(&"knowledge/b/readme2.md"),
+            "full-path suffix resolves: {paths:?}"
+        );
     }
 
     #[test]
@@ -4393,11 +5264,17 @@ mod tests {
         // The ring-3 block is the stronger lexical match (shortest); the
         // ring-1 statement must still hold the top slot.
         let dir = brain(&[
-            ("AGENT.md", "- the fenwick rule with several more words around it\n"),
+            (
+                "AGENT.md",
+                "- the fenwick rule with several more words around it\n",
+            ),
             ("knowledge/deep.md", "fenwick\n"),
             // Fillers keep the IDF positive so BM25 genuinely prefers the
             // shorter ring-3 block before the reservation kicks in.
-            ("knowledge/fill.md", "- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n"),
+            (
+                "knowledge/fill.md",
+                "- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
@@ -4419,26 +5296,41 @@ mod tests {
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let hits = recall(&conn, "zelkova", 5).unwrap();
-        assert_eq!(hits[0].ring, 3, "prior breaks the tie toward the lower ring");
+        assert_eq!(
+            hits[0].ring, 3,
+            "prior breaks the tie toward the lower ring"
+        );
         assert_eq!(hits[1].ring, 4);
         // Strong lexical win: the much better match stays first even from a
         // higher ring (no ring 0-1 hit involved, so no reservation either).
         let dir = brain(&[
-            ("knowledge/a.md", "korvat is mentioned once amid many other words in this long statement about something else\n"),
+            (
+                "knowledge/a.md",
+                "korvat is mentioned once amid many other words in this long statement about something else\n",
+            ),
             ("todo/x/b.md", "korvat\n"),
-            ("knowledge/fill.md", "- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n"),
+            (
+                "knowledge/fill.md",
+                "- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n",
+            ),
         ]);
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         let hits = recall(&conn, "korvat", 5).unwrap();
-        assert_eq!(hits[0].ring, 4, "a strong lexical win is never overridden by the prior");
+        assert_eq!(
+            hits[0].ring, 4,
+            "a strong lexical win is never overridden by the prior"
+        );
     }
 
     #[test]
     fn rescan_changed_matches_a_fresh_scan_exactly() {
         let dir = brain(&[
-            ("knowledge/a.md", "# Hosts\n\n| Name | IP |\n| serverx | 192.0.2.1 |\n"),
+            (
+                "knowledge/a.md",
+                "# Hosts\n\n| Name | IP |\n| serverx | 192.0.2.1 |\n",
+            ),
             ("knowledge/b.md", "- keep this\n"),
             ("knowledge/c.md", "doomed content\n"),
         ]);
@@ -4452,12 +5344,25 @@ mod tests {
         let vectors_before = vector_coverage(&conn, &spec).unwrap().0;
 
         // Change one file, add one (with a wikilink), delete one.
-        std::fs::write(dir.path().join("knowledge/b.md"), "- keep this\n- brand new fact\n").unwrap();
-        std::fs::write(dir.path().join("knowledge/d.md"), "arrived later, see [[a]]\n").unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/b.md"),
+            "- keep this\n- brand new fact\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/d.md"),
+            "arrived later, see [[a]]\n",
+        )
+        .unwrap();
         std::fs::remove_file(dir.path().join("knowledge/c.md")).unwrap();
 
-        let r2 = rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().expect("small diff â†’ incremental");
-        assert_eq!(r2.generation, 2, "incremental commit advances the generation");
+        let r2 = rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+            .unwrap()
+            .expect("small diff â†’ incremental");
+        assert_eq!(
+            r2.generation, 2,
+            "incremental commit advances the generation"
+        );
         assert!(!stale(&conn, dir.path(), None, &RingRules::default()).unwrap());
 
         // Byte-identical catalog vs an independent fresh derivation.
@@ -4476,7 +5381,10 @@ mod tests {
         assert!(recall(&conn, "doomed", 5).unwrap().is_empty());
         // The changed doc's snippet still carries its rebuilt table context.
         let hits = recall(&conn, "serverx", 5).unwrap();
-        assert_eq!(hits[0].snippet, "[Hosts > | Name | IP |] | serverx | 192.0.2.1 |");
+        assert_eq!(
+            hits[0].snippet,
+            "[Hosts > | Name | IP |] | serverx | 192.0.2.1 |"
+        );
         // Links of the NEW doc resolved (full re-resolution each rescan).
         let linked = linked_docs(&conn, &["knowledge/d.md".to_string()], 8).unwrap();
         assert_eq!(linked.len(), 1);
@@ -4485,16 +5393,36 @@ mod tests {
         // of the doc that changed. Only genuinely new text needs embedding.
         let (vectors_after, blocks_after) = vector_coverage(&conn, &spec).unwrap();
         let a_blocks = 3; // heading + 2 table rows
-        assert_eq!(vectors_after, a_blocks + 1, "a.md's blocks plus b.md's kept line");
-        assert_eq!(blocks_after, a_blocks + 3, "b.md's two lines and d.md's one");
-        assert_eq!(vectors_before, a_blocks + 2, "c.md's block was embedded too, then pruned");
-        let queued: Vec<String> =
-            hashes_without_vectors(&conn, &spec, 10).unwrap().into_iter().map(|(_, t)| t).collect();
+        assert_eq!(
+            vectors_after,
+            a_blocks + 1,
+            "a.md's blocks plus b.md's kept line"
+        );
+        assert_eq!(
+            blocks_after,
+            a_blocks + 3,
+            "b.md's two lines and d.md's one"
+        );
+        assert_eq!(
+            vectors_before,
+            a_blocks + 2,
+            "c.md's block was embedded too, then pruned"
+        );
+        let queued: Vec<String> = hashes_without_vectors(&conn, &spec, 10)
+            .unwrap()
+            .into_iter()
+            .map(|(_, t)| t)
+            .collect();
         assert_eq!(queued, vec!["- brand new fact", "arrived later, see [[a]]"]);
 
         // A no-op rescan commits nothing and keeps the generation.
-        let r3 = rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().unwrap();
-        assert_eq!(r3.generation, 2, "fingerprint already current â†’ no new commit");
+        let r3 = rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            r3.generation, 2,
+            "fingerprint already current â†’ no new commit"
+        );
         assert_eq!(generation(&conn), 2);
     }
 
@@ -4504,23 +5432,41 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let mut conn = open(state.path()).unwrap();
         // Never scanned: no basis.
-        assert!(rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().is_none());
+        assert!(
+            rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+                .unwrap()
+                .is_none()
+        );
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         // Different brain root: no basis.
         let other = brain(&[("knowledge/a.md", "alpha\n")]);
-        assert!(rescan_changed(&mut conn, other.path(), None, &RingRules::default()).unwrap().is_none());
+        assert!(
+            rescan_changed(&mut conn, other.path(), None, &RingRules::default())
+                .unwrap()
+                .is_none()
+        );
         // A diff beyond the incremental cap falls back to the full scan.
         for i in 0..40 {
             std::fs::write(dir.path().join(format!("knowledge/bulk{i}.md")), "bulk\n").unwrap();
         }
-        assert!(rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().is_none());
-        assert!(stale(&conn, dir.path(), None, &RingRules::default()).unwrap(), "fallback leaves the full scan to do it");
+        assert!(
+            rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            stale(&conn, dir.path(), None, &RingRules::default()).unwrap(),
+            "fallback leaves the full scan to do it"
+        );
     }
 
     #[test]
     fn rescan_handles_ring5_transitions_both_ways() {
         let dir = brain(&[
-            ("knowledge/staged.md", "---\nring: 5\n---\nquarantined zulqar\n"),
+            (
+                "knowledge/staged.md",
+                "---\nring: 5\n---\nquarantined zulqar\n",
+            ),
             ("knowledge/normal.md", "public wembly fact\n"),
         ]);
         let state = tempfile::tempdir().unwrap();
@@ -4531,15 +5477,37 @@ mod tests {
         // Promotion: the ring-5 marker is removed.
         std::fs::write(dir.path().join("knowledge/staged.md"), "promoted zulqar\n").unwrap();
         // Demotion: a public file becomes staged.
-        std::fs::write(dir.path().join("knowledge/normal.md"), "---\nring: 5\n---\npublic wembly fact\n").unwrap();
-        let r = rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().expect("incremental");
+        std::fs::write(
+            dir.path().join("knowledge/normal.md"),
+            "---\nring: 5\n---\npublic wembly fact\n",
+        )
+        .unwrap();
+        let r = rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+            .unwrap()
+            .expect("incremental");
         assert_eq!(r.skipped_high_ring, 1);
-        assert_eq!(recall(&conn, "zulqar", 5).unwrap().len(), 1, "promoted file is indexed");
-        assert!(recall(&conn, "wembly", 5).unwrap().is_empty(), "demoted file left the index");
-        assert!(!stale(&conn, dir.path(), None, &RingRules::default()).unwrap(), "skipped-file stats are tracked too");
+        assert_eq!(
+            recall(&conn, "zulqar", 5).unwrap().len(),
+            1,
+            "promoted file is indexed"
+        );
+        assert!(
+            recall(&conn, "wembly", 5).unwrap().is_empty(),
+            "demoted file left the index"
+        );
+        assert!(
+            !stale(&conn, dir.path(), None, &RingRules::default()).unwrap(),
+            "skipped-file stats are tracked too"
+        );
         // The tracked skipped file changing again is still an incremental step.
-        std::fs::write(dir.path().join("knowledge/normal.md"), "---\nring: 5\n---\nstill hidden, edited\n").unwrap();
-        let r = rescan_changed(&mut conn, dir.path(), None, &RingRules::default()).unwrap().expect("incremental");
+        std::fs::write(
+            dir.path().join("knowledge/normal.md"),
+            "---\nring: 5\n---\nstill hidden, edited\n",
+        )
+        .unwrap();
+        let r = rescan_changed(&mut conn, dir.path(), None, &RingRules::default())
+            .unwrap()
+            .expect("incremental");
         assert_eq!(r.skipped_high_ring, 1);
         assert!(!stale(&conn, dir.path(), None, &RingRules::default()).unwrap());
     }
@@ -4551,7 +5519,11 @@ mod tests {
         let mut conn = open(state.path()).unwrap();
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert!(!stale(&conn, dir.path(), None, &RingRules::default()).unwrap());
-        std::fs::write(dir.path().join("knowledge/a.md"), "alpha beta, much longer now\n").unwrap();
+        std::fs::write(
+            dir.path().join("knowledge/a.md"),
+            "alpha beta, much longer now\n",
+        )
+        .unwrap();
         assert!(stale(&conn, dir.path(), None, &RingRules::default()).unwrap());
         scan(&mut conn, dir.path(), None, &RingRules::default()).unwrap();
         assert!(!stale(&conn, dir.path(), None, &RingRules::default()).unwrap());

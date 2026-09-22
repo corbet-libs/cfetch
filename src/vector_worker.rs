@@ -29,7 +29,7 @@ pub(crate) fn sources_available(cfg: &Config, _state_dir: &std::path::Path) -> b
 }
 
 pub fn run(cfg: Config, stopping: impl Fn() -> bool) {
-    if crate::embedding_profile::production_availability().is_err() {
+    if cfg.embeddings.available().is_err() {
         return;
     }
     let mut completed_generation = None;

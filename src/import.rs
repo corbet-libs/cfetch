@@ -59,7 +59,11 @@ pub const MIGRATIONS: &[(&str, &str, Option<u8>)] = &[
     ("cerebrum.md", "knowledge/cerebrum.md", Some(3)),
     ("memory.md", "knowledge/behaviours/MEMORY.md", Some(2)),
     ("identity.md", "knowledge/identity.md", Some(3)),
-    ("reframe-frameworks.md", "knowledge/reframe-frameworks.md", Some(3)),
+    (
+        "reframe-frameworks.md",
+        "knowledge/reframe-frameworks.md",
+        Some(3),
+    ),
     ("STATUS.md", "knowledge/handoff.md", Some(0)),
 ];
 
@@ -67,7 +71,7 @@ pub const MIGRATIONS: &[(&str, &str, Option<u8>)] = &[
 /// the resident channel to the old tool's protocol (or to nothing). Facts
 /// only: where the migrated conventions live now and where the old protocol
 /// is kept. An operator's own AGENT.md is never overwritten.
-const AGENT_BRIDGE: &str = "---\nring: 1\n---\n\n# Migration bridge (authored by `cfetch import openwolf`)\n\nThis brain was migrated from an openwolf-enhanced `.wolf/` tree. The\nprevious operating protocol is preserved verbatim at\n`knowledge/openwolf-protocol.md` — recall-only. Its instructions reference\n`.wolf/` paths (`.wolf/STATUS.md`, `.wolf/memory.md`, `.wolf/buglog.json`)\nand the `openwolf recall` command; none of these exist in a cfetch brain.\nFollowing them here sends work outside the tree.\n\nWhere things live now:\n\n- curated facts and project knowledge → `knowledge/`\n- one note per bug or failure conclusion → `knowledge/bugs/`\n- behaviour and working agreements → `knowledge/behaviours/`\n- quarantine for anything unreviewed → `scratch/cfetch-staging/`\n- the migrated project-state snapshot (ring-0 handoff) → `knowledge/handoff.md`\n";
+const AGENT_BRIDGE: &str = "---\nring: 1\n---\n\n# Migration bridge (authored by `cfetch import openwolf`)\n\nThis brain was migrated from an openwolf-enhanced `.wolf/` tree. The\nprevious operating protocol is preserved verbatim at\n`knowledge/openwolf-protocol.md` — recall-only. Its instructions reference\n`.wolf/` paths (`.wolf/STATUS.md`, `.wolf/memory.md`, `.wolf/buglog.json`)\nand the `openwolf recall` command; none of these exist in a cfetch brain.\nFollowing them here sends work outside the tree.\n\nWhere things live now:\n\n- curated facts and project knowledge → `knowledge/`\n- one note per bug or failure conclusion → `knowledge/bugs/`\n- behaviour and working agreements → `knowledge/behaviours/`\n- quarantine for anything unreviewed → the selected mind’s `memories/`\n- the migrated project-state snapshot (ring-0 handoff) → `knowledge/handoff.md`\n";
 
 /// Files cfetch regenerates or tracks differently — skipped with a reason.
 const SKIPPED: &[(&str, &str)] = &[
@@ -80,18 +84,19 @@ const SKIPPED: &[(&str, &str)] = &[
     ("cron-state.json", "cfetch has its own cron engine"),
     ("designqc-report.json", "cfetch generates its own"),
     ("suggestions.json", "cfetch generates its own"),
-    ("recall-embeddings.json", "cfetch will re-embed with its model"),
-    ("recall-embeddings.vec", "cfetch will re-embed with its model"),
+    (
+        "recall-embeddings.json",
+        "cfetch will re-embed with its model",
+    ),
+    (
+        "recall-embeddings.vec",
+        "cfetch will re-embed with its model",
+    ),
 ];
 
 /// Patterns for archive files — old content kept but excluded from the index
 /// by cfetch's default `knowledge/archive/` exclude prefix.
-const ARCHIVE_SUFFIXES: &[&str] = &[
-    ".vor-aufraeumen",
-    "-archiv-",
-    "-backup-",
-    "-old-",
-];
+const ARCHIVE_SUFFIXES: &[&str] = &[".vor-aufraeumen", "-archiv-", "-backup-", "-old-"];
 
 fn is_archive(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
@@ -104,7 +109,9 @@ fn is_archive(name: &str) -> bool {
 
 /// Prepends a `ring:` frontmatter block if the file doesn't already have one.
 fn with_ring(raw: &str, ring: Option<u8>) -> String {
-    let Some(ring) = ring else { return raw.to_string() };
+    let Some(ring) = ring else {
+        return raw.to_string();
+    };
     if raw.starts_with("---") {
         // Already has frontmatter; don't duplicate the fence.
         return raw.to_string();
@@ -174,7 +181,9 @@ impl BuglogEntry {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
             && !candidate.starts_with('.')
-            && !candidate.split('.').any(|part| part.is_empty() || part == "..")
+            && !candidate
+                .split('.')
+                .any(|part| part.is_empty() || part == "..")
             && !candidate.ends_with(".md");
         if ok {
             Ok(candidate)
@@ -202,7 +211,10 @@ fn bug_note(entry: &BuglogEntry) -> String {
         note.push('\n');
     }
     if !entry.occurrences_text().is_empty() {
-        note.push_str(&format!("- **occurrences**: {}\n", entry.occurrences_text()));
+        note.push_str(&format!(
+            "- **occurrences**: {}\n",
+            entry.occurrences_text()
+        ));
     }
     if !entry.tags.is_empty() {
         note.push_str(&format!("- **tags**: {}\n", entry.tags.join(", ")));
@@ -248,7 +260,10 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
         }
         let dest = brain_root.join(dest_rel);
         if dest.exists() {
-            report.skipped.push((src_name.to_string(), "destination already exists".to_string()));
+            report.skipped.push((
+                src_name.to_string(),
+                "destination already exists".to_string(),
+            ));
             continue;
         }
         if execute {
@@ -261,7 +276,9 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
             std::fs::write(&dest, with_ring(&raw, *ring))
                 .map_err(|e| anyhow::anyhow!("write {}: {e}", dest.display()))?;
         }
-        report.imported.push((src_name.to_string(), dest_rel.to_string()));
+        report
+            .imported
+            .push((src_name.to_string(), dest_rel.to_string()));
     }
 
     // A migration with no AGENT.md would leave the resident channel to the
@@ -273,7 +290,10 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
             std::fs::write(&agent_md, AGENT_BRIDGE)
                 .map_err(|e| anyhow::anyhow!("write {}: {e}", agent_md.display()))?;
         }
-        report.imported.push(("cfetch import (authored)".to_string(), "AGENT.md".to_string()));
+        report.imported.push((
+            "cfetch import (authored)".to_string(),
+            "AGENT.md".to_string(),
+        ));
     }
 
     // Migrate the curated bug log: one note per entry under knowledge/bugs/.
@@ -283,7 +303,10 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
     if buglog.is_file() {
         let parsed = std::fs::read_to_string(&buglog)
             .map_err(|e| anyhow::anyhow!("read {}: {e}", buglog.display()))
-            .and_then(|raw| serde_json::from_str::<Buglog>(&raw).map_err(|e| anyhow::anyhow!("parse buglog.json: {e}")));
+            .and_then(|raw| {
+                serde_json::from_str::<Buglog>(&raw)
+                    .map_err(|e| anyhow::anyhow!("parse buglog.json: {e}"))
+            });
         match parsed {
             Ok(log) if !log.bugs.is_empty() => {
                 let mut written = 0usize;
@@ -303,9 +326,14 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
                             continue;
                         }
                     };
-                    let dest = brain_root.join("knowledge").join("bugs").join(format!("{id}.md"));
+                    let dest = brain_root
+                        .join("knowledge")
+                        .join("bugs")
+                        .join(format!("{id}.md"));
                     if dest.exists() {
-                        report.skipped.push((format!("buglog.json:{id}"), "already exists".to_string()));
+                        report
+                            .skipped
+                            .push((format!("buglog.json:{id}"), "already exists".to_string()));
                         continue;
                     }
                     if execute {
@@ -322,10 +350,14 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
                 ));
             }
             Ok(_) => {
-                report.skipped.push(("buglog.json".to_string(), "no entries".to_string()));
+                report
+                    .skipped
+                    .push(("buglog.json".to_string(), "no entries".to_string()));
             }
             Err(error) => {
-                report.errors.push(("buglog.json".to_string(), error.to_string()));
+                report
+                    .errors
+                    .push(("buglog.json".to_string(), error.to_string()));
             }
         }
     }
@@ -337,7 +369,9 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
             let src = entry.path();
             let dest = brain_root.join("knowledge/archive").join(&name);
             if dest.exists() {
-                report.skipped.push((name, "archive destination already exists".to_string()));
+                report
+                    .skipped
+                    .push((name, "archive destination already exists".to_string()));
                 continue;
             }
             if execute {
@@ -349,14 +383,20 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
                     continue;
                 }
             }
-            report.imported.push((name.clone(), format!("knowledge/archive/{}", name)));
+            report
+                .imported
+                .push((name.clone(), format!("knowledge/archive/{}", name)));
         }
     }
 
     // Migrate staging candidates (quarantine in cfetch has the same contract).
     let staging_src = wolf_dir.join("todo").join("staging");
     if staging_src.is_dir() {
-        for entry in std::fs::read_dir(&staging_src).into_iter().flatten().flatten() {
+        for entry in std::fs::read_dir(&staging_src)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             let name = entry.file_name().to_string_lossy().to_string();
             if !name.ends_with(".md") {
                 continue;
@@ -364,7 +404,9 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
             let dest_rel = format!("mind/{}/memories/{name}", crate::paths::mind_id());
             let dest = crate::paths::staging_dir(brain_root).join(&name);
             if dest.exists() {
-                report.skipped.push((dest_rel.clone(), "already exists".to_string()));
+                report
+                    .skipped
+                    .push((dest_rel.clone(), "already exists".to_string()));
                 continue;
             }
             if execute {
@@ -374,7 +416,9 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
                     continue;
                 }
             }
-            report.imported.push((dest_rel.clone(), dest_rel));
+            report
+                .imported
+                .push((format!("todo/staging/{name}"), dest_rel));
         }
     }
 
@@ -459,7 +503,11 @@ fn collect(wolf_dir: &Path, brain_root: &Path, execute: bool) -> anyhow::Result<
             std::fs::write(&tree_config, format!("{starter:#}\n"))
                 .map_err(|e| anyhow::anyhow!("write {}: {e}", tree_config.display()))?;
         }
-        let entries = if with_handoff { "2 resident entries (AGENT.md, knowledge/handoff.md)" } else { "1 resident entry (AGENT.md)" };
+        let entries = if with_handoff {
+            "2 resident entries (AGENT.md, knowledge/handoff.md)"
+        } else {
+            "1 resident entry (AGENT.md)"
+        };
         report.resident_note = Some(format!(
             "starter tree config {} — {entries}; the session hooks will inject after `cfetch scan`",
             tree_config.display()
@@ -485,7 +533,10 @@ mod tests {
     #[test]
     fn ring_frontmatter_is_prepended_only_when_absent() {
         assert_eq!(with_ring("hello", Some(2)), "---\nring: 2\n---\n\nhello");
-        assert_eq!(with_ring("---\ntitle: x\n---\n\nbody", Some(2)), "---\ntitle: x\n---\n\nbody");
+        assert_eq!(
+            with_ring("---\ntitle: x\n---\n\nbody", Some(2)),
+            "---\ntitle: x\n---\n\nbody"
+        );
         assert_eq!(with_ring("no ring needed", None), "no ring needed");
     }
 
@@ -510,42 +561,82 @@ mod tests {
         // A file cfetch skips.
         std::fs::write(wolf.path().join("anatomy.md"), "# Anatomy\ncode index").unwrap();
         // An archive file.
-        std::fs::write(wolf.path().join("handoff-archiv-2026-01-01.md"), "# Old handoff").unwrap();
+        std::fs::write(
+            wolf.path().join("handoff-archiv-2026-01-01.md"),
+            "# Old handoff",
+        )
+        .unwrap();
         // A staging candidate.
         std::fs::create_dir_all(wolf.path().join("todo").join("staging")).unwrap();
-        std::fs::write(wolf.path().join("todo/staging/candidate-abc.md"), "# Candidate").unwrap();
+        std::fs::write(
+            wolf.path().join("todo/staging/candidate-abc.md"),
+            "# Candidate",
+        )
+        .unwrap();
 
         let report = import_openwolf(wolf.path(), brain.path()).unwrap();
 
         // The old protocol is recall-only...
-        assert!(report
-            .imported
-            .iter()
-            .any(|(s, d)| s == "OPENWOLF.md" && d == "knowledge/openwolf-protocol.md"));
-        let protocol = std::fs::read_to_string(brain.path().join("knowledge/openwolf-protocol.md")).unwrap();
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|(s, d)| s == "OPENWOLF.md" && d == "knowledge/openwolf-protocol.md")
+        );
+        let protocol =
+            std::fs::read_to_string(brain.path().join("knowledge/openwolf-protocol.md")).unwrap();
         assert!(protocol.starts_with("---\nring: 3\n---"));
         assert!(protocol.contains("# Context"));
         // ...and the ring-1 file is the cfetch-authored bridge.
-        assert!(report
-            .imported
-            .iter()
-            .any(|(s, d)| s == "cfetch import (authored)" && d == "AGENT.md"));
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|(s, d)| s == "cfetch import (authored)" && d == "AGENT.md")
+        );
         let agent = std::fs::read_to_string(brain.path().join("AGENT.md")).unwrap();
         assert!(agent.starts_with("---\nring: 1\n---"));
         assert!(agent.contains("knowledge/openwolf-protocol.md"));
         assert!(agent.contains("knowledge/bugs/"));
-        assert!(report
-            .imported
-            .iter()
-            .any(|(s, d)| s == "cerebrum.md" && d == "knowledge/cerebrum.md"));
-        assert!(report.imported.iter().any(|(s, d)| s == "memory.md" && d == "knowledge/behaviours/MEMORY.md"));
-        assert!(report.imported.iter().any(|(s, _)| s.starts_with("handoff-archiv")));
-        assert!(report.imported.iter().any(|(s, _)| s.starts_with("todo/staging/")));
-        assert!(report.skipped.iter().any(|(s, r)| s == "anatomy.md" && r.contains("code index")));
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|(s, d)| s == "cerebrum.md" && d == "knowledge/cerebrum.md")
+        );
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|(s, d)| s == "memory.md" && d == "knowledge/behaviours/MEMORY.md")
+        );
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|(s, _)| s.starts_with("handoff-archiv"))
+        );
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|(s, _)| s.starts_with("todo/staging/"))
+        );
+        assert!(
+            report
+                .skipped
+                .iter()
+                .any(|(s, r)| s == "anatomy.md" && r.contains("code index"))
+        );
 
         // Ring frontmatter was applied.
-        let memory = std::fs::read_to_string(brain.path().join("knowledge/behaviours/MEMORY.md")).unwrap();
-        assert!(memory.starts_with("---\nring: 2\n---"), "got: {}", &memory[..40.min(memory.len())]);
+        let memory =
+            std::fs::read_to_string(brain.path().join("knowledge/behaviours/MEMORY.md")).unwrap();
+        assert!(
+            memory.starts_with("---\nring: 2\n---"),
+            "got: {}",
+            &memory[..40.min(memory.len())]
+        );
     }
 
     #[test]
@@ -569,10 +660,17 @@ mod tests {
         assert!(!agent.contains("Read .wolf/STATUS.md first"));
         assert!(!agent.contains("Append to .wolf/memory.md after every action"));
         assert!(!agent.contains("Log bugs to .wolf/buglog.json"));
-        assert!(!agent.contains("Never re-read a file already read"), "old hard rules must not carry verbatim");
-        assert!(agent.contains("none of these exist"), "the bridge names the dead paths to close them");
+        assert!(
+            !agent.contains("Never re-read a file already read"),
+            "old hard rules must not carry verbatim"
+        );
+        assert!(
+            agent.contains("none of these exist"),
+            "the bridge names the dead paths to close them"
+        );
         // The protocol itself stays findable, unmodified, recall-only.
-        let protocol = std::fs::read_to_string(brain.path().join("knowledge/openwolf-protocol.md")).unwrap();
+        let protocol =
+            std::fs::read_to_string(brain.path().join("knowledge/openwolf-protocol.md")).unwrap();
         assert!(protocol.contains(".wolf/buglog.json"));
         assert!(protocol.contains("Never re-read"));
     }
@@ -582,24 +680,42 @@ mod tests {
         let wolf = tempfile::tempdir().unwrap();
         let brain = tempfile::tempdir().unwrap();
         std::fs::write(wolf.path().join("OPENWOLF.md"), "# Old protocol").unwrap();
-        std::fs::write(brain.path().join("AGENT.md"), "---\nring: 1\n---\n\n# My own rules").unwrap();
+        std::fs::write(
+            brain.path().join("AGENT.md"),
+            "---\nring: 1\n---\n\n# My own rules",
+        )
+        .unwrap();
 
         let report = import_openwolf(wolf.path(), brain.path()).unwrap();
         let agent = std::fs::read_to_string(brain.path().join("AGENT.md")).unwrap();
-        assert!(agent.contains("My own rules"), "operator file must stay untouched: {agent}");
-        assert!(!report
-            .imported
-            .iter()
-            .any(|(s, _)| s == "cfetch import (authored)"));
+        assert!(
+            agent.contains("My own rules"),
+            "operator file must stay untouched: {agent}"
+        );
+        assert!(
+            !report
+                .imported
+                .iter()
+                .any(|(s, _)| s == "cfetch import (authored)")
+        );
         // The old protocol still lands recall-only.
-        assert!(brain.path().join("knowledge/openwolf-protocol.md").is_file());
+        assert!(
+            brain
+                .path()
+                .join("knowledge/openwolf-protocol.md")
+                .is_file()
+        );
     }
 
     #[test]
     fn dry_run_reports_exactly_what_the_real_run_does() {
         let wolf = tempfile::tempdir().unwrap();
         std::fs::write(wolf.path().join("cerebrum.md"), "# Knowledge\nsee bug-001.").unwrap();
-        std::fs::write(wolf.path().join("STATUS.md"), "# Project state\nlast known good").unwrap();
+        std::fs::write(
+            wolf.path().join("STATUS.md"),
+            "# Project state\nlast known good",
+        )
+        .unwrap();
         std::fs::write(
             wolf.path().join("buglog.json"),
             r#"{"version":1,"bugs":[{"id":"bug-001","timestamp":"2026-07-24","error_message":"frames decoded to noise","file":"loader.py","root_cause":"offsets were direct","fix":"use raw offsets","tags":["cwr"],"related_bugs":[],"occurrences":2,"last_seen":"2026-07-25"}]}"#,
@@ -627,7 +743,10 @@ mod tests {
         // Both name the starter config with the handoff included.
         let note = planned.resident_note.expect("starter note");
         assert!(note.contains("starter tree config"), "{note}");
-        assert!(note.contains("2 resident entries (AGENT.md, knowledge/handoff.md)"), "{note}");
+        assert!(
+            note.contains("2 resident entries (AGENT.md, knowledge/handoff.md)"),
+            "{note}"
+        );
     }
 
     #[test]
@@ -656,10 +775,12 @@ mod tests {
         .unwrap();
 
         let report = import_openwolf(wolf.path(), brain.path()).unwrap();
-        assert!(report
-            .imported
-            .iter()
-            .any(|(s, d)| s == "buglog.json" && d == "knowledge/bugs/ (2 entries)"));
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|(s, d)| s == "buglog.json" && d == "knowledge/bugs/ (2 entries)")
+        );
 
         let note = std::fs::read_to_string(brain.path().join("knowledge/bugs/bug-001.md")).unwrap();
         assert!(note.starts_with("---\nring: 3\n---"));
@@ -707,7 +828,12 @@ mod tests {
         assert!(brain.path().join("knowledge/bugs/bug-001.md").is_file());
         // Nothing escaped knowledge/bugs/: no file at the brain root, none
         // outside it.
-        assert_eq!(std::fs::read_dir(brain.path().join("knowledge/bugs")).unwrap().count(), 1);
+        assert_eq!(
+            std::fs::read_dir(brain.path().join("knowledge/bugs"))
+                .unwrap()
+                .count(),
+            1
+        );
         assert!(!brain.path().join("escape.md").exists());
         // Every refused id is named in the report.
         let error_names: Vec<&str> = report.errors.iter().map(|(s, _)| s.as_str()).collect();
@@ -744,9 +870,18 @@ mod tests {
     fn an_empty_buglog_is_a_skip_not_an_import() {
         let wolf = tempfile::tempdir().unwrap();
         let brain = tempfile::tempdir().unwrap();
-        std::fs::write(wolf.path().join("buglog.json"), r#"{"version":1,"bugs":[]}"#).unwrap();
+        std::fs::write(
+            wolf.path().join("buglog.json"),
+            r#"{"version":1,"bugs":[]}"#,
+        )
+        .unwrap();
         let report = import_openwolf(wolf.path(), brain.path()).unwrap();
-        assert!(report.skipped.iter().any(|(s, r)| s == "buglog.json" && r == "no entries"));
+        assert!(
+            report
+                .skipped
+                .iter()
+                .any(|(s, r)| s == "buglog.json" && r == "no entries")
+        );
         assert!(!report.imported.iter().any(|(s, _)| s == "buglog.json"));
     }
 
@@ -764,8 +899,16 @@ mod tests {
 
         let report = import_openwolf(wolf.path(), brain.path()).unwrap();
         assert!(report.unrecognized.contains(&"ENGINE.md".to_string()));
-        assert!(report.unrecognized.contains(&"PREREG_2026-08-01_abc.md".to_string()));
-        assert!(report.unrecognized.contains(&"PREREG_hashes.txt".to_string()));
+        assert!(
+            report
+                .unrecognized
+                .contains(&"PREREG_2026-08-01_abc.md".to_string())
+        );
+        assert!(
+            report
+                .unrecognized
+                .contains(&"PREREG_hashes.txt".to_string())
+        );
         assert!(report.unrecognized.contains(&"proposals/".to_string()));
         // Known names are not reported as unknown.
         assert!(!report.unrecognized.iter().any(|n| n == "cerebrum.md"));
@@ -779,13 +922,19 @@ mod tests {
     fn status_md_migrates_as_the_ring0_handoff() {
         let wolf = tempfile::tempdir().unwrap();
         let brain = tempfile::tempdir().unwrap();
-        std::fs::write(wolf.path().join("STATUS.md"), "# Project state\nlast known-good build").unwrap();
+        std::fs::write(
+            wolf.path().join("STATUS.md"),
+            "# Project state\nlast known-good build",
+        )
+        .unwrap();
 
         let report = import_openwolf(wolf.path(), brain.path()).unwrap();
-        assert!(report
-            .imported
-            .iter()
-            .any(|(s, d)| s == "STATUS.md" && d == "knowledge/handoff.md"));
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|(s, d)| s == "STATUS.md" && d == "knowledge/handoff.md")
+        );
         let handoff = std::fs::read_to_string(brain.path().join("knowledge/handoff.md")).unwrap();
         assert!(handoff.starts_with("---\nring: 0\n---"));
         assert!(handoff.contains("last known-good build"));
@@ -814,7 +963,13 @@ mod tests {
         let loaded = crate::config::Config::load_from(&cfg_path);
         loaded.unwrap_or_else(|e| panic!("starter config does not load: {e:#}"));
         // The note names the starter.
-        assert!(report.resident_note.as_deref().unwrap_or_default().contains("starter tree config"));
+        assert!(
+            report
+                .resident_note
+                .as_deref()
+                .unwrap_or_default()
+                .contains("starter tree config")
+        );
     }
 
     #[test]
@@ -823,14 +978,18 @@ mod tests {
         let brain = tempfile::tempdir().unwrap();
         std::fs::write(wolf.path().join("OPENWOLF.md"), "# Context").unwrap();
         let report = import_openwolf(wolf.path(), brain.path()).unwrap();
-        let cfg: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(brain.path().join(".cfetch/config.json")).unwrap()).unwrap();
+        let cfg: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(brain.path().join(".cfetch/config.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(cfg["resident"].as_array().unwrap().len(), 1);
-        assert!(report
-            .resident_note
-            .as_deref()
-            .unwrap_or_default()
-            .contains("1 resident entry (AGENT.md)"));
+        assert!(
+            report
+                .resident_note
+                .as_deref()
+                .unwrap_or_default()
+                .contains("1 resident entry (AGENT.md)")
+        );
     }
 
     #[test]
@@ -849,11 +1008,13 @@ mod tests {
         let raw = std::fs::read_to_string(brain.path().join(".cfetch/config.json")).unwrap();
         assert!(raw.contains("1234"), "starter must not overwrite: {raw}");
         // An empty resident list is named, not left silent.
-        assert!(report
-            .resident_note
-            .as_deref()
-            .unwrap_or_default()
-            .contains("resident digest is empty"));
+        assert!(
+            report
+                .resident_note
+                .as_deref()
+                .unwrap_or_default()
+                .contains("resident digest is empty")
+        );
     }
 
     #[test]
@@ -879,7 +1040,10 @@ mod tests {
         std::fs::write(wolf.path().join("OPENWOLF.md"), "# Context").unwrap();
         let report = plan_openwolf(wolf.path(), brain.path()).unwrap();
         assert!(!brain.path().join(".cfetch/config.json").exists());
-        assert!(!brain.path().join("AGENT.md").exists(), "the authored bridge is a write too");
+        assert!(
+            !brain.path().join("AGENT.md").exists(),
+            "the authored bridge is a write too"
+        );
         // The plan names both the migration and the authored bridge.
         assert_eq!(report.imported.len(), 2);
         assert!(report.resident_note.is_some());

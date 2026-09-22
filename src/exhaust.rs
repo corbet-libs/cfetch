@@ -1234,7 +1234,10 @@ fn brain_ring(brain_root: &Path, path: &str, rules: &RingRules) -> Option<u8> {
     // tree. Compare case-insensitively on Windows, as the filesystem does.
     #[cfg(windows)]
     fn strip_brain(root: &Path, p: &Path) -> Option<std::path::PathBuf> {
-        let root_s = root.to_string_lossy().trim_end_matches('\\').to_ascii_lowercase();
+        let root_s = root
+            .to_string_lossy()
+            .trim_end_matches('\\')
+            .to_ascii_lowercase();
         let p_s = p.to_string_lossy();
         if p_s.to_ascii_lowercase().starts_with(&root_s) {
             let rest = p_s[root_s.len()..].trim_start_matches(['\\', '/']);
@@ -1361,12 +1364,21 @@ mod tests {
     #[test]
     fn windows_paths_survive_unquoting_in_every_shape() {
         // Drive-absolute, quoted and bare.
-        assert_eq!(unquote_shell_word(r"C:\Users\me\notes.md"), r"C:\Users\me\notes.md");
-        assert_eq!(unquote_shell_word("\"C:\\Users\\me\\a b.md\""), r"C:\Users\me\a b.md");
+        assert_eq!(
+            unquote_shell_word(r"C:\Users\me\notes.md"),
+            r"C:\Users\me\notes.md"
+        );
+        assert_eq!(
+            unquote_shell_word("\"C:\\Users\\me\\a b.md\""),
+            r"C:\Users\me\a b.md"
+        );
         // Relative: no drive letter to recognise it by.
         assert_eq!(unquote_shell_word(r"src\main.rs"), r"src\main.rs");
         // UNC: all separators, no escapes.
-        assert_eq!(unquote_shell_word(r"\\server\share\file.md"), r"\\server\share\file.md");
+        assert_eq!(
+            unquote_shell_word(r"\\server\share\file.md"),
+            r"\\server\share\file.md"
+        );
         // POSIX escaping still works, or every unix path breaks instead.
         assert_eq!(unquote_shell_word(r"my\ file.md"), "my file.md");
         assert_eq!(unquote_shell_word(r"a\'b"), "a'b");
@@ -1387,12 +1399,15 @@ mod tests {
             brain_ring(brain.path(), &p.to_string_lossy(), &rules)
         };
         // Excluded by default: code, retired knowledge, disposable material.
-        assert_eq!(ring("projects/github/x/.claude/worktrees/w1/src/main.rs"), None);
+        assert_eq!(
+            ring("projects/github/x/.claude/worktrees/w1/src/main.rs"),
+            None
+        );
         assert_eq!(ring("knowledge/archive/old.md"), None);
         assert_eq!(ring("todo/scratch/dump.md"), None);
         // Real brain content still resolves, or the trap would never fire.
         assert_eq!(ring("knowledge/hosts/server/zfs.md"), Some(3));
-        assert_eq!(ring("mind/memories/feedback_x.md"), Some(2));
+        assert_eq!(ring("knowledge/behaviours/feedback_x.md"), Some(2));
     }
 
     use super::*;
@@ -2188,8 +2203,13 @@ mod tests {
         bash_at(&beta, 300, "s3", "CARGO test  --workspace", true);
         bash_at(&f.ex, 400, "s2", "cargo build", true);
         bash_at(&f.ex, 500, "s2", "ls", false);
-        f.ex.record_at(600, "s2", "write", &json!({"file_path": "/b/x.md", "ring": 3}))
-            .unwrap();
+        f.ex.record_at(
+            600,
+            "s2",
+            "write",
+            &json!({"file_path": "/b/x.md", "ring": 3}),
+        )
+        .unwrap();
 
         let h = f.ex.failure_history("cargo test", 8);
         assert_eq!(h.signatures, 2, "successes and writes are not failures");
@@ -2199,7 +2219,11 @@ mod tests {
         assert_eq!(m.norm, "cargo test --workspace");
         assert_eq!(m.failures, 3);
         assert_eq!(m.sessions, 3);
-        assert_eq!(m.hosts, vec!["host-alpha", "host-beta"], "the tree is shared");
+        assert_eq!(
+            m.hosts,
+            vec!["host-alpha", "host-beta"],
+            "the tree is shared"
+        );
         assert_eq!(m.first_ts, 100);
         assert_eq!(m.last_ts, 300);
         assert_eq!(
@@ -2287,7 +2311,10 @@ mod tests {
             h.matches[0].norm, "cargo test",
             "the signature that was asked about outranks a more frequent one"
         );
-        assert_eq!(h.matches[1].norm, "cargo test --all", "then by how often it failed");
+        assert_eq!(
+            h.matches[1].norm, "cargo test --all",
+            "then by how often it failed"
+        );
 
         // Case and digits are erased from a stored signature, so the query
         // goes through the same normalizer before it is matched.
@@ -2308,8 +2335,11 @@ mod tests {
         assert!(f.staged().iter().any(|c| c.reason == "recurring-failure"));
 
         let h = f.ex.failure_history("cargo", 8);
-        let flags: Vec<(&str, bool)> =
-            h.matches.iter().map(|m| (m.norm.as_str(), m.staged)).collect();
+        let flags: Vec<(&str, bool)> = h
+            .matches
+            .iter()
+            .map(|m| (m.norm.as_str(), m.staged))
+            .collect();
         assert!(flags.contains(&("cargo test", true)), "got {flags:?}");
         assert!(
             flags.contains(&("cargo build", false)),

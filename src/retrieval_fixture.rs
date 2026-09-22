@@ -247,7 +247,7 @@ fn evaluate_gates(
             ),
         )
     } else {
-        match embedding_profile::production_availability() {
+        match cfg.embeddings.available() {
             Ok(()) => (
                 true,
                 format!(

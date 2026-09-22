@@ -60,6 +60,7 @@ mod jsonl;
 mod knowledge_graph;
 mod ledger;
 mod local_adapter;
+mod local_embedding;
 mod local_inference;
 mod lockfile;
 mod maintenance;
@@ -122,6 +123,12 @@ enum Command {
     Import {
         #[command(subcommand)]
         source: ImportSource,
+    },
+    /// Qualify a pinned offline CPU model against canonical short and long vectors
+    #[cfg(feature = "embedded-embeddings")]
+    QualifyModel {
+        model_dir: std::path::PathBuf,
+        reference: std::path::PathBuf,
     },
     /// Inspect or run diagnostic FastEmbed models (never shared vectors)
     #[cfg(feature = "embedded-embeddings")]
@@ -1554,12 +1561,12 @@ fn recall(
     if id.is_none() && query.trim().is_empty() {
         anyhow::bail!("empty query (pass search terms or --id <citation>)");
     }
-    if !(semantic || hybrid || expand)
+    if !expand
         && let Some(resp) = daemon::call_req(
             &match id {
                 Some(cite) => serde_json::json!({"op": "expand", "cite": cite, "slice": slice}),
                 None => {
-                    serde_json::json!({"op": "recall", "query": query, "limit": limit, "slice": slice})
+                    serde_json::json!({"op": "recall", "query": query, "limit": limit, "slice": slice, "semantic": semantic, "hybrid": hybrid})
                 }
             },
             std::time::Duration::from_secs(8),
@@ -2531,6 +2538,16 @@ fn main() {
     }
     let cli = Cli::parse();
     match cli.command {
+        #[cfg(feature = "embedded-embeddings")]
+        Command::QualifyModel {
+            model_dir,
+            reference,
+        } => {
+            if let Err(error) = local_embedding::qualify(&model_dir, &reference) {
+                eprintln!("cfetch qualify-model: {error:#}");
+                std::process::exit(1);
+            }
+        }
         Command::Import { source } => match source {
             ImportSource::Openwolf { path, dry_run } => {
                 let brain = crate::paths::default_brain_root();
