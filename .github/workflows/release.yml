@@ -55,7 +55,7 @@ jobs:
     needs: [plan, gates]
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 6
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
