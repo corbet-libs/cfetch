@@ -5,6 +5,8 @@ listed here is a fix or an internal change with no effect on behavior.
 
 ## Unreleased
 
+## 0.10.3
+
 ## 0.10.2
 
 ## 0.10.1

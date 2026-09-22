@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "cfetch"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "agent-config",
  "agent-session",

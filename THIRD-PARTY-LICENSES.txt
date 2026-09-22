@@ -6200,7 +6200,7 @@ insights.
 Functional Source License, Version 1.1, ALv2 Future License (FSL-1.1-ALv2)
 
 Used by:
-- cfetch 0.10.2 (https://github.com/corbet-libs/cfetch)
+- cfetch 0.10.3 (https://github.com/corbet-libs/cfetch)
 
 # Functional Source License, Version 1.1, ALv2 Future License
 
