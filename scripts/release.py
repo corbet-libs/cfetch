@@ -24,7 +24,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "corbet-libs/cfetch"
-PUBLISHER_REVISION = "33600b394910c643c5a6af6dff479fb16418428a"
+PUBLISHER_REVISION = "ab4303e2c133220972114a651cc52cf0f1550999"
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "CARGO_REGISTRY_TOKEN", "NPM_TOKEN", "JSR_TOKEN", "PYPI_TOKEN", "PACKAGES_TOKEN")
 METADATA = {"onnxruntime-LICENSE.txt": "release/onnxruntime-LICENSE.txt",
             "onnxruntime-NOTICES.txt": "release/onnxruntime-NOTICES.txt", "LICENSE.md": "LICENSE.md", "THIRD-PARTY-LICENSES.txt": "THIRD-PARTY-LICENSES.txt",
@@ -605,7 +605,7 @@ def remote_for(core, bundle):
                 return super().present(registry, data)
             items = self.asset_items()
             for name in set(items) - set(data["artifacts"]):
-                require(re.fullmatch(r"publication-(github|cargo)-[A-Za-z0-9_.-]+-(intent|response|complete)\.json", name), "Unexpected GitHub release asset: " + name)
+                require(re.fullmatch(r"publication-(github|cargo)-[A-Za-z0-9_.-]+-(intent|response|error|complete)\.json", name), "Unexpected GitHub release asset: " + name)
                 receipt = self.asset(name)
                 identity_value = receipt.get("identity", {})
                 channel = identity_value.get("registry")
@@ -693,6 +693,7 @@ def publish(directory, core, operation, destination):
         assets = {path.name: path for path in (tree / "artifacts").iterdir()}
         github = {"identity": {**proof, "registry": "github", "artifacts": {name: sha(path) for name, path in assets.items()}}, "artifacts": assets}
         bundle = SimpleNamespace(repository=REPOSITORY, name="cfetch", version=source["version"],
+                                 digest=os.environ["RELEASE_BUNDLE_SHA256"],
                                  manifest={"tag": source["tag"], "tag_commit": source["source_commit"]},
                                  channels={"cargo": cargo, "github": github})
         remote = remote_for(core, bundle)

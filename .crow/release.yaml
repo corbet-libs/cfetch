@@ -37,7 +37,7 @@ steps:
   - name: validate-release-selection
     image: bash
     environment: &release-environment
-      CCID_REVISION: '33600b394910c643c5a6af6dff479fb16418428a'
+      CCID_REVISION: 'ab4303e2c133220972114a651cc52cf0f1550999'
       CARGO_BUILD_JOBS: "1"
       RUST_TEST_THREADS: "1"
     commands:

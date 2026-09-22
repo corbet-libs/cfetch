@@ -1,5 +1,6 @@
 """Release contract fixtures: no compiler, network, credentials or native execution."""
 import hashlib
+import contextlib
 import io
 import json
 import os
@@ -8,7 +9,7 @@ import tarfile
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from scripts import release as r
 
@@ -251,6 +252,44 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(remote.release["id"], 7)
         self.assertTrue(remote.release["draft"])
         self.assertTrue(calls)
+
+    def test_failed_upload_reconciles_without_losing_bundle_identity(self):
+        with patch.dict(os.environ, self.tool_environment):
+            core = r.publisher()
+        (self.base / "artifacts").mkdir()
+        source = {"version": "0.9.9", "tag": "v0.9.9", "source_commit": "1" * 40}
+        unit = "cfetch-0.9.9.crate"
+        cargo = {"identity": {"registry": "cargo"}, "artifacts": {unit: b"retained crate bytes"}}
+        remote = Mock()
+        remote.release = {"id": 7, "draft": False}
+        remote.asset.return_value = None
+        remote.upload.side_effect = core.Failure("Upload response unavailable")
+        remote.present.side_effect = lambda registry, data: set(data["artifacts"]) if registry == "github" or remote.upload.called else set()
+        os.environ["RELEASE_BUNDLE_SHA256"] = "a" * 64
+        imported = contextlib.nullcontext((self.base, (source, {}, {}, cargo, {})))
+        with patch.object(r, "imported", return_value=imported), patch.object(r, "remote_for", return_value=remote), \
+                patch.object(r, "release_object", return_value=remote.release), patch("builtins.print"):
+            r.publish(self.base, core, "publish", "cargo")
+        remote.upload.assert_called_once()
+        error = json.loads(next(self.base.rglob("*-error.json")).read_text())
+        self.assertEqual(error["bundle_sha256"], "a" * 64)
+        completion = json.loads(next(self.base.rglob("*-complete.json")).read_text())
+        self.assertEqual(completion["status"], "download-verified")
+
+    def test_matching_error_journal_is_reconciliable(self):
+        with patch.dict(os.environ, self.tool_environment):
+            core = r.publisher()
+        identity = {"registry": "cargo", "producing_commit": "1" * 40}
+        bundle = SimpleNamespace(repository=r.REPOSITORY, channels={
+            "cargo": {"identity": identity, "artifacts": {"cfetch-0.9.9.crate": b"fixture"}}})
+        remote = r.remote_for(core, bundle)
+        remote.asset_items = lambda: {"publication-cargo-cfetch-0.9.9.crate-error.json": {}}
+        receipt = {"identity": {**identity, "unit": "cfetch-0.9.9.crate"}}
+        remote.asset = lambda name: receipt
+        self.assertEqual(remote.present("github", {"artifacts": {}}), set())
+        receipt["identity"]["producing_commit"] = "2" * 40
+        with self.assertRaisesRegex(r.Failure, "Unexpected/conflicting publication journal"):
+            remote.present("github", {"artifacts": {}})
 
 
 if __name__ == "__main__":
