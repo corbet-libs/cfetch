@@ -9,6 +9,6 @@ nix build --no-write-lock-file --max-jobs "${CI_NIX_JOBS:-1}" --cores "${CI_JOBS
 binary="$CFETCH_NIX_OUTPUT/result/bin/cfetch"
 "$binary" --version
 "$binary" variants --json
-"$binary" embed-model status --json
+"$binary" embed-model status
 nix path-info --json "$CFETCH_NIX_OUTPUT/result" > "$CFETCH_NIX_OUTPUT/closure.json"
 printf '%s\n' "$CI_COMMIT_SHA" > "$CFETCH_NIX_OUTPUT/source-commit"
