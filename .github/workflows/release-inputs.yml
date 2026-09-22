@@ -1,0 +1,33 @@
+name: Resolve release inputs
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-inputs-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  resolve:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833
+        with:
+          tool: cargo-deny,cargo-about
+      - name: Retain the resolved graph and exact notices
+        env:
+          CFETCH_RELEASE_INPUTS_OUTPUT: ${{ runner.temp }}/release-inputs
+          CI_COMMIT_SHA: ${{ github.sha }}
+        run: bash scripts/ci-release-inputs.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-inputs
+          path: ${{ runner.temp }}/release-inputs
+          if-no-files-found: error
