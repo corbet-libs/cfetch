@@ -2348,32 +2348,32 @@ pub fn revert(cfg: &Config, id: &str) -> anyhow::Result<Proposal> {
 }
 
 fn git_committed(brain_root: &Path, rel: &str, after: &str) -> anyhow::Result<String> {
+    let target = brain_root.join(rel);
+    let parent = target.parent().context("memory target has no parent")?;
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
-        .current_dir(brain_root)
+        .current_dir(parent)
         .output()
         .context("run git rev-parse")?;
     anyhow::ensure!(
         output.status.success(),
-        "brain root is not inside a git worktree"
+        "memory target is not inside a git worktree"
     );
     let top = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
     let canonical_top = std::fs::canonicalize(&top)
         .with_context(|| format!("resolve git root {}", top.display()))?;
-    let canonical_brain = std::fs::canonicalize(brain_root)
-        .with_context(|| format!("resolve brain root {}", brain_root.display()))?;
-    let prefix = canonical_brain
-        .strip_prefix(&canonical_top)
-        .context("brain root is outside its reported git worktree")?;
-    let git_rel = if prefix.as_os_str().is_empty() {
-        rel.to_string()
-    } else {
-        index::rel_doc_path(&prefix.join(rel))
-    };
+    let canonical_parent = std::fs::canonicalize(parent)?;
+    let canonical_target =
+        canonical_parent.join(target.file_name().context("memory target has no name")?);
+    let git_rel = index::rel_doc_path(
+        canonical_target
+            .strip_prefix(&canonical_top)
+            .context("memory target is outside its owning git repository")?,
+    );
 
     let status = Command::new("git")
-        .args(["status", "--porcelain=v1", "--", rel])
-        .current_dir(&canonical_brain)
+        .args(["status", "--porcelain=v1", "--", &git_rel])
+        .current_dir(&canonical_top)
         .output()
         .context("run git status")?;
     anyhow::ensure!(status.status.success(), "git status failed");
@@ -2829,6 +2829,30 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success(), "git {args:?}");
+    }
+
+    #[test]
+    fn finalization_checks_the_nested_repository_that_owns_the_note() {
+        let brain = tempfile::tempdir().unwrap();
+        let topic = brain.path().join("knowledge/topic");
+        std::fs::create_dir_all(&topic).unwrap();
+        git(brain.path(), &["init", "-q"]);
+        git(&topic, &["init", "-q"]);
+        git(&topic, &["config", "user.email", "test@example.invalid"]);
+        git(&topic, &["config", "user.name", "cfetch test"]);
+        std::fs::write(topic.join("note.md"), "verified bytes\n").unwrap();
+        git(&topic, &["add", "note.md"]);
+        git(&topic, &["commit", "-qm", "note"]);
+        assert!(git_committed(brain.path(), "knowledge/topic/note.md", "verified bytes\n").is_ok());
+        std::fs::write(topic.join("note.md"), "unpublished edit\n").unwrap();
+        assert!(
+            git_committed(
+                brain.path(),
+                "knowledge/topic/note.md",
+                "unpublished edit\n"
+            )
+            .is_err()
+        );
     }
 
     #[test]

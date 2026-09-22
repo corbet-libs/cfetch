@@ -5,6 +5,7 @@ set -euo pipefail
 : "${CFETCH_LOCAL_MODEL_OUTPUT:?new model pack directory required}"
 : "${CFETCH_LOCAL_MODEL_REFERENCE:?canonical reference JSON required}"
 python_bin="${CFETCH_POLICY_PYTHON:-python3}"
+export LD_LIBRARY_PATH="${CFETCH_MODEL_BUILD_LIBRARIES:-}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 model_tools="${CFETCH_LOCAL_MODEL_OUTPUT}.build-tools"
 cxx_library=$("${CXX:-c++}" -print-file-name=libstdc++.so.6)
 if [[ -f "$cxx_library" ]]; then
