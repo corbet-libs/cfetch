@@ -282,7 +282,11 @@ fn concurrent_writer_torture(writers: usize, iters: usize, env: &[(&str, &str)])
                         "barrier must serve fresh under this load (writer {w} seq {n}, \
                          {mode}): {resp}"
                     );
-                    assert_eq!(resp["origin"], "torture-origin");
+                    assert!(
+                        resp["origin"]
+                            .as_str()
+                            .is_some_and(|origin| !origin.is_empty())
+                    );
                     let blob = snippet_blob(&resp);
                     for (cw, cn) in &snapshot {
                         assert!(

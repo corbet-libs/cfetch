@@ -21,3 +21,5 @@ if [[ ! -f "$CFETCH_LOCAL_MODEL_OUTPUT/manifest.json" ]]; then
 fi
 cargo build --locked --features embedded-embeddings
 "${CARGO_TARGET_DIR:-target}/debug/cfetch" qualify-model "$CFETCH_LOCAL_MODEL_OUTPUT" "$CFETCH_LOCAL_MODEL_REFERENCE"
+
+CFETCH_TEST_LOCAL_MODEL="$CFETCH_LOCAL_MODEL_OUTPUT" cargo test --locked --features embedded-embeddings --test local_memory -- --ignored --nocapture
