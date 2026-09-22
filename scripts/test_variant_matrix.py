@@ -78,7 +78,7 @@ class VariantMatrixTests(unittest.TestCase):
         self.assertEqual(json.loads(build.stdout)["include"], self.catalog["variants"])
         release = self.run_matrix()
         self.assertEqual(release.returncode, 0, release.stderr)
-        endpoints = [row for row in self.catalog["variants"] if row["backend"] == "endpoint"]
+        endpoints = [row for row in self.catalog["variants"] if row["backend"] in ("cpu", "lexical")]
         self.assertEqual(json.loads(release.stdout)["include"], endpoints)
         self.assertEqual({row["os"] for row in endpoints}, {"linux", "mac", "win"})
         self.assertEqual({row["arch"] for row in endpoints}, {"x86_64", "aarch64"})
@@ -112,7 +112,7 @@ class VariantMatrixTests(unittest.TestCase):
 
     def test_rejects_unknown_endpoint_duplicate_and_mismatched_package_targets(self) -> None:
         self.admit()
-        endpoint_id = next(row["id"] for row in self.catalog["variants"] if row["backend"] == "endpoint")
+        endpoint_id = next(row["id"] for row in self.catalog["variants"] if row["backend"] in ("cpu", "lexical"))
         for field, value, message in (
             ("release_variant_id", "unknown-target", "unknown variant"),
             ("release_variant_id", endpoint_id, "endpoint variant"),

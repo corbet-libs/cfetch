@@ -20,7 +20,7 @@ jq -e '
   .schema_version == 1 and
   (.variants | length > 0) and
   ([.variants[].id] | length == (unique | length)) and
-  ([.variants[] | select(.backend == "endpoint") | [.os, .arch]] |
+  ([.variants[] | select(.backend != "local") | [.os, .arch]] |
     length == (unique | length)) and
   all(.variants[];
     (.id | test("^[a-z0-9_-]+$")) and
@@ -30,8 +30,10 @@ jq -e '
     (.binary | length > 0) and
     (.archive == "tar.gz" or .archive == "zip") and
     ((.backend == "endpoint" and (.id | contains("-cfetch-remote-"))) or
-     (.backend == "local" and (.id | contains("-cfetch-local-")))) and
-    .cargo_features == "")
+     (.backend == "local" and (.id | contains("-cfetch-local-"))) or
+     (.backend == "cpu" and (.id | contains("-cfetch-cpu-"))) or
+     (.backend == "lexical" and (.id | contains("-cfetch-cli-")))) and
+    (if .backend == "cpu" then .cargo_features == "embedded-embeddings" else .cargo_features == "" end))
 ' "$catalog" >/dev/null
 
 if [[ $release == false ]]; then
@@ -119,7 +121,7 @@ def release_matrix(catalog, registry):
     )
     return {"include": [
         variant for variant in catalog["variants"]
-        if variant["backend"] == "endpoint" or variant["id"] in active_variants
+        if variant["backend"] in ("endpoint", "cpu", "lexical") or variant["id"] in active_variants
     ]}
 
 

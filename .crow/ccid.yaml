@@ -10,6 +10,7 @@ variables:
   CHECKS: {default: catalog}
   CFETCH_TEST_LOCAL_MODEL: {default: ""}
   CFETCH_LOCAL_RELEASE_OUTPUT: {default: ""}
+  CFETCH_NIX_OUTPUT: {default: ""}
   CFETCH_LOCAL_MODEL_SOURCE: {default: ""}
   CFETCH_LOCAL_MODEL_OUTPUT: {default: ""}
   CFETCH_LOCAL_MODEL_REFERENCE: {default: ""}

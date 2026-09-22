@@ -211,7 +211,7 @@ def _validate_plan(
         for row in packages
         if isinstance(row, dict) and row.get("release_variant_id") == variant_id
     ]
-    if variant.get("backend") == "endpoint":
+    if variant.get("backend") in ("endpoint", "cpu", "lexical"):
         if package_rows:
             raise StagingError("endpoint release variant unexpectedly has a local payload")
         return None

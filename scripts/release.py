@@ -23,7 +23,7 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = "corbet-labs/cfetch"
+REPOSITORY = "corbet-libs/cfetch"
 PUBLISHER_REVISION = "00daadaeaa757320178715cac4e66ed388421f7e"
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "CARGO_REGISTRY_TOKEN", "NPM_TOKEN", "JSR_TOKEN", "PYPI_TOKEN", "PACKAGES_TOKEN")
 METADATA = {"LICENSE.md": "LICENSE.md", "THIRD-PARTY-LICENSES.txt": "THIRD-PARTY-LICENSES.txt",

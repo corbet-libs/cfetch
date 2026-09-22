@@ -56,20 +56,20 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           mkdir -p "$RUNNER_TEMP/cfetch-homebrew"
-          gh release view "v$VERSION" --repo corbet-labs/cfetch \
+          gh release view "v$VERSION" --repo corbet-libs/cfetch \
             --json tagName,isDraft,isPrerelease,assets > "$RUNNER_TEMP/cfetch-homebrew/release.json"
-          gh api "repos/corbet-labs/cfetch/git/ref/tags/v$VERSION" \
+          gh api "repos/corbet-libs/cfetch/git/ref/tags/v$VERSION" \
             --jq .object > "$RUNNER_TEMP/cfetch-homebrew/tag.json"
           for ((attempt=0; attempt<5; attempt++)); do
             type=$(jq -r .type "$RUNNER_TEMP/cfetch-homebrew/tag.json")
             if [ "$type" = commit ]; then break; fi
             test "$type" = tag
             object=$(jq -er '.sha | select(test("^[0-9a-f]{40}$"))' "$RUNNER_TEMP/cfetch-homebrew/tag.json")
-            gh api "repos/corbet-labs/cfetch/git/tags/$object" \
+            gh api "repos/corbet-libs/cfetch/git/tags/$object" \
               --jq .object > "$RUNNER_TEMP/cfetch-homebrew/tag-next.json"
             mv "$RUNNER_TEMP/cfetch-homebrew/tag-next.json" "$RUNNER_TEMP/cfetch-homebrew/tag.json"
           done
-          gh release download "v$VERSION" --repo corbet-labs/cfetch \
+          gh release download "v$VERSION" --repo corbet-libs/cfetch \
             --pattern checksums_sha256.txt --pattern variants.json \
             --dir "$RUNNER_TEMP/cfetch-homebrew"
 

@@ -10,15 +10,15 @@ bash -n "$pkgbuild"
 source "$pkgbuild"
 
 for mapping in \
-  'x86_64 linux-cfetch-remote-x86_64 -march=x86-64 target-cpu=x86-64' \
-  'aarch64 linux-cfetch-remote-arm64 -march=armv8-a target-cpu=generic'
+  'x86_64 linux-cfetch-cpu-x86_64 -march=x86-64 target-cpu=x86-64' \
+  'aarch64 linux-cfetch-cpu-arm64 -march=armv8-a target-cpu=generic'
 do
   read -r carch expected expected_c_target expected_rust_target <<<"$mapping"
   CARCH=$carch
   actual=$(_cfetch_variant)
   test "$actual" = "$expected"
   jq -e --arg id "$actual" \
-    '.variants[] | select(.id == $id and .backend == "endpoint")' \
+    '.variants[] | select(.id == $id and .backend == "cpu")' \
     "$catalog" >/dev/null
 
   CFLAGS='-march=native -O3 -pipe -mtune=native -fstack-clash-protection'

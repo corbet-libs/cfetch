@@ -66,3 +66,7 @@ commands = [["bash", "scripts/ci-local-model.sh"]]
 [checks.local-release]
 kind = "commands"
 commands = [["bash", "scripts/ci-local-release.sh"]]
+
+[checks.nix]
+kind = "commands"
+commands = [["bash", "scripts/ci-nix.sh"]]

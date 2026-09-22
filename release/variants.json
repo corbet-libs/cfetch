@@ -2,26 +2,26 @@
   "schema_version": 1,
   "variants": [
     {
-      "id": "linux-cfetch-remote-x86_64",
+      "id": "linux-cfetch-cpu-x86_64",
       "os": "linux",
       "arch": "x86_64",
       "runner": "ubuntu-latest",
       "target": "",
       "binary": "cfetch",
       "archive": "tar.gz",
-      "backend": "endpoint",
-      "cargo_features": ""
+      "backend": "cpu",
+      "cargo_features": "embedded-embeddings"
     },
     {
-      "id": "linux-cfetch-remote-arm64",
+      "id": "linux-cfetch-cpu-arm64",
       "os": "linux",
       "arch": "aarch64",
       "runner": "ubuntu-24.04-arm",
       "target": "",
       "binary": "cfetch",
       "archive": "tar.gz",
-      "backend": "endpoint",
-      "cargo_features": ""
+      "backend": "cpu",
+      "cargo_features": "embedded-embeddings"
     },
     {
       "id": "linux-cfetch-local-intel-lunar-lake-x86_64",
@@ -35,48 +35,48 @@
       "cargo_features": ""
     },
     {
-      "id": "mac-cfetch-remote-arm64",
+      "id": "mac-cfetch-cpu-arm64",
       "os": "mac",
       "arch": "aarch64",
       "runner": "macos-latest",
       "target": "",
       "binary": "cfetch",
       "archive": "tar.gz",
-      "backend": "endpoint",
-      "cargo_features": ""
+      "backend": "cpu",
+      "cargo_features": "embedded-embeddings"
     },
     {
-      "id": "mac-cfetch-remote-x86_64",
+      "id": "mac-cfetch-cli-x86_64",
       "os": "mac",
       "arch": "x86_64",
       "runner": "macos-26-intel",
       "target": "x86_64-apple-darwin",
       "binary": "cfetch",
       "archive": "tar.gz",
-      "backend": "endpoint",
+      "backend": "lexical",
       "cargo_features": ""
     },
     {
-      "id": "win-cfetch-remote-x86_64",
+      "id": "win-cfetch-cpu-x86_64",
       "os": "win",
       "arch": "x86_64",
       "runner": "windows-latest",
       "target": "",
       "binary": "cfetch.exe",
       "archive": "zip",
-      "backend": "endpoint",
-      "cargo_features": ""
+      "backend": "cpu",
+      "cargo_features": "embedded-embeddings"
     },
     {
-      "id": "win-cfetch-remote-arm64",
+      "id": "win-cfetch-cpu-arm64",
       "os": "win",
       "arch": "aarch64",
       "runner": "windows-11-arm",
       "target": "",
       "binary": "cfetch.exe",
       "archive": "zip",
-      "backend": "endpoint",
-      "cargo_features": ""
+      "backend": "cpu",
+      "cargo_features": "embedded-embeddings"
     }
   ]
 }

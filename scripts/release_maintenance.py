@@ -54,18 +54,18 @@ def formula(selected_version, catalog, checksums):
     selected = []
     for operating_system, architecture in PLATFORMS:
         matches = [row for row in rows if row.get("os") == operating_system
-                   and row.get("arch") == architecture and row.get("backend") == "endpoint"]
-        r.require(len(matches) == 1, "Exactly one endpoint variant is required per Homebrew platform")
+                   and row.get("arch") == architecture and row.get("backend") in ("endpoint", "cpu", "lexical")]
+        r.require(len(matches) == 1, "Exactly one portable variant is required per Homebrew platform")
         row = matches[0]
         r.require(re.fullmatch(r"[a-z0-9_-]+", row.get("id", "")) and row.get("archive") == "tar.gz"
-                  and row.get("binary") == "cfetch", "Unsupported Homebrew endpoint artifact")
+                  and row.get("binary") == "cfetch", "Unsupported Homebrew artifact")
         artifact = row["id"] + "-v" + selected_version + ".tar.gz"
         digest = checksums.get(artifact, "")
         r.require(re.fullmatch(r"[0-9a-f]{64}", digest), "Missing Homebrew artifact checksum: " + artifact)
         selected.append((artifact, digest))
     lines = ["class Cfetch < Formula",
              '  desc "Agent memory: ring-ordered recall over a shared brain, with native Claude Code and Codex hooks"',
-             '  homepage "https://github.com/corbet-labs/cfetch"', '  license "FSL-1.1-ALv2"',
+             '  homepage "https://github.com/corbet-libs/cfetch"', '  license "FSL-1.1-ALv2"',
              f'  version "{selected_version}"']
     for offset, operating_system in ((0, "macos"), (2, "linux")):
         lines += ["", f"  on_{operating_system} do", "    if Hardware::CPU.arm?"]
@@ -73,7 +73,7 @@ def formula(selected_version, catalog, checksums):
             if index != offset:
                 lines.append("    else")
             artifact, digest = selected[index]
-            lines += [f'      url "https://github.com/corbet-labs/cfetch/releases/download/v{selected_version}/{artifact}"',
+            lines += [f'      url "https://github.com/corbet-libs/cfetch/releases/download/v{selected_version}/{artifact}"',
                       f'      sha256 "{digest}"']
         lines += ["    end", "  end"]
     lines += ["", "  def install", '    bin.install "cfetch"', '    doc.install "LICENSE.md"',

@@ -37,44 +37,87 @@ pub struct ReleaseVariant {
 
 impl Catalog {
     pub fn parse(input: &str) -> anyhow::Result<Self> {
-        let catalog: Catalog = serde_json::from_str(input).context("parse release/variants.json")?;
+        let catalog: Catalog =
+            serde_json::from_str(input).context("parse release/variants.json")?;
         catalog.validate()?;
         Ok(catalog)
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(self.schema_version == 1, "unsupported variant catalog schema {}", self.schema_version);
+        anyhow::ensure!(
+            self.schema_version == 1,
+            "unsupported variant catalog schema {}",
+            self.schema_version
+        );
         anyhow::ensure!(!self.variants.is_empty(), "variant catalog is empty");
 
         let mut ids = BTreeSet::new();
         let mut endpoint_targets = BTreeSet::new();
         for variant in &self.variants {
-            anyhow::ensure!(ids.insert(&variant.id), "duplicate variant id {}", variant.id);
             anyhow::ensure!(
-                variant.id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_'),
+                ids.insert(&variant.id),
+                "duplicate variant id {}",
+                variant.id
+            );
+            anyhow::ensure!(
+                variant
+                    .id
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_'),
                 "variant id {} contains unsupported characters",
                 variant.id
             );
-            anyhow::ensure!(["linux", "mac", "win"].contains(&variant.os.as_str()), "variant {} has unknown OS {}", variant.id, variant.os);
-            anyhow::ensure!(["x86_64", "aarch64"].contains(&variant.arch.as_str()), "variant {} has unknown architecture {}", variant.id, variant.arch);
-            anyhow::ensure!(!variant.runner.is_empty(), "variant {} has no CI runner", variant.id);
-            anyhow::ensure!(!variant.binary.is_empty(), "variant {} has no binary name", variant.id);
-            anyhow::ensure!(["tar.gz", "zip"].contains(&variant.archive.as_str()), "variant {} has unknown archive format {}", variant.id, variant.archive);
             anyhow::ensure!(
-                matches!(variant.backend.as_str(), "endpoint" | "local"),
+                ["linux", "mac", "win"].contains(&variant.os.as_str()),
+                "variant {} has unknown OS {}",
+                variant.id,
+                variant.os
+            );
+            anyhow::ensure!(
+                ["x86_64", "aarch64"].contains(&variant.arch.as_str()),
+                "variant {} has unknown architecture {}",
+                variant.id,
+                variant.arch
+            );
+            anyhow::ensure!(
+                !variant.runner.is_empty(),
+                "variant {} has no CI runner",
+                variant.id
+            );
+            anyhow::ensure!(
+                !variant.binary.is_empty(),
+                "variant {} has no binary name",
+                variant.id
+            );
+            anyhow::ensure!(
+                ["tar.gz", "zip"].contains(&variant.archive.as_str()),
+                "variant {} has unknown archive format {}",
+                variant.id,
+                variant.archive
+            );
+            anyhow::ensure!(
+                matches!(
+                    variant.backend.as_str(),
+                    "endpoint" | "local" | "cpu" | "lexical"
+                ),
                 "variant {} claims unsupported backend {}",
                 variant.id,
                 variant.backend
             );
             anyhow::ensure!(
-                variant.cargo_features.is_empty(),
-                "out-of-process inference variant {} must not claim Cargo engine features",
+                if variant.backend == "cpu" {
+                    variant.cargo_features == "embedded-embeddings"
+                } else {
+                    variant.cargo_features.is_empty()
+                },
+                "variant {} has features inconsistent with its backend",
                 variant.id
             );
-            let expected_name = if variant.backend == "local" {
-                "-cfetch-local-"
-            } else {
-                "-cfetch-remote-"
+            let expected_name = match variant.backend.as_str() {
+                "local" => "-cfetch-local-",
+                "cpu" => "-cfetch-cpu-",
+                "lexical" => "-cfetch-cli-",
+                _ => "-cfetch-remote-",
             };
             anyhow::ensure!(
                 variant.id.contains(expected_name),
@@ -83,10 +126,10 @@ impl Catalog {
                 variant.backend,
                 expected_name
             );
-            if variant.backend == "endpoint" {
+            if matches!(variant.backend.as_str(), "endpoint" | "cpu" | "lexical") {
                 anyhow::ensure!(
                     endpoint_targets.insert((variant.os.clone(), variant.arch.clone())),
-                    "multiple {} {} variants claim the portable endpoint backend",
+                    "multiple {} {} variants claim the portable CPU or lexical backend",
                     variant.os,
                     variant.arch
                 );
@@ -98,7 +141,9 @@ impl Catalog {
 
 pub fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<Catalog> = OnceLock::new();
-    CATALOG.get_or_init(|| Catalog::parse(CATALOG_JSON).expect("embedded release variant catalog must be valid"))
+    CATALOG.get_or_init(|| {
+        Catalog::parse(CATALOG_JSON).expect("embedded release variant catalog must be valid")
+    })
 }
 
 pub fn os_token() -> &'static str {
@@ -131,7 +176,7 @@ pub fn recommended_release() -> Option<&'static ReleaseVariant> {
             catalog().variants.iter().find(|variant| {
                 variant.os == os_token()
                     && variant.arch == arch_token()
-                    && variant.backend == "endpoint"
+                    && matches!(variant.backend.as_str(), "endpoint" | "cpu" | "lexical")
             })
         })
 }
@@ -152,23 +197,25 @@ mod tests {
     }
 
     #[test]
-    fn every_catalog_entry_uses_an_implemented_out_of_process_boundary() {
+    fn cpu_packages_enable_the_embedded_engine() {
         for variant in &catalog().variants {
-            assert!(matches!(variant.backend.as_str(), "endpoint" | "local"));
-            let marker = if variant.backend == "local" {
-                "-cfetch-local-"
-            } else {
-                "-cfetch-remote-"
-            };
-            assert!(variant.id.contains(marker));
-            assert!(variant.cargo_features.is_empty());
+            if variant.backend == "cpu" {
+                assert_eq!(variant.cargo_features, "embedded-embeddings");
+                assert!(variant.id.contains("-cfetch-cpu-"));
+            }
         }
+        let mut broken = catalog().clone();
+        broken.variants[0].cargo_features.clear();
+        assert!(broken.validate().is_err());
     }
 
     #[test]
     fn catalog_refuses_a_backend_that_has_no_package_contract() {
-        let fake = CATALOG_JSON.replacen("\"backend\": \"endpoint\"", "\"backend\": \"coreml\"", 1);
-        assert!(Catalog::parse(&fake).unwrap_err().to_string().contains("unsupported backend"));
+        let fake = CATALOG_JSON.replacen("\"backend\": \"cpu\"", "\"backend\": \"coreml\"", 1);
+        assert!(Catalog::parse(&fake)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported backend"));
     }
 
     #[test]
@@ -177,6 +224,7 @@ mod tests {
         let mut variant = local.variants[0].clone();
         variant.id = "linux-cfetch-local-test-one-x86_64".into();
         variant.backend = "local".into();
+        variant.cargo_features.clear();
         local.variants.push(variant.clone());
         variant.id = "linux-cfetch-local-test-two-x86_64".into();
         local.variants.push(variant);
@@ -191,7 +239,10 @@ mod tests {
             .find(|variant| variant.id == "linux-cfetch-local-intel-lunar-lake-x86_64")
             .expect("the first exact local package needs an activation target");
         assert_eq!(local.backend, "local");
-        assert_eq!((local.os.as_str(), local.arch.as_str()), ("linux", "x86_64"));
+        assert_eq!(
+            (local.os.as_str(), local.arch.as_str()),
+            ("linux", "x86_64")
+        );
 
         let portable = catalog()
             .variants
@@ -199,10 +250,10 @@ mod tests {
             .find(|variant| {
                 variant.os == "linux"
                     && variant.arch == "x86_64"
-                    && variant.backend == "endpoint"
+                    && matches!(variant.backend.as_str(), "endpoint" | "cpu" | "lexical")
             })
-            .expect("the portable endpoint variant remains the default");
-        assert_eq!(portable.id, "linux-cfetch-remote-x86_64");
+            .expect("the portable CPU or lexical variant remains the default");
+        assert_eq!(portable.id, "linux-cfetch-cpu-x86_64");
     }
 
     #[test]
@@ -215,7 +266,7 @@ mod tests {
                     .filter(|variant| {
                         variant.os == os
                             && variant.arch == arch
-                            && variant.backend == "endpoint"
+                            && matches!(variant.backend.as_str(), "endpoint" | "cpu" | "lexical")
                     })
                     .count();
                 assert_eq!(matches, 1, "supported target {os}/{arch}");

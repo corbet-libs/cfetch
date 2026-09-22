@@ -110,7 +110,7 @@ class MaintenanceTests(unittest.TestCase):
         subprocess.run(["git", "init", "--quiet", str(root)], check=True)
         m.git(root, "config", "user.name", "Fixture")
         m.git(root, "config", "user.email", "fixture@example.invalid")
-        files = {"Cargo.toml": '[package]\nname = "cfetch"\nversion = "0.9.9"\nrepository = "https://github.com/corbet-labs/cfetch"\n',
+        files = {"Cargo.toml": '[package]\nname = "cfetch"\nversion = "0.9.9"\nrepository = "https://github.com/corbet-libs/cfetch"\n',
                  "Cargo.lock": '[[package]]\nname = "cfetch"\nversion = "0.9.9"\n',
                  "CHANGELOG.md": "## Unreleased\n", "packaging/arch/PKGBUILD": "pkgver=0.9.9\n",
                  "scripts/prepare-patch-release.sh": (r.ROOT / "scripts/prepare-patch-release.sh").read_text()}

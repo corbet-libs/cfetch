@@ -2,7 +2,7 @@
 schema = 1
 
 [github]
-repository = "corbet-labs/cfetch"
+repository = "corbet-libs/cfetch"
 workflow = "selected.yml"
 platform = "linux-x86_64"
 secret_free = true
