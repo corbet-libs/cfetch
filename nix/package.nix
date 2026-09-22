@@ -48,6 +48,8 @@ rustPlatform.buildRustPackage ({
   postInstall = ''
     install -Dm644 LICENSE.md "$out/share/licenses/cfetch/LICENSE.md"
     install -Dm644 THIRD-PARTY-LICENSES.txt "$out/share/licenses/cfetch/THIRD-PARTY-LICENSES.txt"
+    install -Dm644 release/onnxruntime-LICENSE.txt "$out/share/licenses/cfetch/onnxruntime-LICENSE.txt"
+    install -Dm644 release/onnxruntime-NOTICES.txt "$out/share/licenses/cfetch/onnxruntime-NOTICES.txt"
   '';
   meta = {
     description = "Cited memory, local retrieval and Markdown graphs for AI agents";

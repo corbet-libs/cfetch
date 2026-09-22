@@ -25,6 +25,8 @@ include = [
   "/THIRD-PARTY-LICENSES.txt",
   "/release/variants.json",
   "/release/inference-backends.json",
+  "/release/onnxruntime-LICENSE.txt",
+  "/release/onnxruntime-NOTICES.txt",
 ]
 
 [dependencies]

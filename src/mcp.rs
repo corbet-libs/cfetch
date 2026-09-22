@@ -185,7 +185,7 @@ fn tool_defs() -> Vec<Tool> {
             object_schema(json!({
                 "type": "object",
                 "properties": {
-                    "candidate_id": {"type": "string", "description": "id from `cfetch staging list`"}
+                    "candidate_id": {"type": "string", "description": "id from `cfetch memories list`"}
                 },
                 "required": ["candidate_id"]
             })),

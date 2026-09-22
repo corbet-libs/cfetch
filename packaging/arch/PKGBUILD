@@ -111,4 +111,6 @@ package() {
   install -Dm644 LICENSE.md "$pkgdir/usr/share/licenses/$pkgname/LICENSE.md"
   install -Dm644 THIRD-PARTY-LICENSES.txt \
     "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY-LICENSES.txt"
+  install -Dm644 release/onnxruntime-LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/onnxruntime-LICENSE.txt"
+  install -Dm644 release/onnxruntime-NOTICES.txt "$pkgdir/usr/share/licenses/$pkgname/onnxruntime-NOTICES.txt"
 }

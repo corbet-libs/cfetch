@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "corbet-libs/cfetch"
 PUBLISHER_REVISION = "33600b394910c643c5a6af6dff479fb16418428a"
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "CARGO_REGISTRY_TOKEN", "NPM_TOKEN", "JSR_TOKEN", "PYPI_TOKEN", "PACKAGES_TOKEN")
-METADATA = {"LICENSE.md": "LICENSE.md", "THIRD-PARTY-LICENSES.txt": "THIRD-PARTY-LICENSES.txt",
+METADATA = {"onnxruntime-LICENSE.txt": "release/onnxruntime-LICENSE.txt",
+            "onnxruntime-NOTICES.txt": "release/onnxruntime-NOTICES.txt", "LICENSE.md": "LICENSE.md", "THIRD-PARTY-LICENSES.txt": "THIRD-PARTY-LICENSES.txt",
             "variants.json": "release/variants.json", "inference-backends.json": "release/inference-backends.json"}
 MAX_FILE = 2 * 1024**3
 MAX_TOTAL = 12 * 1024**3

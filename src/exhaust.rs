@@ -261,7 +261,7 @@ impl Exhaust {
             payload: serde_json::json!({
                 "cap": MAX_STAGED,
                 "note": "ring-5 staging is at its cap; no further candidates are staged until \
-                         the queue is drained (cfetch staging list)",
+                         the queue is drained (cfetch memories list)",
             }),
         };
         if staging::write(&self.staging_dir, &candidate)? {

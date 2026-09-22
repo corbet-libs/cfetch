@@ -86,7 +86,7 @@ pub fn queue_staging_visibility(st: &mut SessionState, staging_dir: &Path) -> bo
     }
     st.queue_reminder(
         "staging",
-        &format!("[cfetch: {n} staged candidate(s) await distillation — cfetch staging list]"),
+        &format!("[cfetch: {n} staged candidate(s) await distillation — cfetch memories list]"),
     )
 }
 
@@ -428,7 +428,7 @@ forbids:\n  - \"dedup=on|sha256|blake3|edonr\"\nmetadata:\n  type: feedback\n---
         assert!(queue_staging_visibility(&mut st, &staging));
         assert_eq!(
             st.drain_reminders(),
-            vec!["[cfetch: 2 staged candidate(s) await distillation — cfetch staging list]"
+            vec!["[cfetch: 2 staged candidate(s) await distillation — cfetch memories list]"
                 .to_string()]
         );
     }

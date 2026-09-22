@@ -77,7 +77,7 @@ pub fn path_of(dir: &Path, id: &str) -> PathBuf {
 /// A staging id is a single filename segment by construction (`slug-<8hex>`).
 /// Every caller that takes an id from OUTSIDE this module (CLI arguments,
 /// maintenance proposal targets) validates here, at the edge, so a
-/// hand-typed `cfetch staging consume ..\..\foo` names nothing at all.
+/// hand-typed `cfetch memories consume ..\..\foo` names nothing at all.
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
@@ -221,7 +221,7 @@ pub fn render(c: &Candidate) -> String {
          Auto-flagged ring-5 candidate from session exhaust. Never injected and never\n\
          recalled; autonomous maintenance reviews and settles it after deterministic gates.\n\
          Manual debugging remains available with `cfetch maintain packet {}` or\n\
-         `cfetch staging dismiss {}`.\n\n\
+         `cfetch memories dismiss {}`.\n\n\
          ```json\n{payload}\n```\n",
         yaml_str(&c.id),
         yaml_str(&c.reason),
