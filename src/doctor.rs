@@ -505,6 +505,9 @@ fn gather_inner(
 }
 
 fn compiled_backend() -> String {
+    if cfg!(feature = "embedded-embeddings") {
+        return "cpu".into();
+    }
     if let Some(id) = variant::build_id()
         && let Some(release) = variant::catalog()
             .variants

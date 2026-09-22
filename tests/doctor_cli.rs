@@ -30,15 +30,8 @@ fn doctor_json_is_read_only_and_labels_unmeasured_state() {
     assert_eq!(report["schema_version"], 1);
     assert_eq!(report["daemon"]["state"], "stopped");
     assert_eq!(report["inference"]["utilization"]["state"], "not_reported");
-    assert_eq!(report["memory"]["peer_artifacts"]["transport"], "iroh-blobs");
-    assert_eq!(
-        report["memory"]["peer_artifacts"]["state"],
-        "profile_inactive"
-    );
-    assert_eq!(
-        report["memory"]["peer_artifacts"]["route_order"],
-        "shared_store_then_authorized_peers_then_configured_endpoint"
-    );
+    assert_eq!(report["repositories"], serde_json::json!([]));
+    assert!(report["memory"].get("peer_artifacts").is_none());
     assert!(
         report["hardware"]
             .as_array()
@@ -75,7 +68,10 @@ fn doctor_json_is_read_only_and_labels_unmeasured_state() {
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("Detected hardware"), "{text}");
     if matches!(build_backend, "cpu" | "openvino" | "coreml") {
-        assert!(text.contains("CPU [cpu] — available, not selected"), "{text}");
+        assert!(
+            text.contains("CPU [cpu] — available, not selected"),
+            "{text}"
+        );
     } else {
         assert!(
             text.contains("CPU [cpu] — not supported by this build"),
@@ -83,8 +79,7 @@ fn doctor_json_is_read_only_and_labels_unmeasured_state() {
         );
     }
     assert!(text.contains("live utilization: not reported"), "{text}");
-    assert!(text.contains("peer artifacts iroh-blobs"), "{text}");
-    assert!(text.contains("no network identity yet"), "{text}");
+    assert!(text.contains("Git repositories"), "{text}");
 }
 
 #[test]
@@ -121,7 +116,10 @@ fn deep_doctor_uses_a_temporary_retrieval_fixture() {
     assert_eq!(probe["gates"]["checks"][0]["id"], "bm25");
     assert_eq!(probe["gates"]["checks"][0]["status"], "pass");
     assert_eq!(probe["vector"]["active"], false);
-    assert_eq!(probe["rankings"]["bm25"][0], "knowledge/deployment-metrics.md");
+    assert_eq!(
+        probe["rankings"]["bm25"][0],
+        "knowledge/deployment-metrics.md"
+    );
     assert_eq!(
         probe["graph"]["neighbors"][0],
         "knowledge/recovery-checklist.md"
@@ -150,7 +148,10 @@ fn deep_doctor_uses_a_temporary_retrieval_fixture() {
         .unwrap();
     assert!(!gated.status.success());
     let gated_report: serde_json::Value = serde_json::from_slice(&gated.stdout).unwrap();
-    assert_eq!(gated_report["retrieval_probe"]["gates"]["production_ready"], false);
+    assert_eq!(
+        gated_report["retrieval_probe"]["gates"]["production_ready"],
+        false
+    );
     assert!(
         String::from_utf8_lossy(&gated.stderr)
             .contains("required vector gate did not pass: vector_output (not run)")
