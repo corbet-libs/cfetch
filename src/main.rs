@@ -1569,7 +1569,7 @@ fn recall(
                     serde_json::json!({"op": "recall", "query": query, "limit": limit, "slice": slice, "semantic": semantic, "hybrid": hybrid})
                 }
             },
-            std::time::Duration::from_secs(8),
+            std::time::Duration::from_secs(if semantic || hybrid { 60 } else { 8 }),
         )
         && resp.ok
         && resp.fresh == Some(true)

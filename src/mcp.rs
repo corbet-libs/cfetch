@@ -371,8 +371,6 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     match name {
         "cfetch_recall" => {
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
-            let conn =
-                index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
             let mode =
                 args.get("mode")
                     .and_then(Value::as_str)
@@ -385,6 +383,33 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
                 ["lexical", "semantic", "hybrid"].contains(&mode),
                 "unknown recall mode"
             );
+            if let Some(response) = crate::daemon::call_req(
+                &json!({
+                    "op": "recall", "query": query,
+                    "limit": if limit == 0 { 8 } else { limit.min(100) },
+                    "semantic": mode == "semantic", "hybrid": mode == "hybrid"
+                }),
+                std::time::Duration::from_secs(if mode == "lexical" { 8 } else { 60 }),
+            ) && response.ok
+                && response.fresh == Some(true)
+            {
+                let hits = response.hits.unwrap_or_default();
+                let mut output = if hits.is_empty() {
+                    format!("no hits for {query:?}")
+                } else {
+                    answer::listing(
+                        crate::wire_hit_entries(&hits),
+                        answer::RECALL_BUDGET_TOKENS,
+                        answer::MCP_RECOVERY,
+                    )
+                };
+                if let Some(note) = response.note {
+                    output.push_str(&format!("\n{note}"));
+                }
+                return Ok(output);
+            }
+            let conn =
+                index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
             let ranked = crate::pipeline::ranked(
                 &cfg,
                 &conn,
