@@ -18,6 +18,13 @@ const FILES: &[&str] = &[
     "special_tokens_map.json",
 ];
 
+fn digest(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
@@ -77,7 +84,7 @@ fn manifest(dir: &Path) -> anyhow::Result<(Manifest, String)> {
             "local model file has an invalid digest"
         );
     }
-    Ok((manifest, format!("{:x}", Sha256::digest(&bytes))))
+    Ok((manifest, digest(&bytes)))
 }
 
 pub fn profile_id(dir: &Path) -> anyhow::Result<String> {
@@ -136,8 +143,7 @@ mod cpu {
         );
         let bytes = std::fs::read(&path)?;
         ensure!(
-            bytes.len() as u64 == expected.bytes
-                && format!("{:x}", Sha256::digest(&bytes)) == expected.sha256,
+            bytes.len() as u64 == expected.bytes && digest(&bytes) == expected.sha256,
             "local model {name}: content digest changed"
         );
         Ok(bytes)
@@ -202,10 +208,10 @@ mod cpu {
         }
         pub fn embed(&mut self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
             for text in texts {
-                ensure!(
-                    text.len() <= 128 * 1024 && self.tokens(text)? <= 2048,
-                    "local embedding input exceeds 2048 tokens or 128 KiB; source text was not truncated"
-                );
+                let token_count = self.tokens(text)?;
+                if token_count > 2048 {
+                    return Err(crate::embed::InputRefusal { token_count }.into());
+                }
             }
             let mut vectors = Vec::with_capacity(texts.len());
             for text in texts {

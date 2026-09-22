@@ -766,7 +766,9 @@ fn inference_diagnostic(
                                 .into(),
                         ),
                     });
-                } else if let Err(error) = embed::EmbedClient::new(&cfg.embeddings) {
+                } else if cfg.embeddings.local_model.is_none()
+                    && let Err(error) = embed::EmbedClient::new(&cfg.embeddings)
+                {
                     findings.push(Finding {
                         code: "embedding_endpoint_unusable".into(),
                         severity: FindingSeverity::Critical,
@@ -808,12 +810,18 @@ fn inference_diagnostic(
             let embeddings = ModelDiagnostic {
                 enabled: cfg.embeddings.enabled,
                 backend: if cfg.embeddings.enabled {
-                    build_backend.into()
+                    if cfg.embeddings.local_model.is_some() {
+                        "fastembed-ort-cpu".into()
+                    } else {
+                        build_backend.into()
+                    }
                 } else {
                     "disabled".into()
                 },
                 route: cfg.embeddings.enabled.then(|| {
-                    if cfg.embeddings.endpoint.is_empty() && build_backend == "local" {
+                    if cfg.embeddings.local_model.is_some()
+                        || (cfg.embeddings.endpoint.is_empty() && build_backend == "local")
+                    {
                         "local".into()
                     } else {
                         route_name(runtime_status::endpoint_route(&cfg.embeddings.endpoint))
@@ -822,7 +830,7 @@ fn inference_diagnostic(
                 model: cfg.embeddings.model.clone(),
                 model_revision: profile.model_revision.into(),
                 artifact_policy: admission_policy.artifact_policy.into(),
-                profile_id: profile.profile_id.into(),
+                profile_id: cfg.embeddings.spec().profile_id,
                 dimensions: cfg.embeddings.dimensions,
                 vector_encoding: cfg.embeddings.spec().vector_encoding(),
             };

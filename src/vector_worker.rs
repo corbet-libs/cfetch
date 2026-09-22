@@ -13,7 +13,7 @@ use crate::{embed, index, paths, runtime_status, vectors};
 const GENERATION_POLL: Duration = Duration::from_secs(2);
 const SETTLE_DELAY: Duration = Duration::from_secs(2);
 const FAILURE_RETRY: Duration = Duration::from_secs(5 * 60);
-const BATCH: usize = 64;
+const BATCH: usize = 1;
 
 fn generation() -> Option<u64> {
     index::open_ro(&paths::state_dir())

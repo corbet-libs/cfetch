@@ -18,7 +18,7 @@ use rmcp::{
 };
 use serde_json::{Value, json};
 
-use crate::{answer, code, config::Config, graph, index, maintenance, paths, serve};
+use crate::{answer, code, config::Config, graph, index, maintenance, paths};
 
 /// The tools we serve; a tools/call naming anything else is the caller's
 /// protocol error (-32602), not a tool-execution failure.

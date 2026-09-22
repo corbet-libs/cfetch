@@ -293,11 +293,14 @@ fn apply_config(status: &mut RuntimeStatusV1, cfg: &Config) {
         };
     }
     let local_plan = crate::local_inference::selected_local_package_plan();
-    let local_plan_invalid =
-        cfg.embeddings.enabled && cfg.embeddings.endpoint.is_empty() && local_plan.is_err();
+    let local_plan_invalid = cfg.embeddings.enabled
+        && cfg.embeddings.local_model.is_none()
+        && cfg.embeddings.endpoint.is_empty()
+        && local_plan.is_err();
     let packaged_local_embedding = cfg.embeddings.enabled
         && cfg.embeddings.endpoint.is_empty()
-        && local_plan.as_ref().is_ok_and(|plan| plan.is_some());
+        && (cfg.embeddings.local_model.is_some()
+            || local_plan.as_ref().is_ok_and(|plan| plan.is_some()));
     let configured = if packaged_local_embedding && !cfg.rerank.enabled {
         InferenceMode::Local
     } else if cfg.embeddings.enabled || cfg.rerank.enabled {

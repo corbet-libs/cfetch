@@ -346,8 +346,8 @@ impl std::error::Error for ScopeUnavailableError {}
 /// A deterministic refusal of the input itself. Runtime/model failures never
 /// acquire this type: only the adapter's exact overlength envelope qualifies.
 #[derive(Debug)]
-struct InputRefusal {
-    token_count: usize,
+pub(crate) struct InputRefusal {
+    pub(crate) token_count: usize,
 }
 
 impl std::fmt::Display for InputRefusal {
