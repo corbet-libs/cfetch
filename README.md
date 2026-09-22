@@ -7,6 +7,16 @@ remain the source of truth.
 This is the current `main` architecture. Older releases and historical design
 notes describe the removed remote-serving and peer-sharing system.
 
+## Installation
+
+Use a native archive from [Releases](https://github.com/corbet-libs/cfetch/releases),
+or `nix run github:corbet-libs/cfetch` (`.#cfetch` when building this checkout).
+Linux, Apple Silicon and Windows CPU packages include the embedding engine.
+Intel Mac packages currently provide lexical and graph retrieval: upstream
+ONNX Runtime does not publish that target. Model weights remain a separate,
+qualified input configured with `embeddings.local_model`; installation never
+starts an accelerator or silently downloads a model.
+
 ## Storage
 
 ```text

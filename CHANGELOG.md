@@ -5,6 +5,14 @@ listed here is a fix or an internal change with no effect on behavior.
 
 ## Unreleased
 
+## 0.10.0
+
+- Replace peer sharing and remote computation with ordinary Git repositories and local retrieval.
+- Add qualified offline CPU embeddings, hybrid search, Obsidian graph paths and independent mind selection.
+- Build CPU retrieval into Linux, Apple Silicon and Windows release packages; Intel Mac retains lexical and graph retrieval while a native ONNX runtime is unavailable.
+- Package Nix native dependencies as pinned, sandbox-compatible inputs.
+- Preserve direct Markdown edits and report incomplete semantic coverage explicitly.
+
 - **Resumable physical qualification.** Optional journals reserve nonces before
   requests and persist authenticated responses. Resume revalidates complete
   trials and preserves interrupted evidence; partial trials restart with fresh

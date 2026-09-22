@@ -18,7 +18,7 @@ class ReleaseTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name)
-        self.tool_environment = {key: os.environ[key] for key in ("CI_TOOL_ARCHIVE", "CI_TOOL_SHA256") if key in os.environ}
+        self.tool_environment = {key: os.environ[key] for key in ("CI_TOOL_ARCHIVE", "CI_TOOL_SHA256", "CFETCH_PUBLISHER_ARCHIVE", "CFETCH_PUBLISHER_SHA256") if key in os.environ}
         self.environment = patch.dict(os.environ, {}, clear=True)
         self.environment.start()
         self.addCleanup(self.environment.stop)

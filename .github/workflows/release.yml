@@ -166,8 +166,8 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: corbet-labs/ccid
-          ref: 00daadaeaa757320178715cac4e66ed388421f7e
+          repository: corbet-libs/ccid
+          ref: 33600b394910c643c5a6af6dff479fb16418428a
           path: .ci-tool-source
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -180,7 +180,7 @@ jobs:
         run: |
           export RELEASE_ARTIFACT_DIR="$RUNNER_TEMP/cfetch-release"
           export CI_TOOL_ARCHIVE="$RUNNER_TEMP/ccid.tar"
-          test "$(git -C .ci-tool-source rev-parse HEAD)" = 00daadaeaa757320178715cac4e66ed388421f7e
+          test "$(git -C .ci-tool-source rev-parse HEAD)" = 33600b394910c643c5a6af6dff479fb16418428a
           git -C .ci-tool-source archive --format=tar HEAD > "$CI_TOOL_ARCHIVE"
           export CI_TOOL_SHA256
           CI_TOOL_SHA256=$(sha256sum "$CI_TOOL_ARCHIVE" | cut -d' ' -f1)
@@ -210,8 +210,8 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: corbet-labs/ccid
-          ref: 00daadaeaa757320178715cac4e66ed388421f7e
+          repository: corbet-libs/ccid
+          ref: 33600b394910c643c5a6af6dff479fb16418428a
           path: .ci-tool-source
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -223,7 +223,7 @@ jobs:
         env:
           BUNDLE_SHA256: ${{ needs.verify.outputs.sha256 }}
         run: |
-          test "$(git -C .ci-tool-source rev-parse HEAD)" = 00daadaeaa757320178715cac4e66ed388421f7e
+          test "$(git -C .ci-tool-source rev-parse HEAD)" = 33600b394910c643c5a6af6dff479fb16418428a
           git -C .ci-tool-source archive --format=tar HEAD > "$RUNNER_TEMP/ccid.tar"
           {
             echo "CI_TOOL_ARCHIVE=$RUNNER_TEMP/ccid.tar"
@@ -276,8 +276,8 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: corbet-labs/ccid
-          ref: 00daadaeaa757320178715cac4e66ed388421f7e
+          repository: corbet-libs/ccid
+          ref: 33600b394910c643c5a6af6dff479fb16418428a
           path: .ci-tool-source
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -289,7 +289,7 @@ jobs:
         env:
           BUNDLE_SHA256: ${{ needs.verify.outputs.sha256 }}
         run: |
-          test "$(git -C .ci-tool-source rev-parse HEAD)" = 00daadaeaa757320178715cac4e66ed388421f7e
+          test "$(git -C .ci-tool-source rev-parse HEAD)" = 33600b394910c643c5a6af6dff479fb16418428a
           git -C .ci-tool-source archive --format=tar HEAD > "$RUNNER_TEMP/ccid.tar"
           {
             echo "CI_TOOL_ARCHIVE=$RUNNER_TEMP/ccid.tar"

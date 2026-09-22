@@ -70,3 +70,7 @@ commands = [["bash", "scripts/ci-local-release.sh"]]
 [checks.nix]
 kind = "commands"
 commands = [["bash", "scripts/ci-nix.sh"]]
+
+[checks.release-inputs]
+kind = "commands"
+commands = [["bash", "scripts/ci-release-inputs.sh"]]

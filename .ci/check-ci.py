@@ -61,7 +61,7 @@ def main():
     require("run: cargo publish" not in release and "python scripts/release.py publish cargo" in release,
             "Credentialed publication must reuse the inspected crate")
     release_crow = (ROOT / ".crow/release.yaml").read_text()
-    require("CCID_REVISION: '00daadaeaa757320178715cac4e66ed388421f7e'" in release_crow
+    require("CCID_REVISION: '33600b394910c643c5a6af6dff479fb16418428a'" in release_crow
             and release_crow.count("from_secret:") == 3, "Release requires its verified publisher and scoped secret leaves")
     public_step = release_crow.split("  - name: prepare-or-inspect\n", 1)[1].split("  - name: github-release-state\n", 1)[0]
     require("from_secret:" not in public_step and "RELEASE_OPERATION" in public_step,
