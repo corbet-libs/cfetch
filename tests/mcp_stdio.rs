@@ -82,6 +82,8 @@ fn official_stdio_transport_negotiates_and_serves_tools() {
     assert_eq!(
         names,
         [
+            "cfetch_graph",
+            "cfetch_graph_path",
             "cfetch_recall",
             "cfetch_expand",
             "cfetch_find",
@@ -97,9 +99,21 @@ fn official_stdio_transport_negotiates_and_serves_tools() {
         ]
     );
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert!(tools[..10].iter().all(|tool| tool["annotations"]["readOnlyHint"] == true));
-    assert!(tools[10..].iter().all(|tool| tool["annotations"]["readOnlyHint"] == false));
-    assert!(tools[10..].iter().all(|tool| tool["annotations"]["destructiveHint"] == false));
+    assert!(
+        tools[..12]
+            .iter()
+            .all(|tool| tool["annotations"]["readOnlyHint"] == true)
+    );
+    assert!(
+        tools[12..]
+            .iter()
+            .all(|tool| tool["annotations"]["readOnlyHint"] == false)
+    );
+    assert!(
+        tools[12..]
+            .iter()
+            .all(|tool| tool["annotations"]["destructiveHint"] == false)
+    );
 
     send(
         &mut stdin,
