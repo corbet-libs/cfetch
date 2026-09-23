@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "admission": "candidate-only",
+  "models": {
+    "ModernBertEmbedLarge": {
+      "model": "lightonai/modernbert-embed-large",
+      "revision": "95a19bff4963b66d3c14fd4a20d147ebb4aaccfc",
+      "dimensions": 1024,
+      "max_tokens": 8192,
+      "pooling": "masked-mean",
+      "normalize": "l2",
+      "query_prefix": "search_query: ",
+      "document_prefix": "search_document: ",
+      "files": {
+        "model.onnx": {"upstream": "onnx/model.onnx", "bytes": 1579551135, "sha256": "71890860122f39eb922f6bf96714fda22ba10eb5bf1bc57bfdcf02ec93acc5d0"},
+        "tokenizer.json": {"upstream": "tokenizer.json", "bytes": 3583228, "git_blob_sha1": "2f4d8583e507b7466d2490e2d6c045647a822698"}
+      }
+    },
+    "MxbaiEmbedLargeV1": {
+      "model": "mixedbread-ai/mxbai-embed-large-v1",
+      "revision": "b33106f585b9ce46904ad7443a3b52b7a63e231c",
+      "dimensions": 1024,
+      "max_tokens": 512,
+      "pooling": "cls",
+      "normalize": "l2",
+      "query_prefix": "Represent this sentence for searching relevant passages: ",
+      "document_prefix": "",
+      "files": {
+        "model.onnx": {"upstream": "onnx/model.onnx", "bytes": 1336854282, "sha256": "adb53ed475faa339bfad3bd2bdb7e6a30b4f47280ade9811f81bef7953f9ab77"},
+        "tokenizer.json": {"upstream": "tokenizer.json", "bytes": 711396, "git_blob_sha1": "688882a79f44442ddc1f60d70334a7ff5df0fb47"}
+      }
+    }
+  }
+}

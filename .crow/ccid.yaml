@@ -17,6 +17,9 @@ variables:
   CFETCH_LOCAL_MODEL_SOURCE: {default: ""}
   CFETCH_LOCAL_MODEL_OUTPUT: {default: ""}
   CFETCH_LOCAL_MODEL_REFERENCE: {default: ""}
+  CFETCH_CANDIDATE_ROOT: {default: ""}
+  CFETCH_CANDIDATE_REPORT: {default: ""}
+  CFETCH_CANDIDATE_PYTHONPATH: {default: ""}
   CFETCH_MODEL_BUILD_LIBRARIES: {default: ""}
   CFETCH_PIP_BOOTSTRAP: {default: ""}
   CFETCH_POLICY_PYTHON: {default: python3}
