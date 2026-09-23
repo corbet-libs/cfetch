@@ -45,10 +45,8 @@ def inputs(directory, candidate):
     tokenizer = Tokenizer.from_file(str(directory / "tokenizer.json"))
     tokenizer.no_truncation()
     tokenizer.no_padding()
-    pad = tokenizer.token_to_id("[PAD]")
-    if pad is None:
-        pad = tokenizer.token_to_id("<|padding|>")
-    require(pad is not None, "candidate padding token is unknown")
+    pad = tokenizer.token_to_id(candidate["pad_token"])
+    require(pad == candidate["pad_token_id"], "candidate padding token differs from pinned contract")
     rows = []
     for index, text in enumerate(TEXTS):
         prefix = candidate["query_prefix"] if index == 0 else candidate["document_prefix"]
@@ -99,6 +97,9 @@ def main():
     import tokenizers
     version = ov.get_version()
     require(version.split("-")[0] == args.runtime_version, "OpenVINO version differs from reviewed runtime")
+    if args.reference:
+        require(json.loads(args.reference.read_bytes())["openvino"] == version,
+                "CPU reference uses a different OpenVINO build")
     core = ov.Core()
     model = core.read_model(str(directory / "model.onnx"))
     names = {p.get_any_name() for p in model.inputs}
