@@ -1,4 +1,4 @@
-{ lib, stdenv, rustPlatform, fetchurl, runCommand, xz, git, src }:
+{ lib, stdenv, craneLib, fetchurl, runCommand, xz, git, src }:
 let
   system = stdenv.hostPlatform.system;
   # Same pinned CPU archives as ort-sys 2.0.0-rc.13. Cargo cannot download
@@ -33,19 +33,23 @@ let
   os = if stdenv.hostPlatform.isDarwin then "mac" else "linux";
   arch = if stdenv.hostPlatform.isAarch64 then "arm64" else "x86_64";
   backend = if embedded then "cpu" else "cli";
+  common = {
+    inherit (craneLib.crateNameFromCargoToml { inherit src; }) pname version;
+    inherit src;
+    cargoExtraArgs = "--locked" + lib.optionalString embedded " --features embedded-embeddings";
+    strictDeps = true;
+    nativeCheckInputs = [ git ];
+    CFETCH_VARIANT = "${os}-cfetch-${backend}-${arch}";
+    ORT_SKIP_DOWNLOAD = "1";
+    CARGO_BUILD_JOBS = "2";
+    RUST_TEST_THREADS = "1";
+  } // lib.optionalAttrs embedded { ORT_LIB_PATH = "${onnxRuntime}"; };
+  # Cache compiled dependencies by manifests, features and native inputs.
+  # Application source changes still build and test the real crate below.
+  cargoArtifacts = craneLib.buildDepsOnly common;
 in
-rustPlatform.buildRustPackage ({
-  pname = "cfetch";
-  version = (builtins.fromTOML (builtins.readFile (src + "/Cargo.toml"))).package.version;
-  inherit src;
-  cargoLock.lockFile = src + "/Cargo.lock";
-  buildFeatures = lib.optional embedded "embedded-embeddings";
-  checkFeatures = lib.optional embedded "embedded-embeddings";
-  nativeCheckInputs = [ git ];
-  CFETCH_VARIANT = "${os}-cfetch-${backend}-${arch}";
-  ORT_SKIP_DOWNLOAD = "1";
-  CARGO_BUILD_JOBS = "2";
-  RUST_TEST_THREADS = "1";
+craneLib.buildPackage (common // {
+  inherit cargoArtifacts;
   postInstall = ''
     install -Dm644 LICENSE.md "$out/share/licenses/cfetch/LICENSE.md"
     install -Dm644 THIRD-PARTY-LICENSES.txt "$out/share/licenses/cfetch/THIRD-PARTY-LICENSES.txt"
@@ -64,4 +68,4 @@ rustPlatform.buildRustPackage ({
     platforms = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
     mainProgram = "cfetch";
   };
-} // lib.optionalAttrs embedded { ORT_LIB_PATH = "${onnxRuntime}"; })
+})
