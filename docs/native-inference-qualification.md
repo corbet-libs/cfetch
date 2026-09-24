@@ -97,3 +97,44 @@ Focused Crow selectors are `native-governor` and `native-worker`. They exercise
 pure validation, persistent state, owned-child supervision, worker framing and
 pooling, and startup without native libraries. They perform no physical model
 inference and do not lift a host quarantine.
+
+## Staged Rust serving core
+
+`src/native_serving.rs` implements the canonical package adapter's request and
+signed-response core around the governed native worker. It is not reachable from
+the CLI or live `EmbedClient`: its installation constructor fails closed. The
+compiled registry still has no admitted backend or local package. The existing
+CPU index/model is unchanged.
+
+The core checks the exact Gemma tokenizer bytes, explicitly inserts BOS/EOS,
+preserves the caller's already-prefixed text, disables truncation, chooses the
+smallest declared sequence bucket and pads only on the right. It prepares every
+row before doing native work, then groups rows by bucket to avoid repeated
+compiles for alternating shapes. Responses preserve input row order, exact scope and
+profile identity, and use the existing Ed25519 challenge format. The native graph
+must expose the complete Gemma mean-pooling and dense projection pipeline as the
+`embedding` output; a last-token or raw-hidden-state graph is not interchangeable.
+
+One compiled worker may be cached, bound to scope, native identity, complete
+compile recipe and bucket. Changing that key requires confirmed termination.
+Every compile and inference uses the installed host governor and its existing
+resource ceiling. A typed controlled failure may disable one scope only after
+durable failure evidence, confirmed child death and lease completion. All current
+production worker failures are hard errors. Any uncertain operation latches the
+entire core, including CPU, rather than trying another scope. Hard failures also
+stop any idle cached worker; a failed stop retains its owner and permits no
+further work.
+
+Fixture-only tests cover text/token/shape boundaries, signed response tampering,
+ordered rows, whole-batch refusal, controlled-versus-hard failure propagation and
+compiled-worker ownership. They do not qualify native model outputs, tokenizer
+parity, batching performance, physical accelerators or another architecture.
+
+Before this can serve production requests, the retained package manifest,
+artifact inventory, host/runtime dependency closure and scope-key validation
+must be faithfully ported into the native installation loader. The existing
+supervised loopback HTTP contract must then be wired to this core (including
+bounded authenticated requests and parent-lifeline shutdown), followed by the
+full canonical tokenizer/graph/long-input/batch/cohort qualification. These are
+required remaining stages; no diagnostic or fixture result substitutes for
+admission or the operator's model/index migration decision.

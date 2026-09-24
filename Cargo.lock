@@ -441,6 +441,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "tempfile",
+ "tokenizers",
  "tokio",
  "toml_edit 0.25.15+spec-1.1.0",
  "tree-sitter",

@@ -2,7 +2,7 @@
 //! Only the operating-system control channel is exposed: a protected Unix
 //! socket, or authenticated loopback IPC on Windows. Git owns sharing.
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};

@@ -98,6 +98,7 @@ for check in "$@"; do
       cargo test --locked --features native-openvino --bin cfetch inference_governor::tests
       cargo test --locked --features native-openvino --bin cfetch native_worker::tests
       cargo test --locked --features native-openvino --bin cfetch native_adapter::tests
+      cargo test --locked --features native-openvino --bin cfetch native_serving::tests
       cargo test --locked --features native-openvino --test native_worker_cli
       cargo clippy --locked --features native-openvino --bin cfetch -- -D warnings
       ;;

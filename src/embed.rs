@@ -376,10 +376,10 @@ struct EmbeddedBatch {
 /// prevents a compact nested array from amplifying into unbounded typed
 /// allocations before shape validation runs.
 #[derive(Debug)]
-struct BoundedVec<T, const MAX: usize>(Vec<T>);
+pub(crate) struct BoundedVec<T, const MAX: usize>(Vec<T>);
 
 impl<T, const MAX: usize> BoundedVec<T, MAX> {
-    fn as_slice(&self) -> &[T] {
+    pub(crate) fn as_slice(&self) -> &[T] {
         &self.0
     }
 
@@ -756,6 +756,24 @@ fn validate_execution_scope(
     })
 }
 
+/// The staged native server must use the same compiled admission authority as
+/// its client; a package-provided key or self-description cannot admit itself.
+#[cfg(all(target_os = "linux", feature = "native-openvino"))]
+pub(crate) fn validate_native_serving_scope(
+    scope: &serde_json::Value,
+    requested_scope: &str,
+    public_key: &str,
+) -> anyhow::Result<()> {
+    let scope = serde_json::from_value(scope.clone())
+        .context("decode native serving execution scope")?;
+    let admitted = validate_execution_scope(Some(scope), Some(requested_scope))?;
+    anyhow::ensure!(
+        admitted.attestation_public_key == public_key,
+        "native serving signer differs from the admitted scope key"
+    );
+    Ok(())
+}
+
 fn valid_scope_id(value: &str) -> bool {
     if value.is_empty() || value.len() > 128 {
         return false;
@@ -807,7 +825,7 @@ fn decode_lowercase_hex<const N: usize>(value: &str, field: &str) -> anyhow::Res
     Ok(decoded)
 }
 
-fn attestation_message(nonce: &[u8; 32], request_body: &[u8], response_body: &[u8]) -> Vec<u8> {
+pub(crate) fn attestation_message(nonce: &[u8; 32], request_body: &[u8], response_body: &[u8]) -> Vec<u8> {
     use sha2::Digest as _;
 
     let request_sha256 = sha2::Sha256::digest(request_body);
@@ -820,7 +838,7 @@ fn attestation_message(nonce: &[u8; 32], request_body: &[u8], response_body: &[u
     message
 }
 
-fn verify_execution_signature(
+pub(crate) fn verify_execution_signature(
     public_key_hex: &str,
     signature_hex: &str,
     nonce: &[u8; 32],

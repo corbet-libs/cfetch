@@ -76,6 +76,10 @@ mod memory_eval;
 mod native_adapter;
 #[cfg(all(target_os = "linux", feature = "native-openvino"))]
 mod native_worker;
+// Staged core: no runtime entrypoint until native package closure verification is ported.
+#[cfg(all(target_os = "linux", feature = "native-openvino"))]
+#[allow(dead_code)]
+mod native_serving;
 #[cfg(not(test))]
 mod output;
 mod paths;
