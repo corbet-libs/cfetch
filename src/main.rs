@@ -125,6 +125,16 @@ enum Command {
     },
     #[cfg(all(target_os = "linux", feature = "native-openvino"))]
     #[command(hide = true)]
+    NativeQualifyServe {
+        #[arg(long)]
+        host: String,
+        #[arg(long)]
+        port: u16,
+        #[arg(long)]
+        auth_stdin: bool,
+    },
+    #[cfg(all(target_os = "linux", feature = "native-openvino"))]
+    #[command(hide = true)]
     NativeWorker {
         #[arg(long)]
         parent_pid: u32,
@@ -2466,12 +2476,32 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         #[cfg(all(target_os = "linux", feature = "native-openvino"))]
-        Command::NativeServe { host, port, auth_stdin } => {
+        Command::NativeServe {
+            host,
+            port,
+            auth_stdin,
+        } => {
             if host != "127.0.0.1" || port != 0 || !auth_stdin {
-                eprintln!("native serving requires private stdin authentication and ephemeral IPv4 loopback");
+                eprintln!(
+                    "native serving requires private stdin authentication and ephemeral IPv4 loopback"
+                );
                 std::process::exit(1);
             }
-            native_http::run_stdio()
+            native_http::run_stdio(native_http::ServeMode::Production)
+        }
+        #[cfg(all(target_os = "linux", feature = "native-openvino"))]
+        Command::NativeQualifyServe {
+            host,
+            port,
+            auth_stdin,
+        } => {
+            if host != "127.0.0.1" || port != 0 || !auth_stdin {
+                eprintln!(
+                    "native qualification requires private stdin authentication and ephemeral IPv4 loopback"
+                );
+                std::process::exit(1);
+            }
+            native_http::run_stdio(native_http::ServeMode::Qualification)
         }
         #[cfg(all(target_os = "linux", feature = "native-openvino"))]
         Command::NativeWorker { parent_pid } => {

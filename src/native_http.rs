@@ -37,6 +37,7 @@ const SIGNATURE_HEADER: &str = "x-cfetch-attestation-signature";
 pub(crate) struct StartupPermit {
     schema_version: u32,
     bearer: String,
+    pub(crate) purpose: crate::native_manifest::PackagePurpose,
     pub(crate) package_manifest_sha256: String,
     pub(crate) ordered_scope_ids: Vec<String>,
 }
@@ -57,7 +58,7 @@ impl StartupPermit {
         // A derived struct rejects duplicate fields, unlike a generic JSON map.
         let permit: Self =
             serde_json::from_slice(raw).map_err(|_| anyhow::anyhow!("invalid startup permit"))?;
-        ensure!(permit.schema_version == 2, "unsupported startup schema");
+        ensure!(permit.schema_version == 3, "unsupported startup schema");
         ensure!(lower_hex(&permit.bearer, 32), "invalid startup bearer");
         ensure!(
             lower_hex(&permit.package_manifest_sha256, 32),
@@ -560,8 +561,15 @@ async fn serve<S: Service>(
 
 /// This entry point owns an entire supervised adapter process. It never
 /// returns to a caller that could accidentally keep an uncertain core alive.
-pub(crate) fn run_stdio() -> ! {
-    run_stdio_with(NativeService::from_startup)
+pub(crate) enum ServeMode {
+    Production,
+    Qualification,
+}
+pub(crate) fn run_stdio(mode: ServeMode) -> ! {
+    match mode {
+        ServeMode::Production => run_stdio_with(NativeService::from_startup),
+        ServeMode::Qualification => run_stdio_with(NativeService::from_qualification_startup),
+    }
 }
 
 fn run_stdio_with<S: Service>(load: impl FnOnce(&StartupPermit) -> anyhow::Result<S>) -> ! {
@@ -628,7 +636,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     fn permit_bytes() -> Vec<u8> {
-        let mut raw = serde_json::to_vec(&serde_json::json!({"schema_version":2,"bearer":"a".repeat(64),"package_manifest_sha256":"b".repeat(64),"ordered_scope_ids":["cpu"]})).unwrap();
+        let mut raw = serde_json::to_vec(&serde_json::json!({"schema_version":3,"purpose":"production","bearer":"a".repeat(64),"package_manifest_sha256":"b".repeat(64),"ordered_scope_ids":["cpu"]})).unwrap();
         raw.push(b'\n');
         raw
     }
@@ -658,7 +666,8 @@ mod tests {
         );
         let good: serde_json::Value = serde_json::from_slice(&permit_bytes()).unwrap();
         for (key, value) in [
-            ("schema_version", serde_json::json!(1)),
+            ("schema_version", serde_json::json!(2)),
+            ("purpose", serde_json::json!("release")),
             ("bearer", serde_json::json!("A".repeat(64))),
             ("package_manifest_sha256", serde_json::json!("bad")),
             ("ordered_scope_ids", serde_json::json!(["cpu", "cpu"])),

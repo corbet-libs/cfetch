@@ -26,9 +26,31 @@ const MAX_FILES: usize = 4096;
 const MAX_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const POLICY_FILE: &str = "/var/lib/cfetch/inference/policy.json";
 
+/// The invocation selects one exact lifecycle state; it never relaxes admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum PackagePurpose {
+    Production,
+    QualificationProbe,
+    QualificationCandidate,
+}
+impl PackagePurpose {
+    fn state(self) -> &'static str {
+        match self {
+            Self::Production => "release",
+            Self::QualificationProbe => "physical-probe",
+            Self::QualificationCandidate => "candidate",
+        }
+    }
+    pub(crate) fn qualification(self) -> bool {
+        self != Self::Production
+    }
+}
+
 pub(crate) struct VerifiedScope {
     pub(crate) id: String,
     pub(crate) execution: Value,
+    pub(crate) actual_host: Value,
     pub(crate) identity: Identity,
     pub(crate) compile: Operation,
     pub(crate) signer: ed25519_dalek::SigningKey,
@@ -618,7 +640,7 @@ fn measured(path: &Path, expected: &str) -> anyhow::Result<PinnedFile> {
     Ok(file)
 }
 
-fn host(value: &Value) -> anyhow::Result<(Vec<PinnedFile>, String)> {
+fn host(value: &Value) -> anyhow::Result<(Vec<PinnedFile>, String, Value)> {
     let doc = object(value, &["system", "machine", "kernel_release", "files"])?;
     let uname = rustix::system::uname();
     ensure!(
@@ -679,9 +701,14 @@ fn host(value: &Value) -> anyhow::Result<(Vec<PinnedFile>, String)> {
             "host closure lacks resolved {soname}"
         );
     }
+    // Every file was hashed above and uname was measured on this host.
+    let actual = json!({"system":uname.sysname().to_str()?, "machine":uname.machine().to_str()?,
+        "kernel_release":uname.release().to_str()?, "files":files.iter().map(|file|
+            json!({"path":file.path,"sha256":file.sha256})).collect::<Vec<_>>()});
     Ok((
         files,
         policy.context("host closure must pin the installed governor policy")?,
+        actual,
     ))
 }
 
@@ -828,6 +855,37 @@ fn permitted_scopes(entries: &[Value], ordered: &[String]) -> anyhow::Result<()>
 }
 
 fn load(root: &Path, expected: &str, ordered: &[String]) -> anyhow::Result<VerifiedPackage> {
+    load_for_purpose(root, expected, ordered, PackagePurpose::Production)
+}
+
+fn evidence_for_purpose(entry: &Map<String, Value>, purpose: PackagePurpose) -> anyhow::Result<()> {
+    for field in [
+        "placement_evidence_sha256",
+        "sequence_capability_evidence_sha256",
+        "performance_evidence_sha256",
+        "compatibility_report_sha256",
+    ] {
+        let required = purpose == PackagePurpose::Production
+            || (purpose == PackagePurpose::QualificationCandidate
+                && field != "compatibility_report_sha256");
+        if required {
+            hash(entry, field)?;
+        } else {
+            ensure!(
+                entry[field].is_null(),
+                "qualification state has premature evidence binding"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn load_for_purpose(
+    root: &Path,
+    expected: &str,
+    ordered: &[String],
+    purpose: PackagePurpose,
+) -> anyhow::Result<VerifiedPackage> {
     ensure!(
         root.is_absolute()
             && std::fs::canonicalize(root)?.as_os_str() == root.as_os_str()
@@ -866,8 +924,8 @@ fn load(root: &Path, expected: &str, ordered: &[String]) -> anyhow::Result<Verif
         ],
     )?;
     ensure!(
-        count(doc, "schema_version")? == 2 && string(doc, "package_state")? == "release",
-        "native serving requires an exact release package"
+        count(doc, "schema_version")? == 2 && string(doc, "package_state")? == purpose.state(),
+        "native invocation requires its exact package lifecycle state"
     );
     for (key, value) in [
         ("profile_id", profile::PROFILE_ID),
@@ -945,14 +1003,7 @@ fn load(root: &Path, expected: &str, ordered: &[String]) -> anyhow::Result<Verif
                 && entry["accelerated_placement"] == true,
             "native scope lacks the full admitted shape/placement contract"
         );
-        for field in [
-            "placement_evidence_sha256",
-            "sequence_capability_evidence_sha256",
-            "performance_evidence_sha256",
-            "compatibility_report_sha256",
-        ] {
-            hash(entry, field)?;
-        }
+        evidence_for_purpose(entry, purpose)?;
         let compile = object(&entry["native_compile"], &["precision", "threads"])?;
         let precision: Precision = serde_json::from_value(compile["precision"].clone())?;
         ensure!(
@@ -961,7 +1012,7 @@ fn load(root: &Path, expected: &str, ordered: &[String]) -> anyhow::Result<Verif
         );
         let threads = u32::try_from(count(compile, "threads")?)?;
         let execution = execution_expectation(entry, device)?;
-        let (host_files, policy) = host(&entry["required_host"])?;
+        let (host_files, policy, actual_host) = host(&entry["required_host"])?;
         if let Some(expected) = &policy_sha256 {
             ensure!(
                 expected == &policy,
@@ -1013,7 +1064,7 @@ fn load(root: &Path, expected: &str, ordered: &[String]) -> anyhow::Result<Verif
         }
         .validate()?;
         let mut attestation = Map::new();
-        attestation.insert("package_state".into(), "release".into());
+        attestation.insert("package_state".into(), purpose.state().into());
         for field in EXECUTION_FIELDS {
             attestation.insert((*field).into(), entry[*field].clone());
         }
@@ -1030,6 +1081,7 @@ fn load(root: &Path, expected: &str, ordered: &[String]) -> anyhow::Result<Verif
         scopes.push(VerifiedScope {
             id: id.into(),
             execution: Value::Object(attestation),
+            actual_host,
             identity,
             compile,
             signer,
@@ -1091,14 +1143,33 @@ pub(crate) fn validate_parent(
 pub(crate) fn from_startup(
     permit: &crate::native_http::StartupPermit,
 ) -> anyhow::Result<VerifiedPackage> {
+    ensure!(
+        permit.purpose == PackagePurpose::Production,
+        "production startup refuses qualification purpose"
+    );
+    load_sibling(permit)
+}
+
+pub(crate) fn from_qualification_startup(
+    permit: &crate::native_http::StartupPermit,
+) -> anyhow::Result<VerifiedPackage> {
+    ensure!(
+        permit.purpose.qualification(),
+        "qualification startup refuses production purpose"
+    );
+    load_sibling(permit)
+}
+
+fn load_sibling(permit: &crate::native_http::StartupPermit) -> anyhow::Result<VerifiedPackage> {
     let executable = std::env::current_exe()?;
     let root = executable
         .parent()
         .context("native sibling has no payload directory")?;
-    let package = load(
+    let package = load_for_purpose(
         root,
         &permit.package_manifest_sha256,
         &permit.ordered_scope_ids,
+        permit.purpose,
     )?;
     ensure!(
         package.dispatcher.path == executable,
@@ -1112,6 +1183,31 @@ pub(crate) fn from_startup(
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt as _;
+
+    #[test]
+    fn qualification_purposes_require_exact_evidence_lifecycle() {
+        let fields = [
+            "placement_evidence_sha256",
+            "sequence_capability_evidence_sha256",
+            "performance_evidence_sha256",
+            "compatibility_report_sha256",
+        ];
+        let mut entry = Map::new();
+        for field in fields {
+            entry.insert(field.into(), Value::Null);
+        }
+        assert!(evidence_for_purpose(&entry, PackagePurpose::QualificationProbe).is_ok());
+        assert!(evidence_for_purpose(&entry, PackagePurpose::Production).is_err());
+        assert!(evidence_for_purpose(&entry, PackagePurpose::QualificationCandidate).is_err());
+        for field in &fields[..3] {
+            entry.insert((*field).into(), "a".repeat(64).into());
+        }
+        assert!(evidence_for_purpose(&entry, PackagePurpose::QualificationCandidate).is_ok());
+        assert!(evidence_for_purpose(&entry, PackagePurpose::QualificationProbe).is_err());
+        entry.insert(fields[3].into(), "b".repeat(64).into());
+        assert!(evidence_for_purpose(&entry, PackagePurpose::Production).is_ok());
+        assert!(evidence_for_purpose(&entry, PackagePurpose::QualificationCandidate).is_err());
+    }
 
     fn payload() -> (tempfile::TempDir, PathBuf) {
         let temporary = tempfile::tempdir().unwrap();

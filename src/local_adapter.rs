@@ -269,7 +269,7 @@ fn spawn_adapter(
     let startup: anyhow::Result<(ChildStdin, ReadyLine)> = (|| {
         let mut stdin = child.stdin.take().context("adapter stdin was not piped")?;
         let secret_line = serde_json::to_vec(&serde_json::json!({
-            "schema_version": 2, "bearer": bearer,
+            "schema_version": 3, "purpose": "production", "bearer": bearer,
             "package_manifest_sha256": launch.package_manifest_sha256,
             "ordered_scope_ids": launch.ordered_scope_ids,
         }))?;
@@ -617,8 +617,9 @@ mod tests {
         supervisor.endpoint().unwrap();
         let raw = std::fs::read(directory.path().join("fake-adapter.permit")).unwrap();
         let permit: serde_json::Value = serde_json::from_slice(&raw).unwrap();
-        assert_eq!(permit.as_object().unwrap().len(), 4);
-        assert_eq!(permit["schema_version"], 2);
+        assert_eq!(permit.as_object().unwrap().len(), 5);
+        assert_eq!(permit["schema_version"], 3);
+        assert_eq!(permit["purpose"], "production");
         assert_eq!(permit["package_manifest_sha256"], expected);
         assert_eq!(
             permit["ordered_scope_ids"],

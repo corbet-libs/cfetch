@@ -68,7 +68,7 @@ OpenVINO properties/device. `native_compile` replaces the unrestricted Python
 compile map with exactly `precision` and `threads`. Gemma compute accepts F32 or
 BF16; F16 is permitted only as artifact weight storage. Full 2048-token,
 seven-bucket, 64-row cohort support remains required, with NPU/GPU/CPU scopes in
-that order. No null evidence or candidate/probe scope enters serving.
+that order. Production serving requires release state and complete evidence. Qualification uses the separate `native-qualify-serve` entrypoint with the same closure, core and governor. Its signed responses retain physical-probe or candidate state and cannot enter normal client admission.
 
 Host bindings pin Linux/x86_64/kernel release and exact regular dependencies
 under declared library directories (including Nix store paths), plus the
@@ -101,3 +101,18 @@ files live under the existing user's cfetch state owner; persistent governor
 intent and its explicit recovery rules remain authoritative. A timeout, crash,
 malformed response, invalid signature, or uncertain cleanup never causes CPU
 fallback or an automatic native restart.
+
+## Qualification purpose and runtime evidence
+
+The private startup frame is schema 3 and requires `purpose`: `production`,
+`qualification-probe`, or `qualification-candidate`. Production `native-serve`
+accepts only the first purpose and an exact release package. The separate
+qualification entrypoint accepts only the latter purposes and the corresponding
+physical-probe or candidate manifest. No command-line state override exists.
+
+Both entrypoints sign the validated worker's actual execution properties and
+execution devices for each used bucket, with measured host/kernel/dependency
+identity. Bucket evidence is sorted while vector rows retain request order.
+Qualification requires explicitly supplied evidence-backed device bindings;
+a governed discovery helper remains a qualification prerequisite where those
+bindings are unavailable. No Python runtime or ungoverned enumeration is used.

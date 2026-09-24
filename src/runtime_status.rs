@@ -891,18 +891,31 @@ fn safe_maintenance_activity(value: &str) -> Option<String> {
     matches!(value, "proposal" | "review").then(|| value.to_string())
 }
 
-pub fn record_inference_attempt(
+/// Record an actual backend outcome. A typed input refusal happens before
+/// execution and cannot establish that the selected backend failed or recovered.
+/// Its error and incomplete vector coverage remain visible to the caller.
+pub fn record_inference_result<T>(
     configured: InferenceMode,
     route: InferenceRoute,
     backend: &str,
     device_class: Option<&str>,
-    success: bool,
+    result: &anyhow::Result<T>,
 ) {
+    let Some(success) = inference_execution_outcome(result) else {
+        return;
+    };
     let backend = safe_backend_label(backend);
     let device_class = device_class.and_then(safe_device_label);
     let _ = update(|status| {
         apply_inference_attempt(status, configured, route, backend, device_class, success)
     });
+}
+
+fn inference_execution_outcome<T>(result: &anyhow::Result<T>) -> Option<bool> {
+    match result {
+        Err(error) if error.downcast_ref::<crate::embed::InputRefusal>().is_some() => None,
+        outcome => Some(outcome.is_ok()),
+    }
 }
 
 pub fn record_maintenance_attempt(route: InferenceRoute, activity: &str, success: bool) {
@@ -1597,6 +1610,53 @@ mod tests {
         assert_eq!(status.memory_route.last_answer.observed_at, Some(123));
         assert_eq!(status.memory_route.last_answer.state, FreshnessState::Fresh);
         assert_eq!(status.service.state, ServiceState::Unavailable);
+    }
+
+    #[test]
+    fn input_refusal_preserves_the_last_actual_backend_outcome() {
+        for prior_success in [true, false] {
+            let mut status = RuntimeStatusV1::default();
+            apply_inference_attempt(
+                &mut status,
+                InferenceMode::Local,
+                InferenceRoute::Local,
+                "other".into(),
+                Some("cpu".into()),
+                prior_success,
+            );
+            let before = serde_json::to_value(&status).unwrap();
+            let refusal: anyhow::Result<()> = Err(anyhow::Error::new(crate::embed::InputRefusal {
+                token_count: crate::embedding_profile::MAX_TOKENS + 1,
+            })
+            .context("background document embedding"));
+            if let Some(success) = inference_execution_outcome(&refusal) {
+                apply_inference_attempt(
+                    &mut status,
+                    InferenceMode::Local,
+                    InferenceRoute::Local,
+                    "other".into(),
+                    Some("cpu".into()),
+                    success,
+                );
+            }
+            assert_eq!(serde_json::to_value(&status).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn only_typed_input_refusal_is_excluded_from_execution_telemetry() {
+        assert_eq!(
+            inference_execution_outcome(&Ok::<_, anyhow::Error>(())),
+            Some(true)
+        );
+        let refusal_text = crate::embed::InputRefusal {
+            token_count: crate::embedding_profile::MAX_TOKENS + 1,
+        }
+        .to_string();
+        for message in ["model execution failed", refusal_text.as_str()] {
+            let failure: anyhow::Result<()> = Err(anyhow::anyhow!("{message}"));
+            assert_eq!(inference_execution_outcome(&failure), Some(false));
+        }
     }
 
     #[test]

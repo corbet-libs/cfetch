@@ -235,7 +235,12 @@ fn cached_local_backend_state(
     match outcome {
         Ok(state) => {
             let _ = cache.set(Ok(std::sync::Arc::clone(&state)));
-            Ok(state)
+            // Another first caller may have won publication while we checked
+            // the closure. Every caller must return that same owner; the
+            // unpublished loser has never started a child and drops here.
+            cache.get().context("native supervisor cache publication failed")?
+                .as_ref().map(std::sync::Arc::clone)
+                .map_err(|error| anyhow::anyhow!("initialize package-local adapter: {error}"))
         }
         Err(error) => {
             // Do NOT cache the failure; the next query retries the launch.
@@ -349,8 +354,19 @@ pub struct EmbedClient {
     doc_prefix: String,
 }
 
+#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum WirePackageState {
+    Release,
+    PhysicalProbe,
+    Candidate,
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct WireExecutionScope {
+    // Remote attestations do not describe a local package. Supervised local
+    // producers must explicitly bind release state; omission is refused below.
+    package_state: Option<WirePackageState>,
     scope_id: String,
     transport: crate::embedding_profile::ExecutionTransport,
     backend: String,
@@ -669,6 +685,12 @@ fn validate_execution_scope(
         scope.transport.as_str(),
         expected_transport.as_str()
     );
+    if scope.transport == crate::embedding_profile::ExecutionTransport::SupervisedLocal {
+        anyhow::ensure!(
+            scope.package_state == Some(WirePackageState::Release),
+            "supervised local inference requires explicit release package_state; qualification output is forbidden"
+        );
+    }
     anyhow::ensure!(
         matches!(scope.device_class.as_str(), "npu" | "gpu" | "cpu"),
         "embedding producer attested invalid device class {:?}",
@@ -1081,12 +1103,12 @@ impl EmbedClient {
                 .lock()
                 .map_err(|_| anyhow::anyhow!("local model poisoned"))?
                 .embed(texts);
-            crate::runtime_status::record_inference_attempt(
+            crate::runtime_status::record_inference_result(
                 crate::runtime_status::InferenceMode::Local,
                 crate::runtime_status::InferenceRoute::Local,
                 "fastembed-ort-cpu",
                 Some("cpu"),
-                result.is_ok(),
+                &result,
             );
             return result;
         }
@@ -1113,15 +1135,15 @@ impl EmbedClient {
                     ),
                     None => ("endpoint", None),
                 };
-                crate::runtime_status::record_inference_attempt(
+                crate::runtime_status::record_inference_result(
                     mode,
                     route,
                     backend,
                     device_class,
-                    true,
+                    &result,
                 );
             }
-            Err(_) => crate::runtime_status::record_inference_attempt(
+            Err(_) => crate::runtime_status::record_inference_result(
                 mode,
                 route,
                 if self.model == crate::embedding_profile::MODEL {
@@ -1130,7 +1152,7 @@ impl EmbedClient {
                     "endpoint"
                 },
                 None,
-                false,
+                &result,
             ),
         }
         result.map(|batch| batch.vectors)
@@ -2107,6 +2129,35 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn concurrent_first_local_clients_share_one_supervised_owner() {
+        use sha2::Digest as _;
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir().unwrap();
+        let binary = directory.path().join("fixture");
+        let package_manifest = directory.path().join("package-manifest.json");
+        std::fs::write(&binary,b"#!/bin/sh\nexit 1\n").unwrap();
+        std::fs::set_permissions(&binary,std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(&package_manifest,b"{}").unwrap();
+        let hash = |path: &std::path::Path| crate::hashing::hex_lower(sha2::Sha256::digest(std::fs::read(path).unwrap()));
+        let launch = crate::local_adapter::AdapterLaunch {sha256:hash(&binary),binary,
+            package_manifest_sha256:hash(&package_manifest),package_manifest,ordered_scope_ids:vec!["cpu".into()]};
+        let cache = std::sync::OnceLock::new();
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| cached_local_backend_state(&cache,launch.clone(),|| {
+                barrier.wait(); Ok(std::time::Duration::from_secs(2))
+            }).unwrap());
+            let second = scope.spawn(|| cached_local_backend_state(&cache,launch.clone(),|| {
+                barrier.wait(); Ok(std::time::Duration::from_secs(3))
+            }).unwrap());
+            let first = first.join().unwrap();
+            let second = second.join().unwrap();
+            assert!(std::sync::Arc::ptr_eq(&first,&second),"concurrent creation must not publish two native owners");
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn native_transport_and_invalid_responses_latch_without_cpu_fallback() {
         use sha2::Digest as _;
         use std::os::unix::fs::PermissionsExt as _;
@@ -2472,6 +2523,7 @@ mod tests {
     fn profile_strings_cannot_self_admit_an_execution_scope() {
         let error = validate_execution_scope(
             Some(WireExecutionScope {
+                package_state: Some(WirePackageState::Release),
                 scope_id: "unreviewed-scope".into(),
                 transport: crate::embedding_profile::ExecutionTransport::RemoteAttested,
                 backend: "candidate-runtime".into(),
@@ -2502,6 +2554,7 @@ mod tests {
 
         let error = validate_execution_scope(
             Some(WireExecutionScope {
+                package_state: Some(WirePackageState::Release),
                 scope_id: "intel-lunar-lake-cpu-openvino-v1".into(),
                 transport: crate::embedding_profile::ExecutionTransport::SupervisedLocal,
                 backend: "openvino".into(),
@@ -2532,6 +2585,7 @@ mod tests {
 
         let error = validate_execution_scope(
             Some(WireExecutionScope {
+                package_state: Some(WirePackageState::Release),
                 scope_id: "unaccelerated".into(),
                 transport: crate::embedding_profile::ExecutionTransport::RemoteAttested,
                 backend: "candidate-runtime".into(),
