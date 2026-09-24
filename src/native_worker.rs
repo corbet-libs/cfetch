@@ -5,12 +5,13 @@
 use anyhow::{Context as _, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
+use std::collections::BTreeMap;
 use std::io::{BufRead as _, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use crate::inference_governor::Device;
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 pub const MAX_COMMAND_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 128 * 1024;
 const MAX_TOKENS: usize = 32768;
@@ -44,6 +45,143 @@ pub struct Identity {
     pub output_name: String,
     pub pooling: Pooling,
     pub dimensions: usize,
+    pub execution: ExecutionExpectation,
+}
+
+/// Physical properties belong to the admitted scope, never to runtime
+/// discovery or a free-form AUTO device request. Numeric C-API properties are
+/// canonical decimal strings; the package loader preserves their typed source.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionExpectation {
+    #[serde(deserialize_with = "unique_properties")]
+    pub properties: BTreeMap<String, String>,
+    pub devices: Vec<String>,
+}
+
+fn unique_properties<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = BTreeMap<String, String>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("at most four unique device property strings")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
+            let mut result = BTreeMap::new();
+            while let Some((key, value)) = map.next_entry()? {
+                if result.len() == 4 || result.insert(key, value).is_some() {
+                    return Err(serde::de::Error::custom(
+                        "duplicate or excess device property",
+                    ));
+                }
+            }
+            Ok(result)
+        }
+    }
+    deserializer.deserialize_map(Visitor)
+}
+
+impl ExecutionExpectation {
+    pub fn validate(&self, device: Device) -> anyhow::Result<()> {
+        let mut names = vec!["DEVICE_ARCHITECTURE", "FULL_DEVICE_NAME"];
+        match device {
+            Device::Cpu => (),
+            Device::Gpu => names.extend(["GPU_DEVICE_ID", "GPU_UARCH_VERSION"]),
+            Device::Npu => names.extend(["NPU_COMPILER_VERSION", "NPU_DRIVER_VERSION"]),
+        }
+        names.sort_unstable();
+        ensure!(
+            self.properties.keys().map(String::as_str).eq(names),
+            "scope property keys do not match its device class"
+        );
+        for (name, value) in &self.properties {
+            ensure!(identifier(value, 4096), "invalid expected device property");
+            if name.starts_with("NPU_") {
+                let integer: i128 = value
+                    .parse()
+                    .context("NPU version property must be an integer")?;
+                ensure!(
+                    integer >= i128::from(i64::MIN)
+                        && integer <= i128::from(u64::MAX)
+                        && integer.to_string() == *value,
+                    "noncanonical NPU version property"
+                );
+            }
+        }
+        ensure!(
+            self.devices.len() == 1 && execution_devices(&self.devices[0], device)? == self.devices,
+            "scope must bind one exact physical execution device"
+        );
+        Ok(())
+    }
+
+    pub fn verify(
+        &self,
+        properties: &BTreeMap<String, String>,
+        devices: &[String],
+    ) -> anyhow::Result<()> {
+        ensure!(
+            &self.properties == properties,
+            "native device properties differ from the admitted scope"
+        );
+        ensure!(
+            self.devices == devices,
+            "native execution device differs from the admitted scope"
+        );
+        Ok(())
+    }
+}
+
+/// A file in the immutable package or explicit host dependency closure. The
+/// native worker verifies all entries while its parent holds the compile lease.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PinnedFile {
+    pub path: PathBuf,
+    pub sha256: String,
+    pub bytes: u64,
+    pub executable: bool,
+}
+
+impl PinnedFile {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        ensure!(
+            self.path.is_absolute()
+                && self.path.to_str().is_some_and(|s| identifier(s, 4096))
+                && self.path.components().all(|part| matches!(
+                    part,
+                    std::path::Component::RootDir | std::path::Component::Normal(_)
+                )),
+            "closure file path is not canonical and absolute"
+        );
+        ensure!(
+            valid_hash(&self.sha256) && (1..=32 * 1024 * 1024 * 1024).contains(&self.bytes),
+            "invalid pinned closure file digest or size"
+        );
+        Ok(())
+    }
+    pub fn verify(&self) -> anyhow::Result<()> {
+        use std::os::unix::fs::PermissionsExt as _;
+        self.validate()?;
+        ensure!(
+            self.path.canonicalize()?.as_os_str() == self.path.as_os_str(),
+            "pinned closure path contains a symlink or noncanonical component"
+        );
+        let metadata = std::fs::symlink_metadata(&self.path)?;
+        ensure!(
+            metadata.is_file()
+                && metadata.len() == self.bytes
+                && (metadata.permissions().mode() & 0o111 != 0) == self.executable,
+            "pinned closure file type, size or mode changed"
+        );
+        verify_file(&self.path, &self.sha256, self.bytes)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -54,6 +192,9 @@ pub enum Operation {
         weights_path: Option<PathBuf>,
         runtime_library_path: PathBuf,
         runtime_library_sha256: String,
+        plugin_library_path: PathBuf,
+        plugin_library_sha256: String,
+        closure: Vec<PinnedFile>,
         bucket: usize,
         precision: Precision,
         threads: u32,
@@ -83,6 +224,8 @@ pub struct Response {
     pub identity: Option<Identity>,
     pub runtime_build: Option<String>,
     pub execution_devices: Vec<String>,
+    #[serde(deserialize_with = "unique_properties")]
+    pub execution_properties: BTreeMap<String, String>,
     pub output: Option<Vec<f32>>,
     pub error: Option<WorkerFailure>,
 }
@@ -147,6 +290,7 @@ impl Command {
             "invalid request identity"
         );
         let id = &self.identity;
+        id.execution.validate(id.device)?;
         ensure!(
             valid_hash(&id.model_sha256) && valid_hash(&id.pipeline_sha256),
             "invalid artifact or pipeline digest"
@@ -167,6 +311,9 @@ impl Command {
             weights_path,
             runtime_library_path,
             runtime_library_sha256,
+            plugin_library_path,
+            plugin_library_sha256,
+            closure,
             bucket,
             threads,
             ..
@@ -185,10 +332,54 @@ impl Command {
                 "weights path and digest must be paired"
             );
             ensure!(
-                valid_hash(runtime_library_sha256),
-                "invalid native runtime digest"
+                valid_hash(runtime_library_sha256) && valid_hash(plugin_library_sha256),
+                "invalid native runtime or plugin digest"
             );
-            for path in [model_path, runtime_library_path]
+            ensure!(
+                (1..=4096).contains(&closure.len()),
+                "native closure file count outside bounds"
+            );
+            let mut paths = std::collections::BTreeSet::new();
+            let mut total = 0u64;
+            for file in closure {
+                file.validate()?;
+                ensure!(paths.insert(&file.path), "duplicate pinned closure path");
+                total = total
+                    .checked_add(file.bytes)
+                    .context("closure byte count overflow")?;
+                ensure!(
+                    total <= 64 * 1024 * 1024 * 1024,
+                    "native closure exceeds byte limit"
+                );
+            }
+            for (path, hash, maximum) in [
+                (model_path, &id.model_sha256, 16 * 1024 * 1024 * 1024),
+                (
+                    runtime_library_path,
+                    runtime_library_sha256,
+                    512 * 1024 * 1024,
+                ),
+                (
+                    plugin_library_path,
+                    plugin_library_sha256,
+                    1024 * 1024 * 1024,
+                ),
+            ]
+            .into_iter()
+            .chain(
+                weights_path
+                    .iter()
+                    .zip(id.weights_sha256.iter())
+                    .map(|(path, hash)| (path, hash, 32 * 1024 * 1024 * 1024)),
+            ) {
+                ensure!(
+                    closure.iter().any(|file| &file.path == path
+                        && &file.sha256 == hash
+                        && file.bytes <= maximum),
+                    "native graph, weights, C runtime and device plugin must be bound in the full closure"
+                );
+            }
+            for path in [model_path, runtime_library_path, plugin_library_path]
                 .into_iter()
                 .chain(weights_path.iter())
             {
@@ -218,7 +409,16 @@ impl Command {
 /// memory. The parent has already verified the complete artifact manifest,
 /// including external ONNX references; this confirms the named files again.
 fn verify_file(path: &Path, expected: &str, maximum: u64) -> anyhow::Result<()> {
-    let mut file = std::fs::File::open(path).context("open pinned native artifact")?;
+    let descriptor = rustix::fs::open(
+        path,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::NONBLOCK
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )
+    .context("open pinned native artifact")?;
+    let mut file = std::fs::File::from(descriptor);
     let metadata = file.metadata()?;
     ensure!(
         metadata.is_file() && metadata.len() > 0 && metadata.len() <= maximum,
@@ -376,6 +576,181 @@ fn pool(
     Ok(result)
 }
 
+/// Reject inherited configuration that can replace the audited runtime or
+/// redirect plugin discovery. Values are never included in diagnostics.
+fn loader_override(name: &str) -> bool {
+    name.starts_with("LD_")
+        || name.starts_with("DYLD_")
+        || name.starts_with("OPENVINO_")
+        || name.starts_with("OCL_ICD_")
+        || matches!(
+            name,
+            "NIX_LD"
+                | "NIX_LD_LIBRARY_PATH"
+                | "GLIBC_TUNABLES"
+                | "OPENCL_VENDOR_PATH"
+                | "ZE_ENABLE_ALT_DRIVERS"
+        )
+}
+
+pub(crate) fn reject_loader_overrides() -> anyhow::Result<()> {
+    for (name, _) in std::env::vars_os() {
+        if let Some(name) = name.to_str() {
+            ensure!(
+                !loader_override(name),
+                "ambient native loader override is forbidden: {name}"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn plugin_configuration(device: Device, path: &Path) -> anyhow::Result<String> {
+    let path = path.to_str().context("plugin path is not UTF-8")?;
+    ensure!(
+        Path::new(path).is_absolute() && identifier(path, 4096),
+        "plugin path is not absolute and bounded"
+    );
+    let escaped = path
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    let device = match device {
+        Device::Cpu => "CPU",
+        Device::Gpu => "GPU",
+        Device::Npu => "NPU",
+    };
+    Ok(format!(
+        "<ie><plugins><plugin name=\"{device}\" location=\"{escaped}\"/></plugins></ie>\n"
+    ))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileIdentity {
+    device: u64,
+    inode: u64,
+    bytes: u64,
+    mode: u32,
+    modified: (i64, i64),
+    changed: (i64, i64),
+}
+impl FileIdentity {
+    fn read(path: &Path) -> anyhow::Result<Self> {
+        use std::os::unix::fs::MetadataExt as _;
+        ensure!(
+            path.canonicalize()?.as_os_str() == path.as_os_str(),
+            "mapped closure path is no longer canonical"
+        );
+        let metadata = std::fs::symlink_metadata(path)?;
+        ensure!(
+            metadata.is_file(),
+            "mapped closure path is no longer a file"
+        );
+        Ok(Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            bytes: metadata.len(),
+            mode: metadata.mode(),
+            modified: (metadata.mtime(), metadata.mtime_nsec()),
+            changed: (metadata.ctime(), metadata.ctime_nsec()),
+        })
+    }
+}
+
+struct ExecutableClosure(BTreeMap<PathBuf, FileIdentity>);
+impl ExecutableClosure {
+    fn capture(files: &[PinnedFile]) -> anyhow::Result<Self> {
+        let mut result = BTreeMap::new();
+        for file in files {
+            let before = FileIdentity::read(&file.path)?;
+            file.verify()?;
+            ensure!(
+                FileIdentity::read(&file.path)? == before,
+                "closure identity changed while hashing"
+            );
+            ensure!(
+                result.insert(file.path.clone(), before).is_none(),
+                "duplicate mapped closure path"
+            );
+        }
+        Ok(Self(result))
+    }
+
+    fn verify(&self) -> anyhow::Result<()> {
+        const MAX_MAPS_BYTES: u64 = 4 * 1024 * 1024;
+        let mut raw = Vec::new();
+        std::fs::File::open("/proc/self/maps")?
+            .take(MAX_MAPS_BYTES + 1)
+            .read_to_end(&mut raw)?;
+        ensure!(
+            raw.len() as u64 <= MAX_MAPS_BYTES,
+            "executable mapping inventory exceeds its bound"
+        );
+        self.verify_text(std::str::from_utf8(&raw).context("mapping inventory is not UTF-8")?)
+    }
+
+    fn verify_text(&self, raw: &str) -> anyhow::Result<()> {
+        ensure!(!raw.is_empty(), "empty executable mapping inventory");
+        for (number, line) in raw.lines().enumerate() {
+            ensure!(number < 32768, "too many process mappings");
+            let mut rest = line;
+            let mut fields = [""; 5];
+            for field in &mut fields {
+                rest = rest.trim_start_matches(|c: char| c.is_ascii_whitespace());
+                let end = rest
+                    .find(|c: char| c.is_ascii_whitespace())
+                    .unwrap_or(rest.len());
+                *field = &rest[..end];
+                ensure!(!field.is_empty(), "incomplete executable mapping record");
+                rest = &rest[end..];
+            }
+            let permissions = fields[1].as_bytes();
+            ensure!(permissions.len() == 4, "invalid mapping permissions");
+            if permissions[2] != b'x' {
+                continue;
+            }
+            let inode: u64 = fields[4].parse().context("invalid mapped inode")?;
+            let path = rest.trim_start_matches(|c: char| c.is_ascii_whitespace());
+            if inode == 0 {
+                // Kernel code pages and anonymous JIT allocations are not file
+                // dependencies. Named/deleted file-backed mappings are not exempt.
+                ensure!(
+                    path.is_empty()
+                        || matches!(path, "[vdso]" | "[vsyscall]")
+                        || (path.starts_with("[anon:") && path.ends_with(']')),
+                    "unknown executable mapping without an inode"
+                );
+                continue;
+            }
+            ensure!(
+                !path.ends_with(" (deleted)")
+                    && !path.contains('\\')
+                    && Path::new(path).is_absolute(),
+                "deleted, escaped or unnamed executable file mapping"
+            );
+            let (major, minor) = fields[3].split_once(':').context("invalid mapped device")?;
+            let major = u32::from_str_radix(major, 16).context("invalid mapped device major")?;
+            let minor = u32::from_str_radix(minor, 16).context("invalid mapped device minor")?;
+            let bound = self
+                .0
+                .get(Path::new(path))
+                .context("executable mapping is outside the audited closure")?;
+            ensure!(
+                bound.inode == inode
+                    && rustix::fs::major(bound.device) == major
+                    && rustix::fs::minor(bound.device) == minor,
+                "executable mapping inode/device differs from the audited closure"
+            );
+            ensure!(
+                FileIdentity::read(Path::new(path))? == *bound,
+                "mapped dependency changed after closure verification"
+            );
+        }
+        Ok(())
+    }
+}
+
 #[cfg(feature = "native-openvino")]
 mod native {
     use super::*;
@@ -387,9 +762,12 @@ mod native {
         compiled: openvino::CompiledModel,
         _model: openvino::Model,
         _core: Core,
+        _plugin_config: tempfile::NamedTempFile,
+        executable_closure: ExecutableClosure,
         pub identity: Identity,
         pub devices: Vec<String>,
         pub runtime_build: String,
+        pub properties: BTreeMap<String, String>,
         bucket: usize,
         input_names: Vec<String>,
     }
@@ -399,7 +777,10 @@ mod native {
                 model_path,
                 weights_path,
                 runtime_library_path,
-                runtime_library_sha256,
+                runtime_library_sha256: _,
+                plugin_library_path,
+                plugin_library_sha256: _,
+                closure,
                 bucket,
                 precision,
                 threads,
@@ -407,27 +788,30 @@ mod native {
             else {
                 anyhow::bail!("expected compile command")
             };
-            verify_file(
-                model_path,
-                &command.identity.model_sha256,
-                16 * 1024 * 1024 * 1024,
+            reject_loader_overrides()?;
+            let executable_closure = ExecutableClosure::capture(closure)?;
+            executable_closure.verify()?;
+            let mut plugin_config = tempfile::NamedTempFile::new()?;
+            plugin_config.write_all(
+                plugin_configuration(command.identity.device, plugin_library_path)?.as_bytes(),
             )?;
-            if let (Some(path), Some(digest)) = (weights_path, &command.identity.weights_sha256) {
-                verify_file(path, digest, 32 * 1024 * 1024 * 1024)?;
-            }
-            verify_file(
-                runtime_library_path,
-                runtime_library_sha256,
-                512 * 1024 * 1024,
-            )?;
+            plugin_config.as_file().sync_all()?;
             // This is the first native call. The parent must hold its compile
             // lease before sending this command, including runtime/model loading.
             // Loading the exact file first prevents discovery of another system
-            // runtime; Core::new reuses the already-loaded official binding.
+            // runtime; Core::new_with_config reuses the already-loaded binding.
             openvino_sys::library::load_from(runtime_library_path.clone())
                 .map_err(anyhow::Error::msg)
                 .context("load pinned OpenVINO C library")?;
-            let mut core = Core::new().context("initialize pinned OpenVINO runtime")?;
+            executable_closure.verify()?;
+            let mut core = Core::new_with_config(
+                plugin_config
+                    .path()
+                    .to_str()
+                    .context("private plugin config path is not UTF-8")?,
+            )
+            .context("initialize the exact pinned device plugin")?;
+            executable_closure.verify()?;
             let runtime_build = openvino::version().build_number;
             ensure!(
                 runtime_build == command.identity.runtime_build,
@@ -438,6 +822,15 @@ mod native {
                 Device::Gpu => DeviceType::GPU,
                 Device::Npu => DeviceType::NPU,
             };
+            let mut properties = BTreeMap::new();
+            for name in command.identity.execution.properties.keys() {
+                let value = core.get_property(&device, &PropertyKey::Other(name.clone().into()))?;
+                properties.insert(name.clone(), value);
+            }
+            ensure!(
+                properties == command.identity.execution.properties,
+                "native device properties differ from the admitted scope"
+            );
             core.set_property(&device, &RwPropertyKey::HintPerformanceMode, "LATENCY")?;
             core.set_property(&device, &RwPropertyKey::HintNumRequests, "1")?;
             core.set_property(
@@ -490,6 +883,7 @@ mod native {
             for name in &input_names {
                 model.reshape_input_by_name(name, &static_shape)?;
             }
+            executable_closure.verify()?;
             let compiled = core
                 .compile_model(&model, device)
                 .context("compile explicitly selected native device")?;
@@ -497,16 +891,21 @@ mod native {
                 .get_property(&PropertyKey::Other("EXECUTION_DEVICES".into()))?
                 .into_owned();
             let devices = execution_devices(&raw, command.identity.device)?;
+            command.identity.execution.verify(&properties, &devices)?;
             compiled
                 .get_output_by_name(&command.identity.output_name)
                 .context("resolve pinned native output")?;
+            executable_closure.verify()?;
             Ok(Self {
                 compiled,
                 _model: model,
                 _core: core,
+                _plugin_config: plugin_config,
+                executable_closure,
                 identity: command.identity.clone(),
                 devices,
                 runtime_build,
+                properties,
                 bucket: *bucket,
                 input_names,
             })
@@ -534,6 +933,7 @@ mod native {
                 token_type_ids.is_some() == self.input_names.iter().any(|n| n == "token_type_ids"),
                 "token type input presence differs from compiled graph"
             );
+            self.executable_closure.verify()?;
             let mut request = self.compiled.create_infer_request()?;
             let shape = Shape::new(&[1, self.bucket as i64])?;
             let mut tensors = Vec::new();
@@ -575,12 +975,18 @@ mod native {
                         .context("output bound overflow")?,
                 "native output exceeds declared dimensions"
             );
-            pool(
+            let result = pool(
                 output.get_data::<f32>()?,
                 shape.get_dimensions(),
                 attention_mask,
                 &self.identity,
-            )
+            )?;
+            drop(output);
+            drop(shape);
+            drop(request);
+            drop(tensors);
+            self.executable_closure.verify()?;
+            Ok(result)
         }
     }
 }
@@ -627,6 +1033,7 @@ fn protocol_writer() -> anyhow::Result<std::fs::File> {
 pub fn run_stdio(expected_parent_pid: u32) -> anyhow::Result<()> {
     rustix::process::set_parent_process_death_signal(Some(rustix::process::Signal::KILL))?;
     assert_parent(expected_parent_pid)?;
+    reject_loader_overrides()?;
     let mut reader = std::io::BufReader::new(std::io::stdin().lock());
     let mut writer = protocol_writer()?;
     let mut session: Option<native::Session> = None;
@@ -644,6 +1051,7 @@ pub fn run_stdio(expected_parent_pid: u32) -> anyhow::Result<()> {
             identity: Some(command.identity.clone()),
             runtime_build: None,
             execution_devices: Vec::new(),
+            execution_properties: BTreeMap::new(),
             output: None,
             error: None,
         };
@@ -675,6 +1083,7 @@ pub fn run_stdio(expected_parent_pid: u32) -> anyhow::Result<()> {
         if let Some(active) = &session {
             response.runtime_build = Some(active.runtime_build.clone());
             response.execution_devices = active.devices.clone();
+            response.execution_properties = active.properties.clone();
         }
         if let Err(error) = result {
             failed = true;
@@ -699,8 +1108,212 @@ pub fn run_stdio(_expected_parent_pid: u32) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+pub(crate) fn fixture_execution(device: Device) -> ExecutionExpectation {
+    let mut properties: BTreeMap<String, String> = [
+        ("DEVICE_ARCHITECTURE".into(), "fixture-architecture".into()),
+        ("FULL_DEVICE_NAME".into(), "fixture-device".into()),
+    ]
+    .into_iter()
+    .collect();
+    let physical = match device {
+        Device::Cpu => "CPU",
+        Device::Gpu => {
+            properties.insert("GPU_DEVICE_ID".into(), "0x0000".into());
+            properties.insert("GPU_UARCH_VERSION".into(), "fixture-uarch".into());
+            "GPU.0"
+        }
+        Device::Npu => {
+            properties.insert("NPU_COMPILER_VERSION".into(), "1".into());
+            properties.insert("NPU_DRIVER_VERSION".into(), "1".into());
+            "NPU"
+        }
+    };
+    ExecutionExpectation {
+        properties,
+        devices: vec![physical.into()],
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn fixture_closure(entries: &[(&str, &str)]) -> Vec<PinnedFile> {
+    entries
+        .iter()
+        .map(|(path, hash)| PinnedFile {
+            path: (*path).into(),
+            sha256: (*hash).into(),
+            bytes: 1,
+            executable: false,
+        })
+        .collect()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn loader_override_names_and_exact_one_device_xml_are_explicit() {
+        for name in [
+            "LD_LIBRARY_PATH",
+            "LD_PRELOAD",
+            "LD_AUDIT",
+            "GLIBC_TUNABLES",
+            "OPENVINO_INSTALL_DIR",
+            "OCL_ICD_VENDORS",
+            "ZE_ENABLE_ALT_DRIVERS",
+            "NIX_LD_LIBRARY_PATH",
+        ] {
+            assert!(loader_override(name), "{name}");
+        }
+        for name in ["PATH", "HOME", "OMP_NUM_THREADS", "RAYON_NUM_THREADS"] {
+            assert!(!loader_override(name), "{name}");
+        }
+        let xml = plugin_configuration(Device::Cpu, Path::new("/package/a&b/plugin\".so")).unwrap();
+        assert_eq!(
+            xml,
+            "<ie><plugins><plugin name=\"CPU\" location=\"/package/a&amp;b/plugin&quot;.so\"/></plugins></ie>\n"
+        );
+        assert!(!xml.contains("GPU"));
+        assert!(!xml.contains("NPU"));
+        assert!(plugin_configuration(Device::Cpu, Path::new("relative.so")).is_err());
+    }
+
+    fn mapped_row(path: &Path, identity: &FileIdentity) -> String {
+        format!(
+            "1000-2000 r-xp 00000000 {:02x}:{:02x} {}           {}\n",
+            rustix::fs::major(identity.device),
+            rustix::fs::minor(identity.device),
+            identity.inode,
+            path.display()
+        )
+    }
+
+    #[test]
+    fn executable_file_mappings_require_bound_bytes_inode_and_unchanged_identity() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().canonicalize().unwrap().join("runtime.so");
+        std::fs::write(&path, b"runtime").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let file = PinnedFile {
+            path: path.clone(),
+            sha256: sha256(b"runtime"),
+            bytes: 7,
+            executable: false,
+        };
+        let closure = ExecutableClosure::capture(std::slice::from_ref(&file)).unwrap();
+        let identity = FileIdentity::read(&path).unwrap();
+        let row = mapped_row(&path, &identity);
+        assert!(closure.verify_text(&row).is_ok());
+        let unbound = directory.path().canonicalize().unwrap().join("unbound.so");
+        assert!(
+            closure
+                .verify_text(&mapped_row(&unbound, &identity))
+                .is_err()
+        );
+        let mut wrong = identity.clone();
+        wrong.inode += 1;
+        assert!(closure.verify_text(&mapped_row(&path, &wrong)).is_err());
+        wrong = identity.clone();
+        wrong.device += 1;
+        assert!(closure.verify_text(&mapped_row(&path, &wrong)).is_err());
+        assert!(
+            closure
+                .verify_text(&format!("{} (deleted)\n", row.trim_end()))
+                .is_err()
+        );
+        // Replacing a dependency with identical bytes still changes the inode.
+        let replacement = directory.path().join("replacement");
+        std::fs::write(&replacement, b"runtime").unwrap();
+        std::fs::rename(replacement, &path).unwrap();
+        assert!(closure.verify_text(&row).is_err());
+        assert!(
+            ExecutableClosure::capture(&[PinnedFile {
+                sha256: "0".repeat(64),
+                ..file
+            }])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn executable_mapping_parser_distinguishes_kernel_and_anonymous_memory_from_files() {
+        let closure = ExecutableClosure(BTreeMap::new());
+        assert!(closure.verify_text("1000-2000 r-xp 00000000 00:00 0\n2000-3000 r-xp 00000000 00:00 0 [vdso]\n3000-4000 rwxp 00000000 00:00 0 [anon:jit]\n").is_ok());
+        for row in [
+            "",
+            "bad\n",
+            "1000-2000 r-xp 00000000 00:00 0 /memfd:runtime (deleted)\n",
+            "1000-2000 r-xp 00000000 00:00 1 /unknown.so\n",
+            "1000-2000 r-xp 00000000 00:00 0 [unknown]\n",
+        ] {
+            assert!(closure.verify_text(row).is_err(), "{row}");
+        }
+    }
+
+    #[test]
+    fn exact_device_expectations_reject_missing_or_duplicate_properties_and_other_devices() {
+        for device in [Device::Cpu, Device::Gpu, Device::Npu] {
+            let expected = fixture_execution(device);
+            expected.validate(device).unwrap();
+            let mut changed = expected.clone();
+            changed.properties.remove("DEVICE_ARCHITECTURE");
+            assert!(changed.validate(device).is_err());
+            changed = expected.clone();
+            changed.devices.push(expected.devices[0].clone());
+            assert!(changed.validate(device).is_err());
+            let mut actual = expected.properties.clone();
+            actual.insert("FULL_DEVICE_NAME".into(), "another physical device".into());
+            assert!(expected.verify(&actual, &expected.devices).is_err());
+            assert!(
+                expected
+                    .verify(&expected.properties, &["GPU.9".into()])
+                    .is_err()
+            );
+        }
+        assert!(serde_json::from_str::<ExecutionExpectation>(
+            r#"{"properties":{"FULL_DEVICE_NAME":"one","FULL_DEVICE_NAME":"two"},"devices":["CPU"]}"#
+        ).is_err());
+        let response = serde_json::json!({"schema_version": PROTOCOL_VERSION, "request_id": null,
+            "request_sha256": "a".repeat(64), "identity": null, "runtime_build": null,
+            "execution_devices": [], "execution_properties": {}, "output": null, "error": null});
+        let duplicate = response.to_string().replace("\"execution_properties\":{}",
+            "\"execution_properties\":{\"DEVICE_ARCHITECTURE\":\"first\",\"DEVICE_ARCHITECTURE\":\"second\"}");
+        assert!(serde_json::from_str::<Response>(&duplicate).is_err());
+    }
+
+    #[test]
+    fn closure_files_are_content_size_mode_and_path_bound_before_native_loading() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().canonicalize().unwrap().join("runtime.so");
+        std::fs::write(&path, b"runtime").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let pinned = PinnedFile {
+            path: path.clone(),
+            sha256: sha256(b"runtime"),
+            bytes: 7,
+            executable: false,
+        };
+        pinned.verify().unwrap();
+        std::fs::write(&path, b"changed").unwrap();
+        assert!(pinned.verify().is_err());
+        std::fs::write(&path, b"runtime").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(pinned.verify().is_err());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = directory.path().join("alias.so");
+        std::os::unix::fs::symlink(&path, &alias).unwrap();
+        assert!(
+            PinnedFile {
+                path: alias,
+                ..pinned.clone()
+            }
+            .verify()
+            .is_err()
+        );
+        std::fs::write(&path, b"runtime longer").unwrap();
+        assert!(pinned.verify().is_err());
+    }
     #[cfg(all(target_os = "linux", feature = "native-openvino"))]
     #[test]
     fn vendor_stdout_cannot_corrupt_protocol() {
@@ -775,6 +1388,7 @@ mod tests {
             output_name: "embedding".into(),
             pooling,
             dimensions: 2,
+            execution: fixture_execution(Device::Cpu),
         }
     }
     #[test]
@@ -877,12 +1491,31 @@ mod tests {
                 weights_path: None,
                 runtime_library_path: PathBuf::from("/runtime/libopenvino_c.so"),
                 runtime_library_sha256: "d".repeat(64),
+                plugin_library_path: PathBuf::from("/runtime/libopenvino_cpu_plugin.so"),
+                plugin_library_sha256: "e".repeat(64),
+                closure: fixture_closure(&[
+                    ("/models/pinned.onnx", &"a".repeat(64)),
+                    ("/runtime/libopenvino_c.so", &"d".repeat(64)),
+                    ("/runtime/libopenvino_cpu_plugin.so", &"e".repeat(64)),
+                ]),
                 bucket: 128,
                 precision: Precision::F32,
                 threads: 2,
             },
         };
         assert!(command.validate().is_ok());
+        let mut missing = serde_json::to_value(&command).unwrap();
+        missing["operation"]
+            .as_object_mut()
+            .unwrap()
+            .remove("plugin_library_path");
+        assert!(serde_json::from_value::<Command>(missing).is_err());
+        let original = command.operation.clone();
+        if let Operation::Compile { closure, .. } = &mut command.operation {
+            closure.pop();
+        }
+        assert!(command.validate().is_err());
+        command.operation = original;
         command.identity.weights_sha256 = Some("c".repeat(64));
         assert!(command.validate().is_err());
         command.identity.weights_sha256 = None;

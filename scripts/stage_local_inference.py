@@ -242,9 +242,18 @@ def stage_archive(
     plan: dict[str, Any],
     destination: Path,
 ) -> None:
+    """Publish one complete payload beneath a privately owned release staging root.
+
+    The release builder exclusively owns destination while this runs. This is
+    not a concurrent installer: refuse an existing payload and recheck before
+    the single directory rename, without merging or replacing package files.
+    """
     if not destination.is_dir() or destination.is_symlink():
         raise StagingError("release staging destination must be a real existing directory")
-    temporary = Path(tempfile.mkdtemp(prefix=".cfetch-local-", dir=destination.parent))
+    payload = destination / "inference"
+    if os.path.lexists(payload):
+        raise StagingError("local payload destination inference already exists")
+    temporary = Path(tempfile.mkdtemp(prefix=".cfetch-local-", dir=destination))
     try:
         if package_format == "zip":
             names = _extract_zip(archive_path, temporary)
@@ -277,11 +286,9 @@ def stage_archive(
         )
         if scope_ids != plan.get("ordered_scope_ids"):
             raise StagingError("local payload scope order differs from its release plan")
-        collisions = [name for name in names if (destination / name).exists()]
-        if collisions:
-            raise StagingError(f"local payload collides with staged release files: {collisions}")
-        for source in sorted(temporary.iterdir(), key=lambda path: path.name):
-            os.replace(source, destination / source.name)
+        if os.path.lexists(payload):
+            raise StagingError("local payload destination inference appeared during staging")
+        os.rename(temporary, payload)
     finally:
         shutil.rmtree(temporary, ignore_errors=True)
 

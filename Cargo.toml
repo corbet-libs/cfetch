@@ -18,6 +18,7 @@ include = [
   "/README.md",
   "/docs/local-inference.md",
   "/docs/native-inference-qualification.md",
+  "/docs/native-package-v2.md",
   "/docs/local-embedding-adapter.md",
   "/docs/ai-maintenance.md",
   "/docs/embedding-profile-v1.md",
@@ -84,6 +85,11 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 rustix = { version = "1", features = ["fs", "system", "process", "time", "stdio", "net"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Existing locked HTTP parser/runtime, used only by the native sibling.
+hyper = { version = "1", optional = true, default-features = false, features = ["server", "http1"] }
+hyper-util = { version = "0.1", optional = true, default-features = false, features = ["tokio"] }
+http-body-util = { version = "0.1", optional = true }
+httparse = { version = "1", optional = true }
 # Vendor native implementation stays behind the official safe Rust API.
 openvino = { version = "=0.11.0", optional = true, features = ["runtime-linking"] }
 # The canonical adapter uses the already locked tokenizer implementation.
@@ -92,7 +98,7 @@ tokenizers = { version = "0.23", optional = true, default-features = false, feat
 openvino-sys = { version = "=0.11.0", optional = true, features = ["runtime-linking"] }
 
 [features]
-native-openvino = ["dep:openvino", "dep:openvino-sys", "dep:tokenizers"]
+native-openvino = ["dep:openvino", "dep:openvino-sys", "dep:tokenizers", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:httparse", "tokio/net", "tokio/io-util", "tokio/macros"]
 # Experimental standalone Nomic model probe. Enabling it adds diagnostic
 # download/status/test commands, never a producer for cfetch's shared vectors.
 embedded-embeddings = ["fastembed"]

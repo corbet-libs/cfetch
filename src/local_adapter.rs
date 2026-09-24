@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 use anyhow::Context as _;
 use sha2::Digest as _;
 
+pub(crate) const MAX_STARTUP_BYTES: usize = 8192;
+pub(crate) const MAX_SCOPES: usize = 16;
+
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_READY_BYTES: usize = 16 * 1024;
 const TERMINATE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -47,7 +50,7 @@ pub struct AdapterSupervisor {
     /// A failed startup whose child could not be confirmed dead. Retaining
     /// it prevents another launch and lets Drop retry bounded cleanup.
     cleanup_pending: Option<Child>,
-    restarted_after_crash: bool,
+    failed: bool,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -65,7 +68,7 @@ impl AdapterSupervisor {
             launch,
             running: None,
             cleanup_pending: None,
-            restarted_after_crash: false,
+            failed: false,
         })
     }
 
@@ -73,9 +76,13 @@ impl AdapterSupervisor {
         &self.launch.ordered_scope_ids
     }
 
-    /// Starts lazily and returns the current authenticated loopback endpoint.
-    /// A child found dead is restarted once for this supervisor's lifetime.
+    /// Starts lazily. An unexplained child exit latches the entire native
+    /// owner; it never authorizes another scope or an automatic restart.
     pub fn endpoint(&mut self) -> anyhow::Result<AdapterEndpoint> {
+        anyhow::ensure!(
+            !self.failed,
+            "package-local adapter is unavailable; native supervisor is latched"
+        );
         if let Some(child) = &self.cleanup_pending {
             anyhow::bail!(
                 "package-local adapter startup cleanup is incomplete for PID {}; refusing another launch",
@@ -83,12 +90,15 @@ impl AdapterSupervisor {
             );
         }
         if self.child_exited()? {
-            self.restart_once("package-local adapter exited")?;
+            self.failed = true;
+            anyhow::bail!(
+                "package-local adapter exited unexpectedly; native supervisor is latched"
+            );
         }
         if self.running.is_none() {
             anyhow::ensure!(
-                !self.restarted_after_crash,
-                "package-local adapter is unavailable; the one supervised restart was already consumed"
+                !self.failed,
+                "package-local adapter is unavailable; native supervisor is latched"
             );
             self.running = Some(spawn_adapter(&self.launch, &mut self.cleanup_pending)?);
         }
@@ -100,22 +110,12 @@ impl AdapterSupervisor {
             .clone())
     }
 
-    /// A dead child gets the existing one-restart allowance. A live child
-    /// after transport failure may be stuck inside native code: terminate it
-    /// within the cleanup bound and latch this supervisor unavailable. That
-    /// ambiguous failure must not re-enter the same accelerator operation.
-    pub fn restart_after_transport_failure(&mut self) -> anyhow::Result<AdapterEndpoint> {
-        if !self.child_exited()? {
-            self.restarted_after_crash = true;
-            self.stop()
-                .context("stop unresponsive package-local adapter after transport failure")?;
-            anyhow::bail!(
-                "package-local adapter transport failed while its supervised process remained alive; \
-                 the owned process was stopped and further launches are disabled"
-            );
-        }
-        self.restart_once("package-local adapter crashed during a request")?;
-        self.endpoint()
+    /// All uncertain native/transport/attestation outcomes latch the owner.
+    /// Confirming death is cleanup, never permission to attempt another scope.
+    pub fn abort_after_failure(&mut self) -> anyhow::Result<()> {
+        self.failed = true;
+        self.stop()
+            .context("stop package-local adapter after hard failure")
     }
 
     fn child_exited(&mut self) -> anyhow::Result<bool> {
@@ -133,17 +133,6 @@ impl AdapterSupervisor {
             }
             None => Ok(false),
         }
-    }
-
-    fn restart_once(&mut self, reason: &str) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !self.restarted_after_crash,
-            "{reason}; the one supervised restart was already consumed"
-        );
-        self.restarted_after_crash = true;
-        self.stop()?;
-        self.running = Some(spawn_adapter(&self.launch, &mut self.cleanup_pending)?);
-        Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
@@ -178,7 +167,7 @@ fn validate_launch(launch: &AdapterLaunch) -> anyhow::Result<()> {
         "package-local root manifest digest",
     )?;
     anyhow::ensure!(
-        !launch.ordered_scope_ids.is_empty(),
+        !launch.ordered_scope_ids.is_empty() && launch.ordered_scope_ids.len() <= MAX_SCOPES,
         "package-local adapter needs at least one admitted scope"
     );
     anyhow::ensure!(
@@ -190,6 +179,11 @@ fn validate_launch(launch: &AdapterLaunch) -> anyhow::Result<()> {
             && launch.binary.parent() == launch.package_manifest.parent(),
         "package-local root manifest must be package-manifest.json beside the adapter"
     );
+    let mut unique = std::collections::BTreeSet::new();
+    for id in &launch.ordered_scope_ids {
+        crate::local_inference::validate_scope_id(id)?;
+        anyhow::ensure!(unique.insert(id), "duplicate package-local scope");
+    }
     validate_regular_file(&launch.binary, "package-local adapter")?;
     validate_regular_file(&launch.package_manifest, "package-local root manifest")?;
     let actual = file_sha256(&launch.binary)?;
@@ -252,10 +246,15 @@ fn spawn_adapter(
     // Re-check immediately before execution. Construction and first use may
     // be separated by a long-running daemon's lifetime.
     validate_launch(launch)?;
+    // Unit transport fixtures execute shell scripts under Cargo's injected
+    // loader environment; the CLI integration tests exercise this production
+    // guard in the real binary using an explicitly controlled child environment.
+    #[cfg(all(target_os = "linux", feature = "native-openvino", not(test)))]
+    crate::native_worker::reject_loader_overrides()?;
     let bearer = hex(&rand::random::<[u8; 32]>());
     let mut child = std::process::Command::new(&launch.binary)
         .args([
-            "serve",
+            "native-serve",
             "--host",
             "127.0.0.1",
             "--port",
@@ -269,7 +268,15 @@ fn spawn_adapter(
         .with_context(|| format!("start package-local adapter {}", launch.binary.display()))?;
     let startup: anyhow::Result<(ChildStdin, ReadyLine)> = (|| {
         let mut stdin = child.stdin.take().context("adapter stdin was not piped")?;
-        let secret_line = serde_json::to_vec(&serde_json::json!({"bearer": bearer}))?;
+        let secret_line = serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2, "bearer": bearer,
+            "package_manifest_sha256": launch.package_manifest_sha256,
+            "ordered_scope_ids": launch.ordered_scope_ids,
+        }))?;
+        anyhow::ensure!(
+            secret_line.len() < MAX_STARTUP_BYTES,
+            "native startup permit exceeds its bound"
+        );
         stdin
             .write_all(&secret_line)
             .context("write package-local adapter authentication")?;
@@ -512,7 +519,7 @@ mod tests {
         assert!(format!("{error:#}").contains("parse package-local adapter readiness"));
         assert!(supervisor.running.is_none());
         assert!(supervisor.cleanup_pending.is_none());
-        assert!(!supervisor.restarted_after_crash);
+        assert!(!supervisor.failed);
         assert!(started.elapsed() < TERMINATE_TIMEOUT + Duration::from_secs(1));
     }
 
@@ -529,7 +536,7 @@ mod tests {
             "{error}"
         );
         assert!(supervisor.running.is_none());
-        assert!(!supervisor.restarted_after_crash);
+        assert!(!supervisor.failed);
         assert!(
             supervisor
                 .cleanup_pending
@@ -545,31 +552,80 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn repeated_endpoint_calls_after_second_crash_cannot_launch_again() {
+    fn unexpected_child_death_latches_without_another_scope_or_restart() {
         let (directory, launch) = fake_launch(
             "#!/bin/sh\nIFS= read -r secret\nprintf '%s\\n' \"$$\" >> \"$0.starts\"\nprintf '%s\\n' '{\"schema_version\":1,\"url\":\"http://127.0.0.1:43123/v1\",\"scope_ids\":[\"cpu-scope\"]}'\nwhile IFS= read -r command; do :; done\n",
         );
         let mut supervisor = AdapterSupervisor::new(launch).unwrap();
         supervisor.endpoint().unwrap();
         terminate(&mut supervisor.running.as_mut().unwrap().child).unwrap();
-        supervisor.endpoint().unwrap();
-        assert!(supervisor.restarted_after_crash);
-        terminate(&mut supervisor.running.as_mut().unwrap().child).unwrap();
-
         for _ in 0..3 {
-            let error = supervisor.endpoint().unwrap_err().to_string();
             assert!(
-                error.contains("one supervised restart was already consumed"),
-                "{error}"
+                supervisor
+                    .endpoint()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("latched")
             );
             assert!(supervisor.running.is_none());
         }
         let starts = std::fs::read_to_string(directory.path().join("fake-adapter.starts")).unwrap();
         assert_eq!(
             starts.lines().count(),
-            2,
-            "only the initial launch and one restart may run"
+            1,
+            "an uncertain child exit cannot permit another native operation"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hard_latch_blocks_reuse_even_while_cleanup_retains_a_live_owner() {
+        let (_directory, launch) = fake_launch("#!/bin/sh\nexit 0\n");
+        let mut supervisor = AdapterSupervisor::new(launch).unwrap();
+        supervisor.running = Some(RunningAdapter {
+            child: idle_child(),
+            _stdin: None,
+            endpoint: AdapterEndpoint {
+                base_url: "http://127.0.0.1:43123/v1".into(),
+                authorization: "fixture".into(),
+            },
+        });
+        supervisor.failed = true;
+        let pid = supervisor.running.as_ref().unwrap().child.id();
+        for _ in 0..2 {
+            assert!(
+                supervisor
+                    .endpoint()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("latched")
+            );
+            let child = &mut supervisor.running.as_mut().unwrap().child;
+            assert_eq!(child.id(), pid);
+            assert!(child.try_wait().unwrap().is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_startup_permit_binds_schema_manifest_and_ordered_scopes() {
+        let (directory, launch) = fake_launch(
+            "#!/bin/sh\n[ \"$1\" = native-serve ] || exit 2\nIFS= read -r secret\nprintf '%s\\n' \"$secret\" > \"$0.permit\"\nprintf '%s\\n' '{\"schema_version\":1,\"url\":\"http://127.0.0.1:43123/v1\",\"scope_ids\":[\"cpu-scope\"]}'\ncat >/dev/null\n",
+        );
+        let expected = launch.package_manifest_sha256.clone();
+        let mut supervisor = AdapterSupervisor::new(launch).unwrap();
+        supervisor.endpoint().unwrap();
+        let raw = std::fs::read(directory.path().join("fake-adapter.permit")).unwrap();
+        let permit: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(permit.as_object().unwrap().len(), 4);
+        assert_eq!(permit["schema_version"], 2);
+        assert_eq!(permit["package_manifest_sha256"], expected);
+        assert_eq!(
+            permit["ordered_scope_ids"],
+            serde_json::json!(["cpu-scope"])
+        );
+        assert_eq!(permit["bearer"].as_str().unwrap().len(), 64);
+        assert!(raw.len() <= MAX_STARTUP_BYTES);
     }
 
     #[test]
@@ -629,15 +685,9 @@ mod tests {
         assert_eq!(endpoint.base_url, "http://127.0.0.1:43123/v1");
         assert!(endpoint.authorization.starts_with("Bearer "));
         assert_eq!(endpoint.authorization.len(), "Bearer ".len() + 64);
-        let pid = supervisor.running.as_ref().unwrap().child.id();
         let started = Instant::now();
-        let error = supervisor.restart_after_transport_failure().unwrap_err();
-        assert!(error.to_string().contains("remained alive"));
-        assert!(
-            error.to_string().contains("owned process was stopped"),
-            "PID {pid}: {error}"
-        );
-        assert!(supervisor.restarted_after_crash);
+        supervisor.abort_after_failure().unwrap();
+        assert!(supervisor.failed);
         assert!(supervisor.running.is_none());
         assert!(supervisor.cleanup_pending.is_none());
         assert!(started.elapsed() < TERMINATE_TIMEOUT + Duration::from_secs(1));
@@ -647,7 +697,7 @@ mod tests {
                     .endpoint()
                     .unwrap_err()
                     .to_string()
-                    .contains("restart was already consumed")
+                    .contains("latched")
             );
             assert!(supervisor.running.is_none());
         }

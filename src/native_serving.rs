@@ -1,9 +1,8 @@
 //! Canonical request/response core for the package-local native adapter.
 //!
-//! This is staged integration, not an admitted producer. There is deliberately
-//! no HTTP/CLI entrypoint: the native package/runtime-closure loader must be
-//! ported before `from_installation` can construct a service. Test fixtures
-//! cannot enter a production build. The wire contract and profile stay fixed.
+//! The final client validates compiled admission; the separately built sibling
+//! revalidates the private parent permit and complete native package closure.
+//! Fixture constructors remain test-only. The shared vector profile is fixed.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -137,6 +136,7 @@ impl Scope {
         .validate()
     }
 
+    #[cfg(test)]
     fn validate_admission(&self) -> anyhow::Result<()> {
         self.validate_shape()?;
         let key: String = self
@@ -153,14 +153,14 @@ impl Scope {
 /// A confirmed controlled failure affects one scope. Every uncertain outcome
 /// latches this entire service, including CPU, until explicit recovery.
 #[derive(Debug)]
-enum Failure {
+pub(crate) enum Failure {
     Rejected(String),
     ScopeUnavailable(String),
     HardStop(anyhow::Error),
 }
 
 impl Failure {
-    fn wire_error(&self) -> (u16, serde_json::Value) {
+    pub(crate) fn wire_error(&self) -> (u16, serde_json::Value) {
         match self {
             Self::ScopeUnavailable(scope) => (
                 503,
@@ -169,12 +169,7 @@ impl Failure {
                     "message": "requested admitted scope could not initialize or execute"
                 }}),
             ),
-            Self::Rejected(message) => (
-                400,
-                json!({"error": {
-                    "code": "invalid_request", "message": message
-                }}),
-            ),
+            Self::Rejected(message) => (400, json!({"error": message})),
             Self::HardStop(_) => (
                 500,
                 json!({"error": {
@@ -185,9 +180,9 @@ impl Failure {
     }
 }
 
-struct SignedReply {
-    body: Vec<u8>,
-    signature: String,
+pub(crate) struct SignedReply {
+    pub(crate) body: Vec<u8>,
+    pub(crate) signature: String,
 }
 
 trait Engine {
@@ -351,15 +346,87 @@ struct ServingCore<T: TextTokenizer, E: Engine> {
     stopped: bool,
 }
 
-impl ServingCore<PinnedTokenizer, NativeEngine<GovernedFactory>> {
-    fn from_installation() -> anyhow::Result<Self> {
-        // This check cannot be replaced by a manifest's own claim of admission.
-        crate::local_inference::selected_local_package_plan()?
-            .context("no admitted package-local native producer in this release")?;
-        anyhow::bail!(
-            "native package/runtime closure verification and serving transport are not installed"
-        )
+pub(crate) struct NativeService {
+    core: ServingCore<PinnedTokenizer, NativeEngine<GovernedFactory>>,
+    request_budget: std::time::Duration,
+}
+
+impl NativeService {
+    pub(crate) fn from_startup(permit: &crate::native_http::StartupPermit) -> anyhow::Result<Self> {
+        let package = crate::native_manifest::from_startup(permit)?;
+        let tokenizer = PinnedTokenizer::from_bytes(&package.tokenizer)?;
+        let governor = Arc::new(Governor::installed(package.policy_sha256)?);
+        let scopes = package
+            .scopes
+            .into_iter()
+            .map(|scope| Scope {
+                id: scope.id,
+                execution: scope.execution,
+                identity: scope.identity,
+                compile: scope.compile,
+                signer: scope.signer,
+            })
+            .collect::<Vec<_>>();
+        for scope in &scopes {
+            scope.validate_shape()?;
+        }
+        // Use the existing per-user state owner. Receipts are durable and
+        // content-addressed; they are never removed when a service exits.
+        let evidence = evidence_directory()?;
+        Ok(Self {
+            core: ServingCore {
+                tokenizer,
+                engine: NativeEngine {
+                    factory: GovernedFactory { governor, evidence },
+                    cached: None,
+                },
+                scopes,
+                unavailable: BTreeSet::new(),
+                stopped: false,
+            },
+            request_budget: package.request_budget,
+        })
     }
+    pub(crate) fn scope_ids(&self) -> Vec<String> {
+        self.core
+            .scopes
+            .iter()
+            .map(|scope| scope.id.clone())
+            .collect()
+    }
+    pub(crate) fn request_budget(&self) -> std::time::Duration {
+        self.request_budget
+    }
+    pub(crate) fn handle(&mut self, body: &[u8], nonce: &[u8; 32]) -> Result<SignedReply, Failure> {
+        self.core.handle(body, nonce)
+    }
+    pub(crate) fn stop(&mut self) -> anyhow::Result<()> {
+        self.core.stopped = true;
+        self.core.engine.stop()
+    }
+}
+
+fn evidence_directory() -> anyhow::Result<PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _};
+    let owner = crate::paths::state_dir();
+    ensure!(
+        owner.is_absolute() && owner.canonicalize()?.as_os_str() == owner.as_os_str(),
+        "native receipt state owner must already be a canonical directory"
+    );
+    let directory = owner.join("native-inference-receipts");
+    match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
+        Ok(()) => std::fs::File::open(&owner)?.sync_all()?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+        Err(error) => return Err(error.into()),
+    }
+    let metadata = std::fs::symlink_metadata(&directory)?;
+    ensure!(
+        metadata.is_dir()
+            && metadata.uid() == rustix::process::geteuid().as_raw()
+            && metadata.mode() & 0o077 == 0,
+        "native receipt directory has unsafe ownership or permissions"
+    );
+    Ok(directory)
 }
 
 impl<T: TextTokenizer, E: Engine> ServingCore<T, E> {
@@ -442,7 +509,7 @@ impl<T: TextTokenizer, E: Engine> ServingCore<T, E> {
                 .find(|bucket| *bucket >= count)
                 .ok_or_else(|| {
                     Failure::Rejected(format!(
-                        "prefixed input contains {count} tokens; truncation is forbidden"
+                        "prefixed input contains {count} tokens; the profile limit is {} and truncation is forbidden", profile::MAX_TOKENS
                     ))
                 })?;
             ids.resize(bucket, 0);
@@ -564,12 +631,21 @@ mod tests {
                 output_name: "embedding".into(),
                 pooling: Pooling::SentenceL2,
                 dimensions: profile::DIMENSIONS,
+                execution: crate::native_worker::fixture_execution(device),
             },
             compile: Operation::Compile {
                 model_path: "/fixture/model.xml".into(),
                 weights_path: Some("/fixture/model.bin".into()),
                 runtime_library_path: "/fixture/runtime.so".into(),
                 runtime_library_sha256: "c".repeat(64),
+                plugin_library_path: "/fixture/plugin.so".into(),
+                plugin_library_sha256: "d".repeat(64),
+                closure: crate::native_worker::fixture_closure(&[
+                    ("/fixture/model.xml", &"a".repeat(64)),
+                    ("/fixture/model.bin", &"b".repeat(64)),
+                    ("/fixture/runtime.so", &"c".repeat(64)),
+                    ("/fixture/plugin.so", &"d".repeat(64)),
+                ]),
                 bucket: 32,
                 precision: Precision::F32,
                 threads: 1,
@@ -867,7 +943,11 @@ mod tests {
 
     #[test]
     fn production_constructor_and_scope_admission_remain_closed() {
-        assert!(ServingCore::from_installation().is_err());
+        assert!(
+            crate::local_inference::selected_local_package_plan()
+                .unwrap()
+                .is_none()
+        );
         let mut canonical = scope(Device::Cpu);
         assert!(
             canonical.validate_admission().is_err(),
@@ -902,7 +982,8 @@ mod tests {
                 request_sha256: "f".repeat(64),
                 identity: Some(command.identity.clone()),
                 runtime_build: Some(command.identity.runtime_build.clone()),
-                execution_devices: vec!["CPU".into()],
+                execution_devices: command.identity.execution.devices.clone(),
+                execution_properties: command.identity.execution.properties.clone(),
                 output: match &command.operation {
                     Operation::Compile { .. } => None,
                     Operation::Infer { input_ids, .. } => {

@@ -10,7 +10,8 @@ working CPU backend, write vectors, or populate `release/inference-backends.json
 `cfetch native-probe PLAN EVIDENCE --policy-sha256 SHA256` consumes one finite
 JSON plan: schema version 1, one compile command followed by 1–64 inference
 commands. The plan envelope remains schema 1; each command and response uses
-internal protocol schema 2 with structured failure kinds. Older protocol
+internal protocol schema 3 with structured failure kinds, exact device properties,
+and the full runtime/plugin/host closure. Older protocol
 commands/checkpoints are rejected. Every command has the same model, pipeline, output, dimensions,
 runtime build, and requested device. A plan has one static token bucket and
 batch size one. The hidden `native-worker` command is its internal child entry
@@ -98,43 +99,36 @@ pure validation, persistent state, owned-child supervision, worker framing and
 pooling, and startup without native libraries. They perform no physical model
 inference and do not lift a host quarantine.
 
-## Staged Rust serving core
+## Rust package-local serving integration
 
-`src/native_serving.rs` implements the canonical package adapter's request and
-signed-response core around the governed native worker. It is not reachable from
-the CLI or live `EmbedClient`: its installation constructor fails closed. The
-compiled registry still has no admitted backend or local package. The existing
-CPU index/model is unchanged.
+`native_serving.rs`, `native_manifest.rs`, and `native_http.rs` implement the
+existing supervised local producer contract in Rust. The final client validates
+its compiled package plan before spawning the independently built native
+sibling; a strict private startup permit binds the exact manifest and ordered
+scopes. The sibling revalidates that closure, serves authenticated loopback HTTP,
+and signs responses with the bound scope key. See
+[native package schema 2](native-package-v2.md) for the acyclic build contract.
 
-The core checks the exact Gemma tokenizer bytes, explicitly inserts BOS/EOS,
-preserves the caller's already-prefixed text, disables truncation, chooses the
-smallest declared sequence bucket and pads only on the right. It prepares every
-row before doing native work, then groups rows by bucket to avoid repeated
-compiles for alternating shapes. Responses preserve input row order, exact scope and
-profile identity, and use the existing Ed25519 challenge format. The native graph
-must expose the complete Gemma mean-pooling and dense projection pipeline as the
-`embedding` output; a last-token or raw-hidden-state graph is not interchangeable.
+The candidate registry remains empty. This code does not admit a backend, switch
+the active model/index, provision a governor, or qualify any hardware. Native
+schema 3 probes require explicit new plans; old checkpoints are not replayed
+through compatibility defaults. All present vendor errors are hard failures;
+controlled unavailability remains reserved for a future proven typed origin.
 
-One compiled worker may be cached, bound to scope, native identity, complete
-compile recipe and bucket. Changing that key requires confirmed termination.
-Every compile and inference uses the installed host governor and its existing
-resource ceiling. A typed controlled failure may disable one scope only after
-durable failure evidence, confirmed child death and lease completion. All current
-production worker failures are hard errors. Any uncertain operation latches the
-entire core, including CPU, rather than trying another scope. Hard failures also
-stop any idle cached worker; a failed stop retains its owner and permits no
-further work.
+The request core checks exact Gemma tokenizer bytes and BOS/EOS semantics,
+prevalidates the whole batch, selects the smallest of all seven declared sequence
+buckets, and rejects overlength input without truncation. Rows are grouped by
+bucket with original output positions preserved. One worker caches one exact
+scope/runtime/compile recipe/bucket; changing it requires confirmed child death.
+Every compile and inference acquires the host governor. An uncertain operation,
+invalid vector/identity, transport failure, or unexpected child exit latches all
+later scopes, including CPU. Only a settled controlled failure can advance the
+existing NPU → GPU → CPU selection policy.
 
-Fixture-only tests cover text/token/shape boundaries, signed response tampering,
-ordered rows, whole-batch refusal, controlled-versus-hard failure propagation and
-compiled-worker ownership. They do not qualify native model outputs, tokenizer
-parity, batching performance, physical accelerators or another architecture.
-
-Before this can serve production requests, the retained package manifest,
-artifact inventory, host/runtime dependency closure and scope-key validation
-must be faithfully ported into the native installation loader. The existing
-supervised loopback HTTP contract must then be wired to this core (including
-bounded authenticated requests and parent-lifeline shutdown), followed by the
-full canonical tokenizer/graph/long-input/batch/cohort qualification. These are
-required remaining stages; no diagnostic or fixture result substitutes for
-admission or the operator's model/index migration decision.
+Fixture tests cover signed response identity/order, tokenizer and bucket rules,
+whole-batch refusal, bounded compile counts, cleanup/retained intent, strict
+package inventories, policy budgets, supervised HTTP limits/EOF/deadlines, and
+outer transport failures without CPU fallback. They do not prove a real model's
+numerics, physical placement, all-bucket performance, all-platform support, or
+the global ordered-pair/mixed-store admission cohort. Those remain mandatory
+before a release package can enter the compiled registry.

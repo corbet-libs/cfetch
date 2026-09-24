@@ -6,10 +6,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import io
 from pathlib import Path
 import stat
+import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 from scripts.stage_local_inference import StagingError, URL_RE, stage_archive
@@ -45,6 +48,8 @@ class LocalInferenceStagingTests(unittest.TestCase):
                 output.writestr(zip_info("artifact/model.bin", 0o644), b"model")
             destination = root / "dist"
             destination.mkdir()
+            final_client = destination / "cfetch"
+            final_client.write_bytes(b"separately built final client")
             plan = {
                 "dispatcher": {
                     "binary": "cfetch-inference",
@@ -54,8 +59,83 @@ class LocalInferenceStagingTests(unittest.TestCase):
                 "ordered_scope_ids": scopes,
             }
             stage_archive(archive, "zip", plan, destination)
-            self.assertEqual((destination / "artifact/model.bin").read_bytes(), b"model")
-            self.assertTrue(os.access(destination / "cfetch-inference", os.X_OK))
+            self.assertEqual((destination / "inference/artifact/model.bin").read_bytes(), b"model")
+            self.assertTrue(os.access(destination / "inference/cfetch-inference", os.X_OK))
+            self.assertEqual(final_client.read_bytes(), b"separately built final client")
+            self.assertEqual({path.name for path in destination.iterdir()}, {"cfetch", "inference"})
+            self.assertFalse((destination / "package-manifest.json").exists())
+
+    def test_existing_empty_partial_file_and_symlink_payloads_are_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for kind in ("empty", "partial", "file", "symlink"):
+                with self.subTest(kind=kind):
+                    destination = root / kind
+                    destination.mkdir()
+                    final_client = destination / "cfetch"
+                    final_client.write_bytes(b"final client")
+                    payload = destination / "inference"
+                    if kind in {"empty", "partial"}:
+                        payload.mkdir()
+                        if kind == "partial":
+                            (payload / "unfinished").write_bytes(b"keep partial")
+                    elif kind == "file":
+                        payload.write_bytes(b"keep file")
+                    else:
+                        payload.symlink_to(root / "missing", target_is_directory=True)
+                    # Refusal precedes even archive opening, including a dangling link.
+                    with self.assertRaisesRegex(StagingError, "already exists"):
+                        stage_archive(root / "absent.zip", "zip", {}, destination)
+                    self.assertEqual(final_client.read_bytes(), b"final client")
+                    self.assertTrue(os.path.lexists(payload))
+                    if kind == "partial":
+                        self.assertEqual((payload / "unfinished").read_bytes(), b"keep partial")
+                    elif kind == "file":
+                        self.assertEqual(payload.read_bytes(), b"keep file")
+                    elif kind == "symlink":
+                        self.assertEqual(payload.readlink(), root / "missing")
+
+    def test_tar_payload_publication_is_one_rename_and_preserves_client(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "dist"
+            destination.mkdir()
+            client = destination / "cfetch"
+            client.write_bytes(b"final client")
+            archive = root / "payload.tar.gz"
+            executable = b"#!/bin/sh\nexit 0\n"
+            manifest = json.dumps({"package_state": "release", "scopes": [{"scope_id": "cpu"}]}).encode()
+            with tarfile.open(archive, "w:gz") as output:
+                for name, content, mode in (("cfetch", executable, 0o755), ("package-manifest.json", manifest, 0o644)):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(content)
+                    info.mode = mode
+                    output.addfile(info, io.BytesIO(content))
+            plan = {"dispatcher": {"binary": "cfetch", "sha256": hashlib.sha256(executable).hexdigest()},
+                    "package_manifest_sha256": hashlib.sha256(manifest).hexdigest(), "ordered_scope_ids": ["cpu"]}
+            rename = os.rename
+            with mock.patch("scripts.stage_local_inference.os.rename", wraps=rename) as publish:
+                stage_archive(archive, "tar.gz", plan, destination)
+                publish.assert_called_once()
+                self.assertEqual(publish.call_args.args[1], destination / "inference")
+            self.assertEqual(client.read_bytes(), b"final client")
+            self.assertEqual((destination / "inference/cfetch").read_bytes(), executable)
+            self.assertEqual({path.name for path in destination.iterdir()}, {"cfetch", "inference"})
+
+    def test_failure_before_publication_keeps_client_and_exposes_no_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "dist"
+            destination.mkdir()
+            (destination / "cfetch").write_bytes(b"final client")
+            archive = root / "bad.zip"
+            with zipfile.ZipFile(archive, "w") as output:
+                output.writestr(zip_info("cfetch-inference", 0o755), b"wrong dispatcher")
+            plan = {"dispatcher": {"binary": "cfetch-inference", "sha256": "0" * 64}}
+            with self.assertRaisesRegex(StagingError, "dispatcher failed"):
+                stage_archive(archive, "zip", plan, destination)
+            self.assertEqual({path.name for path in destination.iterdir()}, {"cfetch"})
+            self.assertEqual((destination / "cfetch").read_bytes(), b"final client")
 
     def test_rejects_non_release_package(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

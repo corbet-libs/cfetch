@@ -693,7 +693,7 @@ fn validate_report_reference(path: &str, digest: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_scope_id(value: &str) -> anyhow::Result<()> {
+pub(crate) fn validate_scope_id(value: &str) -> anyhow::Result<()> {
     validate_slug(value, 128)
 }
 

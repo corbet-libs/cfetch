@@ -76,10 +76,12 @@ mod memory_eval;
 mod native_adapter;
 #[cfg(all(target_os = "linux", feature = "native-openvino"))]
 mod native_worker;
-// Staged core: no runtime entrypoint until native package closure verification is ported.
 #[cfg(all(target_os = "linux", feature = "native-openvino"))]
-#[allow(dead_code)]
 mod native_serving;
+#[cfg(all(target_os = "linux", feature = "native-openvino"))]
+mod native_manifest;
+#[cfg(all(target_os = "linux", feature = "native-openvino"))]
+mod native_http;
 #[cfg(not(test))]
 mod output;
 mod paths;
@@ -111,6 +113,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[cfg(all(target_os = "linux", feature = "native-openvino"))]
+    #[command(hide = true)]
+    NativeServe {
+        #[arg(long)]
+        host: String,
+        #[arg(long)]
+        port: u16,
+        #[arg(long)]
+        auth_stdin: bool,
+    },
     #[cfg(all(target_os = "linux", feature = "native-openvino"))]
     #[command(hide = true)]
     NativeWorker {
@@ -2453,6 +2465,14 @@ fn main() {
     }
     let cli = Cli::parse();
     match cli.command {
+        #[cfg(all(target_os = "linux", feature = "native-openvino"))]
+        Command::NativeServe { host, port, auth_stdin } => {
+            if host != "127.0.0.1" || port != 0 || !auth_stdin {
+                eprintln!("native serving requires private stdin authentication and ephemeral IPv4 loopback");
+                std::process::exit(1);
+            }
+            native_http::run_stdio()
+        }
         #[cfg(all(target_os = "linux", feature = "native-openvino"))]
         Command::NativeWorker { parent_pid } => {
             if let Err(error) = native_worker::run_stdio(parent_pid) {

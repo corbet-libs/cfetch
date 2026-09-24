@@ -123,6 +123,10 @@ fn validate_response(
         response.runtime_build.as_deref() == Some(&command.identity.runtime_build),
         "native response runtime differs from the request"
     );
+    command
+        .identity
+        .execution
+        .verify(&response.execution_properties, &response.execution_devices)?;
     let name = match command.identity.device {
         crate::inference_governor::Device::Cpu => "CPU",
         crate::inference_governor::Device::Gpu => "GPU",
@@ -343,6 +347,7 @@ pub struct Adapter {
 }
 impl Adapter {
     pub fn spawn(identity: Identity, bucket: usize) -> anyhow::Result<Self> {
+        crate::native_worker::reject_loader_overrides()?;
         let mut child = ProcessCommand::new(std::env::current_exe()?)
             .args([
                 "native-worker",
@@ -580,6 +585,26 @@ mod tests {
     use super::*;
     use crate::inference_governor::Device;
     use crate::native_worker::{Pooling, WorkerFailure};
+    #[test]
+    fn signed_request_identity_requires_exact_runtime_properties_and_device() {
+        let command = command();
+        let hash = digest(&serde_json::to_vec(&command).unwrap());
+        let mut reply = response(&command);
+        validate_response(&command, &hash, &reply).unwrap();
+        reply
+            .execution_properties
+            .insert("GPU_DEVICE_ID".into(), "0x9999".into());
+        assert!(validate_response(&command, &hash, &reply).is_err());
+        reply = response(&command);
+        reply.execution_devices = vec!["GPU.1".into()];
+        assert!(validate_response(&command, &hash, &reply).is_err());
+        let mut incomplete = serde_json::to_value(&reply).unwrap();
+        incomplete
+            .as_object_mut()
+            .unwrap()
+            .remove("execution_properties");
+        assert!(serde_json::from_value::<Response>(incomplete).is_err());
+    }
     fn command() -> Command {
         Command {
             schema_version: PROTOCOL_VERSION,
@@ -593,6 +618,7 @@ mod tests {
                 output_name: "tokens".into(),
                 pooling: Pooling::ClsL2,
                 dimensions: 2,
+                execution: crate::native_worker::fixture_execution(Device::Gpu),
             },
             operation: Operation::Infer {
                 input_ids: vec![1; 64],
@@ -609,6 +635,7 @@ mod tests {
             identity: Some(command.identity.clone()),
             runtime_build: Some(command.identity.runtime_build.clone()),
             execution_devices: vec!["GPU.0".into()],
+            execution_properties: command.identity.execution.properties.clone(),
             output: Some(vec![1.0, 0.0]),
             error: None,
         }

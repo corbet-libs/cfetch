@@ -173,7 +173,7 @@ impl Limits {
     }
 }
 impl Policy {
-    fn validate(&self, path: &Path) -> anyhow::Result<()> {
+    pub(crate) fn validate(&self, path: &Path) -> anyhow::Result<()> {
         ensure!(
             self.schema_version == 2 && self.namespace == "cfetch-host-inference-v2",
             "unsupported native governor policy"
