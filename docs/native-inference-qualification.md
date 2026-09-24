@@ -22,7 +22,9 @@ checks parent identity. Starting the child or reaching EOF loads no native
 library. Runtime loading, model reading, compilation, and synchronous inference
 begin only after the parent has durably charged a governor lease and sent the
 validated operation. Responses identify the exact request and actual execution
-device; another device, malformed identity, nonfinite output, wrong dimensions,
+device. Protocol replies use a private close-on-exec descriptor; vendor stdout
+is redirected to stderr before loading native code. Another device, malformed
+identity, nonfinite output, wrong dimensions,
 or invalid normalization fails closed.
 
 Before starting a probe, the operator must provision the root-owned

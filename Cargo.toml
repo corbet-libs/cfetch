@@ -81,7 +81,7 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 # counterpart (FILE_SHARE_NONE opens, %COMPUTERNAME%), so the dependency
 # simply does not exist in a Windows build.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs", "system", "process", "time"] }
+rustix = { version = "1", features = ["fs", "system", "process", "time", "stdio"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Vendor native implementation stays behind the official safe Rust API.

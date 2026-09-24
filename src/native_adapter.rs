@@ -329,7 +329,13 @@ impl Adapter {
                         anyhow::bail!("native worker I/O channel closed")
                     }
                 })?;
-            let response: Response = serde_json::from_slice(&response_bytes)?;
+            let response: Response =
+                serde_json::from_slice(&response_bytes).with_context(|| {
+                    format!(
+                        "decode native response; bounded frame prefix {:?}",
+                        String::from_utf8_lossy(&response_bytes[..response_bytes.len().min(160)])
+                    )
+                })?;
             validate_response(command, &request_hash, &response)?;
             // This fsync precedes completion/intent clearing. A crash on either
             // side of that boundary leaves evidence or a blocking pending intent.

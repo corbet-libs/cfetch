@@ -588,6 +588,15 @@ fn assert_parent(expected: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Keep protocol bytes on a private descriptor before a vendor runtime can
+/// write to stdout. Native diagnostics go to stderr, never into JSON framing.
+#[cfg(all(target_os = "linux", feature = "native-openvino"))]
+fn protocol_writer() -> anyhow::Result<std::fs::File> {
+    let protocol = rustix::io::fcntl_dupfd_cloexec(std::io::stdout(), 3)?;
+    rustix::stdio::dup2_stdout(std::io::stderr())?;
+    Ok(std::fs::File::from(protocol))
+}
+
 /// Internal entry point. EOF exits; parent death kills this exact worker even
 /// while a native call blocks. No child or grandchild is spawned here.
 #[cfg(all(target_os = "linux", feature = "native-openvino"))]
@@ -595,7 +604,7 @@ pub fn run_stdio(expected_parent_pid: u32) -> anyhow::Result<()> {
     rustix::process::set_parent_process_death_signal(Some(rustix::process::Signal::KILL))?;
     assert_parent(expected_parent_pid)?;
     let mut reader = std::io::BufReader::new(std::io::stdin().lock());
-    let mut writer = std::io::stdout().lock();
+    let mut writer = protocol_writer()?;
     let mut session: Option<native::Session> = None;
     let mut compile_attempted = false;
     let mut failed = false;
@@ -668,6 +677,49 @@ pub fn run_stdio(_expected_parent_pid: u32) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(all(target_os = "linux", feature = "native-openvino"))]
+    #[test]
+    fn vendor_stdout_cannot_corrupt_protocol() {
+        const FLAG: &str = "CFETCH_TEST_PROTOCOL_WRITER_CHILD";
+        if std::env::var_os(FLAG).is_some() {
+            let mut protocol = super::protocol_writer().unwrap();
+            rustix::io::write(std::io::stdout(), b"vendor diagnostic\n").unwrap();
+            protocol.write_all(b"private protocol frame\n").unwrap();
+            protocol.flush().unwrap();
+            std::process::exit(0);
+        }
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native_worker::tests::vendor_stdout_cannot_corrupt_protocol",
+                "--nocapture",
+            ])
+            .env(FLAG, "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if child.try_wait().unwrap().is_some() {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("protocol isolation child exceeded deadline");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains("private protocol frame\n"));
+        assert!(!stdout.contains("vendor diagnostic"));
+        assert_eq!(output.stderr, b"vendor diagnostic\n");
+    }
+
     fn identity(pooling: Pooling) -> Identity {
         Identity {
             device: Device::Cpu,
