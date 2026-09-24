@@ -1817,7 +1817,7 @@ def validate_release_asset_url(
         or parsed.query
         or parsed.fragment
         or re.fullmatch(
-            rf"/corbet-labs/cfetch/releases/download/"
+            rf"/corbet-libs/cfetch/releases/download/"
             rf"[A-Za-z0-9][A-Za-z0-9._-]{{0,127}}/"
             rf"{re.escape(digest)}{re.escape(suffix)}",
             parsed.path,

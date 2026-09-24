@@ -23,7 +23,7 @@ MAX_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024
 MAX_FILES = 4096
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 URL_RE = re.compile(
-    r"https://github\.com/corbet-labs/cfetch/releases/download/"
+    r"https://github\.com/corbet-libs/cfetch/releases/download/"
     r"([A-Za-z0-9][A-Za-z0-9._-]{0,127})/([0-9a-f]{64})\.(zip|tar\.gz)"
 )
 

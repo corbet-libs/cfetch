@@ -84,9 +84,9 @@
     "supported_max_batch_size": 64,
     "sequence_capability_evidence_sha256": "64 lowercase hexadecimal characters",
     "performance_evidence_sha256": "64 lowercase hexadecimal characters",
-    "admission_cache_url": "https://github.com/corbet-labs/cfetch/releases/download/<tag>/<admission_cache_sha256>.npz",
+    "admission_cache_url": "https://github.com/corbet-libs/cfetch/releases/download/<tag>/<admission_cache_sha256>.npz",
     "admission_cache_sha256": "64 lowercase hexadecimal characters",
-    "measurement_evidence_url": "https://github.com/corbet-labs/cfetch/releases/download/<tag>/<measurement_evidence_sha256>.zip",
+    "measurement_evidence_url": "https://github.com/corbet-libs/cfetch/releases/download/<tag>/<measurement_evidence_sha256>.zip",
     "measurement_evidence_sha256": "64 lowercase hexadecimal characters",
     "compatibility_report": "repository-relative release/admission/<compatibility_report_sha256>.json path",
     "compatibility_report_sha256": "64 lowercase hexadecimal characters matching the report filename and exact bytes",
@@ -95,8 +95,8 @@
   },
   "admission": {
     "policy_version": 1,
-    "policy_manifest_sha256": "e58b10f7d5e1ea9d86ca83c8454a466545208a584c0e1f4d3d4339424b7489f7",
-    "implementation_bundle_sha256": "daceaf58ccf0aea12f1c26a39ee0577f748d6757c00933189553a526f8aa3b59",
+    "policy_manifest_sha256": "45faf34db78a0c5c3b2fa0837fdaa07beb5286d4d5506b6393f2ae90222e4382",
+    "implementation_bundle_sha256": "6bb4abc11b9b7dd9a6e0d7eafb3bcfd0524b3513bfc2e31703d1a9db9d0e0348",
     "dataset": "mteb/scifact",
     "dataset_revision": "cf10ab6856b15b0e670ef8ae5dae4e266c12d035",
     "sequence_semantic_fixture": {

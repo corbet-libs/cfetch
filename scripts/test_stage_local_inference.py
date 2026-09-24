@@ -12,7 +12,7 @@ import tempfile
 import unittest
 import zipfile
 
-from scripts.stage_local_inference import StagingError, stage_archive
+from scripts.stage_local_inference import StagingError, URL_RE, stage_archive
 
 
 def zip_info(name: str, mode: int) -> zipfile.ZipInfo:
@@ -22,6 +22,11 @@ def zip_info(name: str, mode: int) -> zipfile.ZipInfo:
 
 
 class LocalInferenceStagingTests(unittest.TestCase):
+    def test_package_origin_accepts_canonical_and_rejects_retired_owner(self) -> None:
+        asset = "releases/download/admission-v1/" + "a" * 64 + ".tar.gz"
+        self.assertIsNotNone(URL_RE.fullmatch("https://github.com/corbet-libs/cfetch/" + asset))
+        self.assertIsNone(URL_RE.fullmatch("https://github.com/corbet-labs/cfetch/" + asset))
+
     def test_stages_only_exact_dispatcher_and_scope_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

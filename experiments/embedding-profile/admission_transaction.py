@@ -97,7 +97,7 @@ PROFILE_SOURCE_PATH = "src/embedding_profile.rs"
 PROFILE_SOURCE_MAX_BYTES = 4 * 1024 * 1024
 PROFILE_STATUS_CANDIDATE_TEXT = 'pub const PROFILE_STATUS: &str = "candidate";'
 PROFILE_STATUS_ACTIVE_TEXT = 'pub const PROFILE_STATUS: &str = "active";'
-RELEASE_REPOSITORY = "corbet-labs/cfetch"
+RELEASE_REPOSITORY = "corbet-libs/cfetch"
 
 
 class TransactionError(ValueError):
@@ -1164,7 +1164,7 @@ def _validate_package_rows(
         _validate_packaged_dispatcher(package_path, release_dispatcher)
         package_digest = file_sha256(package_path)
         package_url = (
-            "https://github.com/corbet-labs/cfetch/releases/download/"
+            "https://github.com/corbet-libs/cfetch/releases/download/"
             f"{release_tag}/{package_digest}{PACKAGE_FORMAT_SUFFIX[package_format]}"
         )
         recipes = {
@@ -1233,7 +1233,7 @@ def _registry_entry(
     release_tag: str,
 ) -> dict[str, object]:
     entry = {field: metadata[field] for field in REPORT_BACKEND_BINDING_FIELDS}
-    base = f"https://github.com/corbet-labs/cfetch/releases/download/{release_tag}"
+    base = f"https://github.com/corbet-libs/cfetch/releases/download/{release_tag}"
     entry.update(
         {
             "admission_cache_url": f"{base}/{cache_digest}.npz",

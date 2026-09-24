@@ -662,7 +662,7 @@ fn validate_package_archive(plan: &LocalPackagePlanV1) -> anyhow::Result<()> {
     validate_sha256(&plan.package_sha256).context("invalid package sha256")?;
     validate_sha256(&plan.package_manifest_sha256)
         .context("invalid package manifest sha256")?;
-    let prefix = "https://github.com/corbet-labs/cfetch/releases/download/";
+    let prefix = "https://github.com/corbet-libs/cfetch/releases/download/";
     let relative = plan
         .package_url
         .strip_prefix(prefix)
@@ -844,7 +844,7 @@ mod tests {
                     "x86-64-avx2"
                 ],
                 "package_url": format!(
-                    "https://github.com/corbet-labs/cfetch/releases/download/v1/{}.tar.gz",
+                    "https://github.com/corbet-libs/cfetch/releases/download/v1/{}.tar.gz",
                     "7".repeat(64)
                 ),
                 "package_sha256": "7".repeat(64),
@@ -1076,10 +1076,19 @@ mod tests {
     fn rejects_non_content_addressed_package_archive() {
         let mut registry = valid_registry();
         registry["local_packages"][0]["package_url"] =
-            json!("https://github.com/corbet-labs/cfetch/releases/download/v1/inference.tar.gz");
+            json!("https://github.com/corbet-libs/cfetch/releases/download/v1/inference.tar.gz");
         assert!(
             format!("{:#}", select(&registry).unwrap_err())
                 .contains("package digest and declared archive format")
+        );
+
+        let mut retired = valid_registry();
+        retired["local_packages"][0]["package_url"] = json!(format!(
+            "https://github.com/corbet-labs/cfetch/releases/download/v1/{}.tar.gz",
+            "7".repeat(64)
+        ));
+        assert!(
+            format!("{:#}", select(&retired).unwrap_err()).contains("cfetch GitHub release origin")
         );
 
         let mut foreign = valid_registry();

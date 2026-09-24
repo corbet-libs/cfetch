@@ -327,12 +327,12 @@ def complete_admission_report() -> tuple[
             "sequence_capability_evidence_sha256": digit * 64,
             "performance_evidence_sha256": digit * 64,
             "admission_cache_url": (
-                "https://github.com/corbet-labs/cfetch/releases/download/"
+                "https://github.com/corbet-libs/cfetch/releases/download/"
                 f"admission-v1/{cache_digest}.npz"
             ),
             "admission_cache_sha256": cache_digest,
             "measurement_evidence_url": (
-                "https://github.com/corbet-labs/cfetch/releases/download/"
+                "https://github.com/corbet-libs/cfetch/releases/download/"
                 f"admission-v1/{measurement_digest}.zip"
             ),
             "measurement_evidence_sha256": measurement_digest,
@@ -979,15 +979,17 @@ class AllPairsGateTests(unittest.TestCase):
         digest = "a" * 64
         validate_admission_cache_url(
             "test-scope",
-            "https://github.com/corbet-labs/cfetch/releases/download/"
+            "https://github.com/corbet-libs/cfetch/releases/download/"
             f"admission-v1/{digest}.npz",
             digest,
         )
         for url in (
-            f"https://example.com/{digest}.npz",
-            "http://github.com/corbet-labs/cfetch/releases/download/"
-            f"admission-v1/{digest}.npz",
             "https://github.com/corbet-labs/cfetch/releases/download/"
+            f"admission-v1/{digest}.npz",
+            f"https://example.com/{digest}.npz",
+            "http://github.com/corbet-libs/cfetch/releases/download/"
+            f"admission-v1/{digest}.npz",
+            "https://github.com/corbet-libs/cfetch/releases/download/"
             f"admission-v1/{'b' * 64}.npz",
         ):
             with self.subTest(url=url), self.assertRaisesRegex(

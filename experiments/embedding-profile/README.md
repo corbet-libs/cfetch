@@ -358,7 +358,7 @@ An admitted scope has two immutable cfetch release assets:
   profiler output, and benchmark output referenced by the embedded summaries.
 
 Both registry URLs must be credential-free
-`https://github.com/corbet-labs/cfetch/releases/download/<tag>/...` locators.
+`https://github.com/corbet-libs/cfetch/releases/download/<tag>/...` locators.
 The measurement ZIP contains only `measurement-manifest.json` and
 `raw/<sha256>.bin` members. Its manifest has schema version 1, the scope ID, the
 sequence, placement, and performance summary digests, and one

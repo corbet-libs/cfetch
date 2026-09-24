@@ -98,6 +98,17 @@ for check in "$@"; do
       cargo test --locked --bin cfetch local_adapter::tests
       cargo clippy --locked --bin cfetch -- -D warnings
       ;;
+    admission-origin)
+      cargo test --locked --bin cfetch local_inference::tests
+      cargo test --locked --bin cfetch embedding_profile::tests
+      "$python_bin" -m unittest -v scripts.test_stage_local_inference scripts.test_apply_admission_activation
+      (
+        cd experiments/embedding-profile
+        "$python_bin" -m unittest -v test_admission_origin
+        "$python_bin" cross_backend_eval.py --verify-implementation-bundle
+        "$python_bin" cross_backend_eval.py --verify-release-registry
+      )
+      ;;
     governor)
       # Native deadline and persisted load policy; no model/runtime dependency.
       "$python_bin" -m unittest -v \

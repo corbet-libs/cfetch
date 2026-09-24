@@ -19,7 +19,7 @@ test ! -e "$CFETCH_OPS_ROOT"
 mkdir -p "$CFETCH_OPS_ROOT/download" "$CFETCH_OPS_ROOT/artifact" \
   "$CFETCH_OPS_ROOT/runtime"
 
-gh run view "$CFETCH_RUN_ID" --repo corbet-labs/cfetch \
+gh run view "$CFETCH_RUN_ID" --repo corbet-libs/cfetch \
   --json conclusion,headSha,workflowName > "$CFETCH_OPS_ROOT/run.json"
 jq -e --arg commit "$CFETCH_COMMIT" '
   .conclusion == "success" and
@@ -27,7 +27,7 @@ jq -e --arg commit "$CFETCH_COMMIT" '
   .workflowName == "OpenVINO pinned package inputs"
 ' "$CFETCH_OPS_ROOT/run.json" >/dev/null
 
-gh run download "$CFETCH_RUN_ID" --repo corbet-labs/cfetch \
+gh run download "$CFETCH_RUN_ID" --repo corbet-libs/cfetch \
   --name "openvino-pinned-inputs-$CFETCH_RUN_ID" \
   --dir "$CFETCH_OPS_ROOT/download"
 (cd "$CFETCH_OPS_ROOT/download" && sha256sum --check SHA256SUMS)

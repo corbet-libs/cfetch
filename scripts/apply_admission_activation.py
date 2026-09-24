@@ -31,7 +31,7 @@ PROFILE_STATUS_CANDIDATE_TEXT = 'pub const PROFILE_STATUS: &str = "candidate";'
 PROFILE_STATUS_ACTIVE_TEXT = 'pub const PROFILE_STATUS: &str = "active";'
 REGISTRY_PATH = "release/inference-backends.json"
 VARIANTS_PATH = "release/variants.json"
-RELEASE_REPOSITORY = "corbet-labs/cfetch"
+RELEASE_REPOSITORY = "corbet-libs/cfetch"
 
 ACTIVATION_FIELDS = {
     "schema_version",

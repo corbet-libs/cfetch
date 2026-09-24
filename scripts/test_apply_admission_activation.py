@@ -195,6 +195,13 @@ class ActivationFixture:
 
 
 class ApplyAdmissionActivationTests(unittest.TestCase):
+    def test_publication_url_uses_only_the_canonical_repository(self) -> None:
+        self.assertEqual(
+            _release_asset_url("admission-v1", "a" * 64 + ".npz"),
+            "https://github.com/corbet-libs/cfetch/releases/download/"
+            "admission-v1/" + "a" * 64 + ".npz",
+        )
+
     def test_applies_exact_registry_report_and_only_bound_source_status(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = ActivationFixture(Path(directory))
