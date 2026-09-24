@@ -51,6 +51,8 @@ pub enum Operation {
     Compile {
         model_path: PathBuf,
         weights_path: Option<PathBuf>,
+        runtime_library_path: PathBuf,
+        runtime_library_sha256: String,
         bucket: usize,
         precision: Precision,
         threads: u32,
@@ -139,6 +141,8 @@ impl Command {
         if let Operation::Compile {
             model_path,
             weights_path,
+            runtime_library_path,
+            runtime_library_sha256,
             bucket,
             threads,
             ..
@@ -156,7 +160,14 @@ impl Command {
                 weights_path.is_some() == id.weights_sha256.is_some(),
                 "weights path and digest must be paired"
             );
-            for path in std::iter::once(model_path).chain(weights_path.iter()) {
+            ensure!(
+                valid_hash(runtime_library_sha256),
+                "invalid native runtime digest"
+            );
+            for path in [model_path, runtime_library_path]
+                .into_iter()
+                .chain(weights_path.iter())
+            {
                 ensure!(
                     path.is_absolute() && path.to_str().is_some_and(|p| identifier(p, 4096)),
                     "artifact path must be an absolute bounded UTF-8 path"
@@ -363,6 +374,8 @@ mod native {
             let Operation::Compile {
                 model_path,
                 weights_path,
+                runtime_library_path,
+                runtime_library_sha256,
                 bucket,
                 precision,
                 threads,
@@ -378,9 +391,19 @@ mod native {
             if let (Some(path), Some(digest)) = (weights_path, &command.identity.weights_sha256) {
                 verify_file(path, digest, 32 * 1024 * 1024 * 1024)?;
             }
+            verify_file(
+                runtime_library_path,
+                runtime_library_sha256,
+                512 * 1024 * 1024,
+            )?;
             // This is the first native call. The parent must hold its compile
-            // lease before sending this command, including model loading.
-            let mut core = Core::new().context("load OpenVINO runtime")?;
+            // lease before sending this command, including runtime/model loading.
+            // Loading the exact file first prevents discovery of another system
+            // runtime; Core::new reuses the already-loaded official binding.
+            openvino_sys::library::load_from(runtime_library_path.clone())
+                .map_err(anyhow::Error::msg)
+                .context("load pinned OpenVINO C library")?;
+            let mut core = Core::new().context("initialize pinned OpenVINO runtime")?;
             let runtime_build = openvino::version().build_number;
             ensure!(
                 runtime_build == command.identity.runtime_build,
@@ -755,6 +778,8 @@ mod tests {
             operation: Operation::Compile {
                 model_path: PathBuf::from("/models/pinned.onnx"),
                 weights_path: None,
+                runtime_library_path: PathBuf::from("/runtime/libopenvino_c.so"),
+                runtime_library_sha256: "d".repeat(64),
                 bucket: 128,
                 precision: Precision::F32,
                 threads: 2,
@@ -764,6 +789,21 @@ mod tests {
         command.identity.weights_sha256 = Some("c".repeat(64));
         assert!(command.validate().is_err());
         command.identity.weights_sha256 = None;
+        if let Operation::Compile {
+            runtime_library_sha256,
+            ..
+        } = &mut command.operation
+        {
+            *runtime_library_sha256 = "invalid".into();
+        }
+        assert!(command.validate().is_err());
+        if let Operation::Compile {
+            runtime_library_sha256,
+            ..
+        } = &mut command.operation
+        {
+            *runtime_library_sha256 = "d".repeat(64);
+        }
         if let Operation::Compile { threads, .. } = &mut command.operation {
             *threads = 3;
         }

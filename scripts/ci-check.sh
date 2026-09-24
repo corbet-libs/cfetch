@@ -86,6 +86,7 @@ for check in "$@"; do
       ;;
     native-worker)
       rustc --version
+      cargo test --locked --features native-openvino --bin cfetch inference_governor::tests
       cargo test --locked --features native-openvino --bin cfetch native_worker::tests
       cargo test --locked --features native-openvino --bin cfetch native_adapter::tests
       cargo test --locked --features native-openvino --test native_worker_cli

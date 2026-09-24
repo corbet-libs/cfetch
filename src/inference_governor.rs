@@ -835,6 +835,22 @@ mod tests {
         assert!(!read(&mut lease.intent_file).unwrap().is_empty());
     }
     #[test]
+    fn worker_crash_mid_operation_retains_pending_intent() {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "sleep 0.03; exit 7"])
+            .spawn()
+            .unwrap();
+        let mut lease = lease(Duration::from_secs(1));
+        let result = lease.supervise::<()>(&mut child, || Ok(None));
+        assert!(result.is_err());
+        assert_eq!(child.try_wait().unwrap().unwrap().code(), Some(7));
+        assert_eq!(
+            read(&mut lease.intent_file).unwrap(),
+            b"durable pending intent"
+        );
+        assert!(read(&mut lease.state_file).unwrap().is_empty());
+    }
+    #[test]
     fn malformed_worker_reply_reaps_owned_child() {
         let mut child = std::process::Command::new("sleep")
             .arg("60")

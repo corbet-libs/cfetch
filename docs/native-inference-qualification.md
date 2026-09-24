@@ -1,0 +1,89 @@
+# Native inference qualification
+
+The `native-openvino` Linux feature provides an owned OpenVINO child and a
+persistent host governor. It is a qualification interface, not an admitted
+production backend. Enabling the feature does not select a model, change the
+working CPU backend, write vectors, or populate `release/inference-backends.json`.
+
+## Execution contract
+
+`cfetch native-probe PLAN EVIDENCE --policy-sha256 SHA256` consumes one finite
+JSON plan: schema version 1, one compile command followed by 1–64 inference
+commands. Every command has the same model, pipeline, output, dimensions,
+runtime build, and requested device. A plan has one static token bucket and
+batch size one. The hidden `native-worker` command is its internal child entry
+point; callers use the parent probe so the governor and checkpoint contract
+cover every native operation.
+
+The parent validates bounded regular-file input before acquiring a lease. It
+requires inherited cgroup-v2 limits of no more than two CPUs and 8 GiB memory.
+The child starts with host-thread limits of two, arms a parent-death kill, and
+checks parent identity. Starting the child or reaching EOF loads no native
+library. Runtime loading, model reading, compilation, and synchronous inference
+begin only after the parent has durably charged a governor lease and sent the
+validated operation. Responses identify the exact request and actual execution
+device; another device, malformed identity, nonfinite output, wrong dimensions,
+or invalid normalization fails closed.
+
+Before starting a probe, the operator must provision the root-owned
+`/var/lib/cfetch/inference` namespace explicitly. Schema-2 policy uses namespace
+`cfetch-host-inference-v2`, an explicit device allowlist, finite compile/inference
+operation and bucket budgets, bounded operation deadlines, and cooldown at
+least as long as active work. Its SHA-256 is passed to the probe. Root owns the
+namespace and policy; only the intended runner may update the provisioned
+lock, state, and intent files. The runtime never creates or resets this policy.
+A new boot, changed epoch or policy, exhausted budget, or pending intent requires
+operator inspection. A CPU/GPU test policy must omit NPU.
+
+Each operation retains the permanent host lock across the request and bounded
+child supervision. Request intent is fsynced before native work. The parent
+fsyncs an exact response checkpoint and its directory before committing usage
+and clearing intent. A controlled error is committed only after the child has
+exited. Timeout, crash, protocol mismatch, checkpoint failure, or uncertain child
+termination leaves intent pending and blocks another scope. Fallback cannot
+clear that evidence. A restarted finite plan can reuse a successful inference
+checkpoint only for byte-identical request identity; its new worker still pays
+a compile lease. Completed error checkpoints are not retried automatically.
+
+## Artifact and runtime prerequisites
+
+Every compile request specifies an absolute runtime-library path and digest;
+the safe vendor loader uses that exact library instead of ambient discovery.
+The command also pins model and optional named weights bytes. Runtime build and
+requested precision are checked or recorded separately; a build string or
+precision hint does not prove the identity or arithmetic of every plugin.
+
+Before physical execution, separately audit all external model-data references,
+tokenizer files, prompts, pooling, and the complete runtime/plugin dependency
+closure. Retain exact hashes and immutable paths in the qualification record.
+The named-weights check alone does not validate arbitrary ONNX external-data
+references. The Python artifact audit in `experiments/embedding-candidates`
+checks that closure for registered candidates without loading an inference
+runtime. It is tooling for artifact inspection, not the production runner.
+
+CPU/GPU diagnostics do not authorize NPU execution. Host-specific quarantine and
+physical-readiness requirements remain effective after unit tests or artifact
+audits pass. Model support in vendor documentation is not admission on an
+untested device. EmbeddingGemma requires float32 or bfloat16 activations; do not
+request float16 merely because the generic worker can represent that hint.
+
+## Production admission
+
+Keep the existing profile and working CPU path until a replacement is selected
+and passes end-to-end qualification. Model selection must freeze model revision,
+tokenizer, query/document instructions, sequence limit, pooling, normalization,
+dimensions, and index encoding. Changing dimensions or vector meaning requires
+a distinct profile and deliberate index migration.
+
+Admission requires numerical/retrieval comparisons on representative multilingual
+text and code, physical device placement, bounded compile and inference latency,
+peak memory and energy evidence, crash/fallback tests, and endurance under the
+same governor. Device order is qualified NPU, qualified GPU, then qualified CPU;
+all routes must produce the same profile. Linux Intel OpenVINO code does not
+establish AMD, Apple, ARM, mobile, or Windows support. Those platforms need their
+own native export/runtime package and evidence before registry admission.
+
+Focused Crow selectors are `native-governor` and `native-worker`. They exercise
+pure validation, persistent state, owned-child supervision, worker framing and
+pooling, and startup without native libraries. They perform no physical model
+inference and do not lift a host quarantine.
