@@ -1265,11 +1265,22 @@ mod tests {
             mapped_row(&path, &FileIdentity::read(&path).unwrap()).replace("r-xp", "r--p");
         assert!(closure.verify_text(unmapped).is_ok());
         assert!(closure.verify_text(&nonexecutable).is_ok());
-        // The same path and size must not conceal changed bytes, even when
-        // neither executable-mapping branch examines the dependency.
-        std::fs::write(&path, b"modified").unwrap();
+        // Replacement is observable even when path and length are unchanged.
+        // Avoid relying on timestamp resolution for an immediate same-size write.
+        let replacement = directory.path().join("replacement");
+        std::fs::write(&replacement, b"modified").unwrap();
+        std::fs::rename(replacement, &path).unwrap();
         assert!(closure.verify_text(unmapped).is_err());
         assert!(closure.verify_text(&nonexecutable).is_err());
+        let changed = ExecutableClosure::capture(&[PinnedFile {
+            path: path.clone(),
+            sha256: sha256(b"modified"),
+            bytes: 8,
+            executable: false,
+        }])
+        .unwrap();
+        std::fs::write(&path, b"different length").unwrap();
+        assert!(changed.verify_text(unmapped).is_err());
     }
 
     #[test]
