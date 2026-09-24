@@ -14,13 +14,13 @@
       packages = forAllSystems (pkgs: rec {
         cfetch = pkgs.callPackage ./nix/package.nix {
           src = self;
-          craneLib = (crane.mkLib pkgs).overrideScope (_final: prev:
+          craneLib = (crane.mkLib pkgs).overrideScope (_final: _prev:
             pkgs.lib.optionalAttrs (!(pkgs.cargo-auditable.meta.broken or false)) {
               # Crane's spliced scope keeps the complete overridden toolchain.
               inherit (pkgs) rustc clippy rustfmt;
               # Preserve the dependency metadata emitted by buildRustPackage.
               cargo = pkgs.buildPackages.cargo-auditable-cargo-wrapper.override {
-                cargo = prev.cargo;
+                cargo = pkgs.buildPackages.cargo;
                 cargo-auditable = pkgs.buildPackages.cargo-auditable;
               };
             });
