@@ -120,22 +120,22 @@ impl RerankClient {
                 .lock()
                 .expect("reranker mutex poisoned")
                 .rank(query, documents);
-            crate::runtime_status::record_inference_attempt(
+            crate::runtime_status::record_inference_result(
                 crate::runtime_status::InferenceMode::Local,
                 crate::runtime_status::InferenceRoute::Local,
                 "rerank-embedded",
                 None,
-                result.is_ok(),
+                &result,
             );
             return result;
         }
         let result = self.rank_request(query, documents);
-        crate::runtime_status::record_inference_attempt(
+        crate::runtime_status::record_inference_result(
             crate::runtime_status::InferenceMode::Endpoint,
             crate::runtime_status::endpoint_route(&self.url),
             "rerank-endpoint",
             None,
-            result.is_ok(),
+            &result,
         );
         result
     }
