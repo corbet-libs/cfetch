@@ -14,8 +14,16 @@
       "query_prefix": "search_query: ",
       "document_prefix": "search_document: ",
       "files": {
-        "model.onnx": {"upstream": "onnx/model.onnx", "bytes": 1579551135, "sha256": "71890860122f39eb922f6bf96714fda22ba10eb5bf1bc57bfdcf02ec93acc5d0"},
-        "tokenizer.json": {"upstream": "tokenizer.json", "bytes": 3583228, "git_blob_sha1": "2f4d8583e507b7466d2490e2d6c045647a822698"}
+        "model.onnx": {
+          "upstream": "onnx/model.onnx",
+          "bytes": 1579551135,
+          "sha256": "71890860122f39eb922f6bf96714fda22ba10eb5bf1bc57bfdcf02ec93acc5d0"
+        },
+        "tokenizer.json": {
+          "upstream": "tokenizer.json",
+          "bytes": 3583228,
+          "git_blob_sha1": "2f4d8583e507b7466d2490e2d6c045647a822698"
+        }
       }
     },
     "MxbaiEmbedLargeV1": {
@@ -30,8 +38,45 @@
       "query_prefix": "Represent this sentence for searching relevant passages: ",
       "document_prefix": "",
       "files": {
-        "model.onnx": {"upstream": "onnx/model.onnx", "bytes": 1336854282, "sha256": "adb53ed475faa339bfad3bd2bdb7e6a30b4f47280ade9811f81bef7953f9ab77"},
-        "tokenizer.json": {"upstream": "tokenizer.json", "bytes": 711396, "git_blob_sha1": "688882a79f44442ddc1f60d70334a7ff5df0fb47"}
+        "model.onnx": {
+          "upstream": "onnx/model.onnx",
+          "bytes": 1336854282,
+          "sha256": "adb53ed475faa339bfad3bd2bdb7e6a30b4f47280ade9811f81bef7953f9ab77"
+        },
+        "tokenizer.json": {
+          "upstream": "tokenizer.json",
+          "bytes": 711396,
+          "git_blob_sha1": "688882a79f44442ddc1f60d70334a7ff5df0fb47"
+        }
+      }
+    },
+    "BGEM3": {
+      "model": "BAAI/bge-m3",
+      "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+      "dimensions": 1024,
+      "max_tokens": 8192,
+      "pad_token": "<pad>",
+      "pad_token_id": 1,
+      "pooling": "cls",
+      "normalize": "l2",
+      "query_prefix": "",
+      "document_prefix": "",
+      "files": {
+        "model.onnx": {
+          "upstream": "onnx/model.onnx",
+          "bytes": 724923,
+          "sha256": "f84251230831afb359ab26d9fd37d5936d4d9bb5d1d5410e66442f630f24435b"
+        },
+        "model.onnx_data": {
+          "upstream": "onnx/model.onnx_data",
+          "bytes": 2266820608,
+          "sha256": "1eebfb28493f67bba03ce0ef64bfdc7fc5a3bd9d7493f818bb1d78cd798416b4"
+        },
+        "tokenizer.json": {
+          "upstream": "tokenizer.json",
+          "bytes": 17098108,
+          "sha256": "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08"
+        }
       }
     }
   }

@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import platform
+import re
 
 CATALOG = Path(__file__).with_name("models.json")
 
@@ -56,10 +57,51 @@ def verify_files(directory, candidate):
     return identities
 
 
-def graph_contract(path):
+def external_weight_contract(model, files):
+    # Inspect every tensor, including nested graph/attribute tensors. Never let
+    # a native loader resolve unverified paths named inside the graph.
+    def tensors(message):
+        if message.DESCRIPTOR.full_name == "onnx.TensorProto":
+            yield message
+        for field, value in message.ListFields():
+            if field.type == field.TYPE_MESSAGE:
+                for child in value if field.is_repeated else (value,):
+                    yield from tensors(child)
+
+    locations = set()
+    count = 0
+    for tensor in tensors(model):
+        if not tensor.external_data:
+            require(tensor.data_location != 1, "external tensor has no weight location")
+            continue
+        require(tensor.data_location == 1, "external weights lack EXTERNAL data location")
+        metadata = {item.key: item.value for item in tensor.external_data}
+        require(len(metadata) == len(tensor.external_data), "duplicate external weight metadata")
+        require(set(metadata) <= {"location", "offset", "length", "checksum"},
+                "unsupported external weight metadata")
+        location = metadata.get("location", "")
+        require(location and Path(location).name == location and "\\" not in location
+                and location not in ("model.onnx", "tokenizer.json") and location in files,
+                "external weights must name a verified local artifact")
+        require("sha256" in files[location], "external weights require a pinned SHA-256")
+        size = files[location]["bytes"]
+        offset = metadata.get("offset", "0")
+        length = metadata.get("length", str(size))
+        require(re.fullmatch(r"[0-9]+", offset) and re.fullmatch(r"[0-9]+", length),
+                "invalid external weight range")
+        offset = int(offset)
+        length = int(length) if "length" in metadata else size - offset
+        require(0 <= offset < size and 0 < length <= size - offset,
+                "external weight range exceeds verified artifact")
+        locations.add(location)
+        count += 1
+    return {"files": sorted(locations), "tensors": count}
+
+
+def graph_contract(path, files):
     import onnx
     model = onnx.load(path, load_external_data=False)
-    require(not any(t.external_data for t in model.graph.initializer), "unexpected external weights")
+    external = external_weight_contract(model, files)
 
     def ports(values):
         return [{"name": p.name, "type": p.type.tensor_type.elem_type,
@@ -69,7 +111,8 @@ def graph_contract(path):
     return {"onnx_version": onnx.__version__, "ir_version": model.ir_version,
             "opsets": {p.domain: p.version for p in model.opset_import},
             "inputs": ports(model.graph.input), "outputs": ports(model.graph.output),
-            "operator_domains": sorted({n.domain for n in model.graph.node})}
+            "operator_domains": sorted({n.domain for n in model.graph.node}),
+            "external_weights": external}
 
 
 def audit(root, name):
@@ -78,7 +121,7 @@ def audit(root, name):
     files = verify_files(directory, candidate)
     return {"candidate": candidate, "verified_files": files,
             "contract_sha256": hashlib.sha256(canonical(candidate)).hexdigest(),
-            "graph": graph_contract(directory / "model.onnx")}
+            "graph": graph_contract(directory / "model.onnx", candidate["files"])}
 
 
 def write_new(path, value):

@@ -11,7 +11,7 @@ from pathlib import Path
 import sys
 import time
 
-from candidates import canonical, load_candidate, require, verify_files, write_new
+from candidates import canonical, graph_contract, load_candidate, require, verify_files, write_new
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -88,6 +88,8 @@ def main():
     candidate = load_candidate(args.candidate)
     directory = args.root / args.candidate
     files = verify_files(directory, candidate)
+    # Audit graph references before any native loader may open external weights.
+    graph_contract(directory / "model.onnx", candidate["files"])
     rows = inputs(directory, candidate)
     identity = {"pipeline": PIPELINE, "candidate": candidate,
                 "files": files, "inputs_sha256": hashlib.sha256(canonical(rows)).hexdigest()}

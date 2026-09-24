@@ -7,7 +7,7 @@ import unittest
 
 import numpy as np
 
-from candidates import CATALOG, load_candidate, verify_files
+from candidates import CATALOG, external_weight_contract, load_candidate, verify_files
 from probe import BUCKET, pool, reference_vectors
 
 
@@ -18,7 +18,12 @@ class CandidateTests(unittest.TestCase):
             row = load_candidate(name)
             self.assertRegex(row["revision"], r"^[0-9a-f]{40}$")
             self.assertRegex(row["files"]["model.onnx"]["sha256"], r"^[0-9a-f]{64}$")
-            self.assertRegex(row["files"]["tokenizer.json"]["git_blob_sha1"], r"^[0-9a-f]{40}$")
+            tokenizer = row["files"]["tokenizer.json"]
+            self.assertTrue("sha256" in tokenizer or "git_blob_sha1" in tokenizer)
+            if "sha256" in tokenizer:
+                self.assertRegex(tokenizer["sha256"], r"^[0-9a-f]{64}$")
+            if "git_blob_sha1" in tokenizer:
+                self.assertRegex(tokenizer["git_blob_sha1"], r"^[0-9a-f]{40}$")
         modern = load_candidate("ModernBertEmbedLarge")
         mxbai = load_candidate("MxbaiEmbedLargeV1")
         self.assertEqual((modern["max_tokens"], mxbai["max_tokens"]), (8192, 512))
@@ -40,6 +45,38 @@ class CandidateTests(unittest.TestCase):
             (root / "model.onnx").symlink_to("real")
             with self.assertRaisesRegex(ValueError, "file type"):
                 verify_files(root, candidate)
+
+    def test_external_weights_are_pinned_local_files_with_bounded_ranges(self):
+        from onnx import helper, TensorProto
+        tensor = TensorProto(name="weights", data_type=TensorProto.FLOAT,
+                             dims=[2], data_location=TensorProto.EXTERNAL)
+        for key, value in (("location", "weights.bin"), ("offset", "4"), ("length", "8")):
+            tensor.external_data.add(key=key, value=value)
+        model = helper.make_model(helper.make_graph([], "external", [], [], [tensor]))
+        files = {"weights.bin": {"bytes": 12, "sha256": "a" * 64}}
+        self.assertEqual(external_weight_contract(model, files),
+                         {"files": ["weights.bin"], "tensors": 1})
+        for field, value in (("location", "../weights.bin"), ("location", "/weights.bin"),
+                             ("location", "other.bin"), ("offset", "-1"),
+                             ("offset", "12"), ("length", "9")):
+            bad = copy.deepcopy(model)
+            for item in bad.graph.initializer[0].external_data:
+                if item.key == field:
+                    item.value = value
+            with self.assertRaises(ValueError):
+                external_weight_contract(bad, files)
+        with self.assertRaisesRegex(ValueError, "pinned SHA-256"):
+            external_weight_contract(model, {"weights.bin": {"bytes": 12}})
+
+    def test_nested_external_tensor_cannot_bypass_weight_checks(self):
+        from onnx import helper, TensorProto
+        tensor = TensorProto(name="weights", data_type=TensorProto.FLOAT,
+                             dims=[1], data_location=TensorProto.EXTERNAL)
+        tensor.external_data.add(key="location", value="unlisted.bin")
+        node = helper.make_node("Constant", [], ["out"], value=tensor)
+        model = helper.make_model(helper.make_graph([node], "nested", [], []))
+        with self.assertRaisesRegex(ValueError, "verified local artifact"):
+            external_weight_contract(model, {})
 
     def test_padding_never_enters_mean(self):
         values = np.full((1, BUCKET, 2), 1000.0)
