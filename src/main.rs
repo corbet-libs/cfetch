@@ -52,6 +52,8 @@ mod heartbeat;
 mod hook_io;
 mod hooks;
 mod import;
+#[cfg(target_os = "linux")]
+pub mod inference_governor;
 mod index;
 mod init;
 mod install;

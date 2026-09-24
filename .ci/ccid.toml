@@ -78,3 +78,7 @@ commands = [["bash", "scripts/ci-release-inputs.sh"]]
 [checks.embedding-candidates]
 kind = "commands"
 commands = [["bash", "scripts/ci-candidates.sh"]]
+
+[checks.native-governor]
+kind = "commands"
+commands = [["bash", "scripts/ci-check.sh", "native-governor"]]

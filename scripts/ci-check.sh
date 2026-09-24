@@ -84,6 +84,12 @@ for check in "$@"; do
       fi
       "$python_bin" experiments/npu-ort-foundation/run_cached_cpu.py
       ;;
+    native-governor)
+      rustc --version
+      cargo test --locked --bin cfetch inference_governor::tests
+      cargo test --locked --bin cfetch local_adapter::tests
+      cargo clippy --locked --bin cfetch -- -D warnings
+      ;;
     governor)
       # Native deadline and persisted load policy; no model/runtime dependency.
       "$python_bin" -m unittest -v \

@@ -352,7 +352,7 @@ fn validate_ready_line(ready: &ReadyLine, expected_scopes: &[String]) -> anyhow:
     Ok(())
 }
 
-fn terminate(child: &mut Child) -> anyhow::Result<()> {
+pub(crate) fn terminate(child: &mut Child) -> anyhow::Result<()> {
     let pid = child.id();
     if child
         .try_wait()

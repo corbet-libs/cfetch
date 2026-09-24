@@ -80,7 +80,7 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 # counterpart (FILE_SHARE_NONE opens, %COMPUTERNAME%), so the dependency
 # simply does not exist in a Windows build.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs", "system", "process"] }
+rustix = { version = "1", features = ["fs", "system", "process", "time"] }
 
 [features]
 # Experimental standalone Nomic model probe. Enabling it adds diagnostic
