@@ -52,9 +52,9 @@ mod heartbeat;
 mod hook_io;
 mod hooks;
 mod import;
+mod index;
 #[cfg(target_os = "linux")]
 pub mod inference_governor;
-mod index;
 mod init;
 mod install;
 mod ipc;
@@ -72,6 +72,10 @@ mod maintenance_worker;
 mod markers;
 mod mcp;
 mod memory_eval;
+#[cfg(all(target_os = "linux", feature = "native-openvino"))]
+mod native_adapter;
+#[cfg(all(target_os = "linux", feature = "native-openvino"))]
+mod native_worker;
 #[cfg(not(test))]
 mod output;
 mod paths;
@@ -103,6 +107,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[cfg(all(target_os = "linux", feature = "native-openvino"))]
+    #[command(hide = true)]
+    NativeWorker {
+        #[arg(long)]
+        parent_pid: u32,
+    },
+    #[cfg(all(target_os = "linux", feature = "native-openvino"))]
+    #[command(hide = true)]
+    NativeProbe {
+        plan: std::path::PathBuf,
+        evidence: std::path::PathBuf,
+        #[arg(long)]
+        policy_sha256: String,
+    },
     /// Inspect independent Git repositories, or synchronize their committed work
     Repos {
         /// Explicit checkout/discovery roots; defaults to the configured git.roots
@@ -2542,6 +2560,24 @@ fn main() {
     }
     let cli = Cli::parse();
     match cli.command {
+        #[cfg(all(target_os = "linux", feature = "native-openvino"))]
+        Command::NativeWorker { parent_pid } => {
+            if let Err(error) = native_worker::run_stdio(parent_pid) {
+                eprintln!("cfetch native worker: {error:#}");
+                std::process::exit(1);
+            }
+        }
+        #[cfg(all(target_os = "linux", feature = "native-openvino"))]
+        Command::NativeProbe {
+            plan,
+            evidence,
+            policy_sha256,
+        } => {
+            if let Err(error) = native_adapter::probe(&plan, &evidence, policy_sha256) {
+                eprintln!("cfetch native probe: {error:#}");
+                std::process::exit(1);
+            }
+        }
         #[cfg(feature = "embedded-embeddings")]
         Command::QualifyModel {
             model_dir,

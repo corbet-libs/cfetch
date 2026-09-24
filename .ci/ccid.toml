@@ -82,3 +82,7 @@ commands = [["bash", "scripts/ci-candidates.sh"]]
 [checks.native-governor]
 kind = "commands"
 commands = [["bash", "scripts/ci-check.sh", "native-governor"]]
+
+[checks.native-worker]
+kind = "commands"
+commands = [["bash", "scripts/ci-check.sh", "native-worker"]]

@@ -84,6 +84,13 @@ for check in "$@"; do
       fi
       "$python_bin" experiments/npu-ort-foundation/run_cached_cpu.py
       ;;
+    native-worker)
+      rustc --version
+      cargo test --locked --features native-openvino --bin cfetch native_worker::tests
+      cargo test --locked --features native-openvino --bin cfetch native_adapter::tests
+      cargo test --locked --features native-openvino --test native_worker_cli
+      cargo clippy --locked --features native-openvino --bin cfetch -- -D warnings
+      ;;
     native-governor)
       rustc --version
       cargo test --locked --bin cfetch inference_governor::tests
