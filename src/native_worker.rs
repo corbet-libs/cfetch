@@ -701,7 +701,7 @@ mod tests {
     }
     #[test]
     fn invalid_outputs_fail_before_publication() {
-        for values in ([0., 0.], [f32::NAN, 1.], [f32::INFINITY, 1.]) {
+        for values in [[0., 0.], [f32::NAN, 1.], [f32::INFINITY, 1.]] {
             assert!(pool(&values, &[1, 2], &[1], &identity(Pooling::SentenceL2)).is_err());
         }
         assert!(pool(&[1., 2.], &[2], &[1], &identity(Pooling::SentenceL2)).is_err());
