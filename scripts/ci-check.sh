@@ -102,6 +102,7 @@ for check in "$@"; do
       cargo test --locked --bin cfetch local_inference::tests
       cargo test --locked --bin cfetch embedding_profile::tests
       "$python_bin" -m unittest -v scripts.test_stage_local_inference scripts.test_apply_admission_activation
+      "$python_bin" -m unittest -v packages.openvino.tests.test_manifest
       (
         cd experiments/embedding-profile
         "$python_bin" -m unittest -v test_admission_origin

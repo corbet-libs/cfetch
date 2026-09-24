@@ -103,7 +103,7 @@ def package_document() -> dict[str, object]:
             "59210a333494f788eb8e607fe38cabb6af1a7aa7cdf604ddf52e3fa6004b5afb"
         ),
         "admission_policy_sha256": (
-            "e58b10f7d5e1ea9d86ca83c8454a466545208a584c0e1f4d3d4339424b7489f7"
+            "45faf34db78a0c5c3b2fa0837fdaa07beb5286d4d5506b6393f2ae90222e4382"
         ),
         "model": "google/embeddinggemma-300m",
         "model_revision": "57c266a740f537b4dc058e1b0cda161fd15afa75",
@@ -343,7 +343,7 @@ class PhysicalEvidenceTests(unittest.TestCase):
                         "59210a333494f788eb8e607fe38cabb6af1a7aa7cdf604ddf52e3fa6004b5afb"
                     ),
                     "cfetch_admission_policy_sha256": (
-                        "e58b10f7d5e1ea9d86ca83c8454a466545208a584c0e1f4d3d4339424b7489f7"
+                        "45faf34db78a0c5c3b2fa0837fdaa07beb5286d4d5506b6393f2ae90222e4382"
                     ),
                     "cfetch_model_revision": (
                         "57c266a740f537b4dc058e1b0cda161fd15afa75"

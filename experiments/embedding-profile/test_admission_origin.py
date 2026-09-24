@@ -11,6 +11,12 @@ from cross_backend_eval import (
 
 
 class AdmissionOriginTests(unittest.TestCase):
+    def test_package_and_registry_share_the_refreshed_admission_identity(self) -> None:
+        from packages.openvino.manifest import ADMISSION_POLICY_SHA256 as package_policy
+        from profile_identity import ADMISSION_POLICY_SHA256 as registry_policy
+
+        self.assertEqual(package_policy, registry_policy)
+
     def test_transaction_outputs_are_accepted_only_at_the_canonical_origin(self) -> None:
         digest = "a" * 64
         row = _registry_entry(
