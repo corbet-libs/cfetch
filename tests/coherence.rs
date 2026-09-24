@@ -275,7 +275,7 @@ fn concurrent_writer_torture(writers: usize, iters: usize, env: &[(&str, &str)])
                     committed.lock().unwrap().push((w, n));
                     let snapshot = committed.lock().unwrap().clone();
                     let resp =
-                        local.req(&json!({"op": "recall", "query": "torture", "limit": 100000}));
+                        local.req(&json!({"op": "recall", "freshness": "strict", "query": "torture", "limit": 100000}));
                     assert_eq!(resp["ok"], true, "query failed: {resp}");
                     assert_eq!(
                         resp["fresh"], true,
@@ -334,7 +334,9 @@ fn monotonic_prefix_across_concurrent_writers() {
         .collect();
 
     for _ in 0..READS {
-        let resp = local.req(&json!({"op": "recall", "query": "torture", "limit": 100000}));
+        let resp = local.req(
+            &json!({"op": "recall", "freshness": "strict", "query": "torture", "limit": 100000}),
+        );
         assert_eq!(resp["ok"], true, "{resp}");
         assert_eq!(resp["fresh"], true, "{resp}");
         let blob = snippet_blob(&resp);
@@ -447,7 +449,7 @@ fn crash_restart_backstop_catches_up() {
     // And recall actually surfaces the outage write.
     let resp = daemon2
         .local()
-        .req(&json!({"op": "recall", "query": "outage", "limit": 10}));
+        .req(&json!({"op": "recall", "freshness": "strict", "query": "outage", "limit": 10}));
     assert_eq!(resp["ok"], true);
     assert!(snippet_blob(&resp).contains("born during the outage"));
 }

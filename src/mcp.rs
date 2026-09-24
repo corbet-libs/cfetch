@@ -85,7 +85,10 @@ fn tool_defs() -> Vec<Tool> {
                 "properties": {
                     "query": {"type": "string", "description": "search terms (word-prefix matched)"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 8},
-                    "mode": {"type": "string", "enum": ["lexical", "semantic", "hybrid"], "description": "Defaults to hybrid when local embeddings are enabled, otherwise lexical."}
+                    "mode": {"type": "string", "enum": ["lexical", "semantic", "hybrid"], "description": "Defaults to hybrid when local embeddings are enabled, otherwise lexical."},
+                    "freshness": {"type": "string", "enum": ["cached", "strict"], "default": "cached", "description": "Cached snapshot with background refresh, or wait at most 5 seconds for a new background pass."},
+                    "expand": {"type": "boolean", "default": false},
+                    "slice": {"type": "string"}
                 },
                 "required": ["query"]
             })),
@@ -96,7 +99,9 @@ fn tool_defs() -> Vec<Tool> {
             "Expand a citation id from cfetch_recall to the full memory block. Long blocks are clipped to a token budget and the answer then names the file:line range holding the rest — read that range directly instead of expanding again.",
             object_schema(json!({
                 "type": "object",
-                "properties": {"cite": {"type": "string"}},
+                "properties": {"cite": {"type": "string"},
+                    "freshness": {"type": "string", "enum": ["cached", "strict"], "default": "cached"},
+                    "slice": {"type": "string"}},
                 "required": ["cite"]
             })),
         )
@@ -247,32 +252,94 @@ fn tool_defs() -> Vec<Tool> {
     ]
 }
 
-fn local_recall_entry(h: &index::Hit) -> String {
-    answer::hit_entry(
-        &h.cite,
-        &h.path,
-        h.ring,
-        h.start_line,
-        h.end_line,
-        &h.snippet,
-        &h.mirrors,
-    )
-}
-
-fn local_expand_entry(b: &index::Block) -> answer::BlockIn {
-    answer::BlockIn {
-        cite: b.cite.clone(),
-        path: b.path.clone(),
-        ring: b.ring,
-        start_line: b.start_line,
-        end_line: b.end_line,
-        text: b.text.clone(),
+fn run_memory_tool(name: &str, args: &Value) -> anyhow::Result<String> {
+    let freshness = match args.get("freshness") {
+        None => "cached",
+        Some(value) => value
+            .as_str()
+            .context("freshness must be cached or strict")?,
+    };
+    anyhow::ensure!(
+        ["cached", "strict"].contains(&freshness),
+        "unknown freshness policy"
+    );
+    let mode = args.get("mode").and_then(Value::as_str).unwrap_or("auto");
+    anyhow::ensure!(
+        ["auto", "lexical", "semantic", "hybrid"].contains(&mode),
+        "unknown recall mode"
+    );
+    let query = args.get("query").and_then(Value::as_str).unwrap_or("");
+    let cite = args.get("cite").and_then(Value::as_str).unwrap_or("");
+    let expand = name == "cfetch_expand";
+    anyhow::ensure!(
+        if expand {
+            !cite.is_empty()
+        } else {
+            !query.trim().is_empty()
+        },
+        "empty query or citation"
+    );
+    let body = json!({"op": if expand { "expand" } else { "recall" }, "query": query,
+        "cite": cite, "limit": args.get("limit").and_then(Value::as_u64).unwrap_or(8).clamp(1,100),
+        "mode": mode, "freshness": freshness, "slice": args.get("slice"),
+        "expand": args.get("expand").and_then(Value::as_bool).unwrap_or(false)});
+    let response = crate::daemon::memory_query(
+        &body,
+        std::time::Duration::from_secs(if expand || mode == "lexical" { 8 } else { 60 }),
+    )?;
+    let mut output = if expand {
+        let blocks = response.blocks.as_deref().unwrap_or_default();
+        if blocks.is_empty() {
+            format!("no block with citation {cite}")
+        } else {
+            answer::blocks(
+                &blocks
+                    .iter()
+                    .map(|b| answer::BlockIn {
+                        cite: b.cite.clone(),
+                        path: b.path.clone(),
+                        ring: b.ring,
+                        start_line: b.start_line,
+                        end_line: b.end_line,
+                        text: b.text.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+                answer::RECALL_BUDGET_TOKENS,
+            )
+        }
+    } else {
+        let hits = response.hits.as_deref().unwrap_or_default();
+        if hits.is_empty() {
+            format!("no hits for {query:?}")
+        } else {
+            answer::listing(
+                crate::wire_hit_entries(hits),
+                answer::RECALL_BUDGET_TOKENS,
+                answer::MCP_RECOVERY,
+            )
+        }
+    };
+    if let Some(linked) = &response.linked
+        && !linked.is_empty()
+    {
+        output.push_str("\nlinked (curated wikilinks, 1 hop from top hits):");
+        for (path, ring) in linked {
+            output.push_str(&format!("\n    {path} (ring {ring})"));
+        }
     }
+    if let Some(note) = &response.note {
+        output.push_str(&format!("\n{note}"));
+    }
+    output.push_str(&format!("\n{}", crate::daemon::freshness_line(&response)));
+    Ok(output)
 }
 
 fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     if name == "cfetch_runtime_status" {
         return crate::runtime_status::mcp_json();
+    }
+    if matches!(name, "cfetch_recall" | "cfetch_expand") {
+        return run_memory_tool(name, args);
     }
     let cfg = Config::load()?;
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(0) as usize;
@@ -369,83 +436,6 @@ fn run_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     }
 
     match name {
-        "cfetch_recall" => {
-            let query = args.get("query").and_then(Value::as_str).unwrap_or("");
-            let mode =
-                args.get("mode")
-                    .and_then(Value::as_str)
-                    .unwrap_or(if cfg.embeddings.enabled {
-                        "hybrid"
-                    } else {
-                        "lexical"
-                    });
-            anyhow::ensure!(
-                ["lexical", "semantic", "hybrid"].contains(&mode),
-                "unknown recall mode"
-            );
-            if let Some(response) = crate::daemon::call_req(
-                &json!({
-                    "op": "recall", "query": query,
-                    "limit": if limit == 0 { 8 } else { limit.min(100) },
-                    "semantic": mode == "semantic", "hybrid": mode == "hybrid"
-                }),
-                std::time::Duration::from_secs(if mode == "lexical" { 8 } else { 60 }),
-            ) && response.ok
-                && response.fresh == Some(true)
-            {
-                let hits = response.hits.unwrap_or_default();
-                let mut output = if hits.is_empty() {
-                    format!("no hits for {query:?}")
-                } else {
-                    answer::listing(
-                        crate::wire_hit_entries(&hits),
-                        answer::RECALL_BUDGET_TOKENS,
-                        answer::MCP_RECOVERY,
-                    )
-                };
-                if let Some(note) = response.note {
-                    output.push_str(&format!("\n{note}"));
-                }
-                return Ok(output);
-            }
-            let conn =
-                index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
-            let ranked = crate::pipeline::ranked(
-                &cfg,
-                &conn,
-                query,
-                if limit == 0 { 8 } else { limit.min(100) },
-                mode == "semantic",
-                mode == "hybrid",
-                None,
-            )?;
-            let mut response = if ranked.hits.is_empty() {
-                format!("no hits for {query:?}")
-            } else {
-                answer::listing(
-                    ranked.hits.iter().map(local_recall_entry).collect(),
-                    answer::RECALL_BUDGET_TOKENS,
-                    answer::MCP_RECOVERY,
-                )
-            };
-            if let Some(note) = ranked.note {
-                response.push_str(&format!("\n{note}"));
-            }
-            Ok(response)
-        }
-        "cfetch_expand" => {
-            let cite = args.get("cite").and_then(Value::as_str).unwrap_or("");
-            let conn =
-                index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
-            let blocks = index::expand(&conn, cite)?;
-            if blocks.is_empty() {
-                return Ok(format!("no block with citation {cite}"));
-            }
-            Ok(answer::blocks(
-                &blocks.iter().map(local_expand_entry).collect::<Vec<_>>(),
-                answer::RECALL_BUDGET_TOKENS,
-            ))
-        }
         "cfetch_find" => {
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
             // Snapshot only — an implicit code scan (minutes on NFS) must

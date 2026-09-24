@@ -1,10 +1,10 @@
 //! Local index lifecycle and bounded freshness checks.
-//! File notifications accelerate updates; every query checks a filesystem
-//! fingerprint because other writers need not trigger this process's watcher.
+//! File notifications and coalesced background fingerprint passes update the
+//! catalog. Query threads never walk the source tree.
 //! Only disposable local indexes are updated here. Git handles sharing.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
 use std::time::{Duration, Instant};
 
@@ -62,28 +62,6 @@ pub fn detected_mode() -> BarrierMode {
 enum Wake {
     Event,
     Barrier,
-}
-
-/// Exactly the inputs [`index::tree_fingerprint`] takes, snapshotted at daemon
-/// start so the unordered barrier never reloads config on the query path.
-pub(crate) struct FingerprintBasis {
-    brain_root: PathBuf,
-    native_root: Option<PathBuf>,
-    rules: crate::config::RingRules,
-}
-
-impl FingerprintBasis {
-    pub(crate) fn of(cfg: &Config) -> FingerprintBasis {
-        FingerprintBasis {
-            brain_root: cfg.brain_root.clone(),
-            native_root: None,
-            rules: cfg.rings(),
-        }
-    }
-
-    fn fingerprint(&self) -> String {
-        index::tree_fingerprint(&self.brain_root, self.native_root.as_deref(), &self.rules)
-    }
 }
 
 // ---- wire types (shared by server responses and remote clients) ----
@@ -201,10 +179,9 @@ struct Progress {
     /// barrier can test coverage without opening the catalog.
     applied_fingerprint: Option<String>,
     /// Lower bound on when the stat walk behind the latest committed pass
-    /// BEGAN. A walk that began after a barrier took its entry fingerprint
-    /// necessarily saw everything that fingerprint saw (writes only move
-    /// forward), which is the ordering argument replacing the sentinel where
-    /// events carry no order. Only ever set by a pass that actually walked.
+    /// BEGAN. Strict queries require this start to follow their entry time;
+    /// a pass begun earlier cannot establish read-your-writes coverage.
+    /// Only ever set by a pass that actually walked.
     applied_walk_start: Option<Instant>,
 }
 
@@ -214,24 +191,17 @@ pub struct ServeState {
     barrier_dir: PathBuf,
     /// Which coverage proof this host's watcher backend can support.
     mode: BarrierMode,
-    /// Tree inputs for the unordered barrier's entry fingerprint. `None` on a
-    /// state built without one (unit tests, and any future caller): the
-    /// unordered barrier then refuses to claim freshness instead of guessing.
-    basis: Option<FingerprintBasis>,
     /// Lets the unordered barrier ask the rebuild worker for a pass NOW.
     wake: Option<mpsc::Sender<Wake>>,
+    refresh_queued: AtomicBool,
     progress: Mutex<Progress>,
     cv: Condvar,
     #[cfg(test)]
     barrier_seq: AtomicU64,
     pub generation: AtomicU64,
     pub last_barrier_ms: AtomicU64,
-    /// Most recent measured cost of one full stat walk of the tree, in ms
-    /// (0 = never measured). The unordered barrier's entry fingerprint IS
-    /// that walk, and a walk longer than the barrier budget would blow the
-    /// bound the barrier promises — so it is consulted BEFORE walking. Fed by
-    /// the worker's backstop pass, which walks anyway, so the figure exists
-    /// before the first query that could claim freshness.
+    /// Most recent measured background walk cost (0 = never measured).
+    /// A past fast walk never licenses synchronous query-side filesystem I/O.
     last_walk_ms: AtomicU64,
 }
 
@@ -259,8 +229,8 @@ impl ServeState {
             state_dir,
             barrier_dir,
             mode: detected_mode(),
-            basis: None,
             wake: None,
+            refresh_queued: AtomicBool::new(false),
             progress: Mutex::new(Progress::default()),
             cv: Condvar::new(),
             #[cfg(test)]
@@ -275,11 +245,6 @@ impl ServeState {
     #[cfg(test)]
     pub(crate) fn with_mode(mut self, mode: BarrierMode) -> Self {
         self.mode = mode;
-        self
-    }
-
-    pub(crate) fn with_basis(mut self, basis: FingerprintBasis) -> Self {
-        self.basis = Some(basis);
         self
     }
 
@@ -352,79 +317,50 @@ impl ServeState {
         self.finish(start, fresh, note)
     }
 
-    /// Coverage by CONTENT, for backends whose events carry no usable order.
-    ///
-    /// No sentinel is written: on such a platform observing one would prove
-    /// nothing. Instead the barrier stats the tree once, then waits until the
-    /// applied catalog covers that snapshot — see [`covers`] for the two ways
-    /// it can, and why each is sound.
+    /// Strict freshness is proved only by a successful background walk that
+    /// began after this request. Waiting is bounded; filesystem work never
+    /// runs on the query thread, even if the previous walk was fast.
     fn barrier_unordered(&self, timeout: Duration) -> BarrierOutcome {
         let start = Instant::now();
-        let deadline = start + timeout;
-        let Some(basis) = &self.basis else {
-            // Nothing to fingerprint against, and nothing to prove by order
-            // either: say so rather than guess.
-            return self.finish(
-                start,
-                false,
-                Some(format!(
-                    "barrier unavailable: this host's fs watcher is {} and no tree fingerprint \
-                     basis is configured, so coverage cannot be proven",
-                    self.mode.label()
-                )),
-            );
-        };
-        // A barrier is BOUNDED before it is fresh. On a tree whose stat walk
-        // costs more than the whole budget, taking the entry fingerprint would
-        // blow the bound on every query — so refuse the walk and label the
-        // answer, naming both numbers so the operator can see what to fix.
-        // (The 60s backstop still converges the catalog underneath; the answer
-        // is stale-and-labeled, never silently stale.)
-        let budget_ms = timeout.as_millis() as u64;
-        let measured_ms = self.last_walk_ms.load(Ordering::Relaxed);
-        if measured_ms > budget_ms {
-            return self.finish(
-                start,
-                false,
-                Some(format!(
-                    "barrier over budget: this host's fs watcher is {}, so freshness is proven by \
-                     a stat fingerprint of the tree — and that walk measured {measured_ms} ms \
-                     against a {budget_ms} ms budget",
-                    self.mode.label()
-                )),
-            );
-        }
-        // The entry fingerprint: every write that completed before this query
-        // began is in it, because this walk started after the query did.
-        let entry = basis.fingerprint();
-        let entry_at = Instant::now();
-        self.note_walk_cost(entry_at - start);
         let target = lock(&self.progress).pending;
-        let ready = |p: &Progress| {
-            p.settled && p.watches_ready && p.applied >= target && covers(p, &entry, entry_at)
+        self.request_pass();
+        let fresh = self.wait_until(start + timeout, |p| {
+            p.settled
+                && p.watches_ready
+                && p.applied >= target
+                && p.last_error.is_none()
+                && p.applied_walk_start.is_some_and(|walk| walk >= start)
+        });
+        let note = if fresh {
+            None
+        } else {
+            let error = lock(&self.progress).last_error.clone();
+            Some(match error {
+                Some(e) => format!("freshness unavailable: background scan has not covered this request (last index error: {e})"),
+                None => "freshness unavailable: background scan has not covered this request before the deadline".to_string(),
+            })
         };
-        // Already covered (quiescent tree): answer without waking anyone.
-        // Otherwise ask the worker for a fingerprint pass NOW — the watcher
-        // may batch this query's writes for longer than the barrier budget,
-        // or coalesce them away entirely.
-        if !ready(&lock(&self.progress)) {
-            self.request_pass();
-        }
-        let mut fresh = true;
-        let mut note = None;
-        if !self.wait_until(deadline, ready) {
-            fresh = false;
-            let err = lock(&self.progress).last_error.clone();
-            note = Some(match err {
-                Some(e) => format!(
-                    "barrier timeout: no catalog scan has covered the tree as of this query \
-                     (last index error: {e})"
-                ),
-                None => "barrier timeout: no catalog scan has covered the tree as of this query"
-                    .to_string(),
-            });
-        }
         self.finish(start, fresh, note)
+    }
+
+    /// A cached snapshot makes no source-tree freshness claim. At most one
+    /// additional background pass is queued while the worker is busy.
+    pub(crate) fn cached(&self) -> BarrierOutcome {
+        self.request_pass();
+        let progress = lock(&self.progress);
+        let note = match &progress.last_error {
+            Some(e) => format!(
+                "cached snapshot; freshness unverified; background refresh requested (last index error: {e})"
+            ),
+            None => {
+                "cached snapshot; freshness unverified; background refresh requested".to_string()
+            }
+        };
+        BarrierOutcome {
+            fresh: false,
+            waited_ms: 0,
+            note: Some(note),
+        }
     }
 
     fn finish(&self, start: Instant, fresh: bool, note: Option<String>) -> BarrierOutcome {
@@ -437,8 +373,7 @@ impl ServeState {
         }
     }
 
-    /// Records what one full stat walk of the tree cost. Both the worker's
-    /// backstop and the unordered barrier's own entry walk report it.
+    /// Records the cost of a background stat walk.
     pub(crate) fn note_walk_cost(&self, walk: Duration) {
         self.last_walk_ms
             .store(walk.as_millis() as u64, Ordering::Relaxed);
@@ -448,8 +383,11 @@ impl ServeState {
     /// on a state with no worker (unit tests): the barrier then times out and
     /// labels the answer stale, which is the correct answer.
     fn request_pass(&self) {
-        if let Some(tx) = &self.wake {
-            let _ = tx.send(Wake::Barrier);
+        if let Some(tx) = &self.wake
+            && !self.refresh_queued.swap(true, Ordering::AcqRel)
+            && tx.send(Wake::Barrier).is_err()
+        {
+            self.refresh_queued.store(false, Ordering::Release);
         }
     }
 
@@ -565,24 +503,6 @@ impl ServeState {
     fn applied_now(&self) -> u64 {
         lock(&self.progress).applied
     }
-}
-
-/// Does the applied catalog cover the tree state `entry` describes, taken at
-/// `entry_at`? Two independent proofs, both sound:
-///
-///   * the committed catalog's own stat fingerprint IS `entry` — it describes
-///     exactly this tree, so there is nothing to wait for (the quiescent case:
-///     no worker pass, no extra latency);
-///   * a stat walk that BEGAN after `entry_at` has committed — writes only
-///     move forward, so that walk saw everything the entry walk saw and the
-///     commit incorporated it (the concurrent-writer case, where the entry
-///     fingerprint is already history by the time any scan runs).
-///
-/// Both rest on the same stat basis the daemon's 60s backstop already trusts
-/// for correctness: (path, nanosecond mtime, size) per file.
-fn covers(p: &Progress, entry: &str, entry_at: Instant) -> bool {
-    p.applied_fingerprint.as_deref() == Some(entry)
-        || p.applied_walk_start.is_some_and(|w| w >= entry_at)
 }
 
 pub fn origin_of(_cfg: &Config) -> String {
@@ -966,7 +886,6 @@ pub fn start(cfg: &Config) -> anyhow::Result<ServeHandle> {
             // The unordered barrier needs both: the tree inputs to fingerprint
             // and a way to ask the worker for a pass. The ordered barrier
             // touches neither.
-            .with_basis(FingerprintBasis::of(cfg))
             .with_wake(wake_tx.clone()),
     );
     let watcher = notify::recommended_watcher({
@@ -1053,6 +972,9 @@ fn worker(
                 while let Ok(w) = wake.try_recv() {
                     forced |= w == Wake::Barrier;
                 }
+                if forced {
+                    state.refresh_queued.store(false, Ordering::Release);
+                }
                 apply(state, &mut conn, cfg, forced);
                 if forced {
                     // That pass WAS the fingerprint sweep; do not repeat it.
@@ -1131,8 +1053,8 @@ fn apply(
     let mut walked: Option<String> = None;
     let need_scan = if backstop {
         let result = index::staleness(c, &cfg.brain_root, None, &rules);
-        // This walk is the same one the unordered barrier would take at query
-        // entry; its cost is what tells that barrier whether it can afford to.
+        // Record background I/O cost. Query threads never perform this walk,
+        // regardless of its previous measured latency.
         state.note_walk_cost(pass_start.elapsed());
         match result {
             Ok((stale, fingerprint)) => {
@@ -1367,168 +1289,71 @@ mod tests {
 
     /// A state wired the way `start` wires the real one, minus watcher and
     /// worker — the tests below play those parts themselves.
-    fn unordered_state(brain: &Path, state_dir: &Path) -> Arc<ServeState> {
-        std::fs::create_dir_all(state_dir.join("barrier")).unwrap();
-        Arc::new(
+    #[test]
+    fn strict_requires_a_walk_started_after_request_not_an_old_matching_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let state = Arc::new(
             ServeState::new(
                 "test".into(),
-                state_dir.to_path_buf(),
-                state_dir.join("barrier"),
+                dir.path().to_path_buf(),
+                dir.path().join("barrier"),
             )
-            .with_mode(BarrierMode::Unordered)
-            .with_basis(FingerprintBasis {
-                brain_root: brain.to_path_buf(),
-                native_root: None,
-                rules: crate::config::RingRules::default(),
-            }),
-        )
-    }
-
-    fn fingerprint_of(brain: &Path) -> String {
-        index::tree_fingerprint(brain, None, &crate::config::RingRules::default())
-    }
-
-    #[test]
-    fn the_unordered_barrier_refuses_fresh_until_the_applied_state_covers_the_entry_fingerprint() {
-        let brain = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
-        std::fs::write(brain.path().join("knowledge/a.md"), "one\n").unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let state = unordered_state(brain.path(), dir.path());
+            .with_wake(tx),
+        );
         state.mark_watches_ready();
-
-        // A catalog covering an OLD tree state. On an ordered backend the
-        // sentinel would be observed and the answer would go out fresh; here
-        // there is no proof at all, so it must not.
-        let old_fingerprint = fingerprint_of(brain.path());
-        state.mark_pass(0, 1, Some(old_fingerprint.clone()), Some(Instant::now()));
-        std::fs::write(brain.path().join("knowledge/b.md"), "two\n").unwrap();
-        assert_ne!(
-            fingerprint_of(brain.path()),
-            old_fingerprint,
-            "the tree moved"
-        );
-        let out = state.barrier(Duration::from_millis(150));
-        assert!(
-            !out.fresh,
-            "an uncovered entry fingerprint must not serve fresh"
-        );
-        assert!(out.note.unwrap().contains("covered the tree"));
-
-        // The worker commits a pass whose walk observed the NEW tree.
-        state.mark_pass(
-            0,
-            2,
-            Some(fingerprint_of(brain.path())),
-            Some(Instant::now()),
-        );
-        let out = state.barrier(Duration::from_secs(1));
-        assert!(
-            out.fresh,
-            "the committed fingerprint IS the entry fingerprint: {:?}",
-            out.note
-        );
-    }
-
-    #[test]
-    fn a_walk_that_began_after_entry_covers_a_tree_that_keeps_moving() {
-        // The concurrent-writer case: the entry fingerprint is already history
-        // by the time a scan commits, so exact equality would never hold and
-        // the barrier would time out on every query. A walk that STARTED after
-        // the entry fingerprint was taken saw a superset — that is coverage.
-        let brain = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
-        std::fs::write(brain.path().join("knowledge/a.md"), "one\n").unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let state = unordered_state(brain.path(), dir.path());
-        state.mark_watches_ready();
-        state.mark_pass(0, 1, Some("a fingerprint of some older tree".into()), None);
-
-        let sim = std::thread::spawn({
+        let old_start = Instant::now();
+        state.mark_pass(0, 1, Some("same tree".into()), Some(old_start));
+        let worker = std::thread::spawn({
             let state = state.clone();
-            let brain = brain.path().to_path_buf();
             move || {
+                assert_eq!(rx.recv().unwrap(), Wake::Barrier);
+                state.mark_pass(0, 2, Some("same tree".into()), Some(old_start));
                 std::thread::sleep(Duration::from_millis(40));
-                let walk_start = Instant::now();
-                // A writer lands DURING the walk: the committed fingerprint
-                // matches neither the barrier's entry snapshot nor the tree as
-                // it ends up.
-                std::fs::write(brain.join("knowledge/c.md"), "three\n").unwrap();
-                state.mark_pass(
-                    0,
-                    2,
-                    Some("yet another tree state".into()),
-                    Some(walk_start),
-                );
+                state.mark_pass(0, 3, Some("a moving tree".into()), Some(Instant::now()));
             }
         });
-        let out = state.barrier(Duration::from_secs(2));
-        sim.join().unwrap();
+        let outcome = state.barrier(Duration::from_secs(1));
+        worker.join().unwrap();
+        assert!(outcome.fresh, "{:?}", outcome.note);
         assert!(
-            out.fresh,
-            "a later walk must count as coverage: {:?}",
-            out.note
-        );
-        assert!(
-            out.waited_ms >= 40,
-            "it must actually have waited for that walk"
+            outcome.waited_ms >= 30,
+            "an earlier walk cannot prove freshness"
         );
     }
 
     #[test]
-    fn an_unordered_barrier_without_a_fingerprint_basis_never_claims_fresh() {
-        // No basis = no way to prove coverage on a backend that cannot prove
-        // it by order either. Say so; never guess.
+    fn blocked_background_worker_does_not_block_cached_answers_and_refreshes_coalesce() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("barrier")).unwrap();
+        let (tx, rx) = mpsc::channel();
         let state = ServeState::new(
             "test".into(),
             dir.path().to_path_buf(),
             dir.path().join("barrier"),
         )
-        .with_mode(BarrierMode::Unordered);
-        state.mark_watches_ready();
-        state.mark_pass(0, 1, Some("anything".into()), Some(Instant::now()));
-        let out = state.barrier(Duration::from_millis(50));
-        assert!(!out.fresh);
-        assert!(out.note.unwrap().contains("unordered (fingerprint)"));
-    }
-
-    #[test]
-    fn an_unordered_barrier_over_budget_answers_at_once_and_names_both_numbers() {
-        // A barrier is BOUNDED before it is fresh. Where one stat walk of the
-        // tree costs more than the whole budget — measured at 13.5 s on a real
-        // unpruned tree of 313k indexable directories, against 46 ms on a
-        // properly scoped brain — the walk itself would blow the bound, so it
-        // must not be taken. The answer is stale, labeled, and immediate.
-        let brain = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
-        std::fs::write(brain.path().join("knowledge/a.md"), "one\n").unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let state = unordered_state(brain.path(), dir.path());
-        state.mark_watches_ready();
-        state.mark_pass(
-            0,
+        .with_wake(tx);
+        let start = Instant::now();
+        for _ in 0..1000 {
+            let outcome = state.cached();
+            assert!(!outcome.fresh);
+            assert!(outcome.note.unwrap().contains("cached snapshot"));
+        }
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert_eq!(
+            rx.try_iter().count(),
             1,
-            Some(fingerprint_of(brain.path())),
-            Some(Instant::now()),
+            "one queued refresh, no per-query workers"
         );
-        assert!(
-            state.barrier(Duration::from_millis(500)).fresh,
-            "covered: fresh at no cost"
+        let start = Instant::now();
+        let outcome = state.barrier(Duration::from_millis(30));
+        assert!(!outcome.fresh);
+        assert!(outcome.note.unwrap().contains("freshness unavailable"));
+        assert!(start.elapsed() < Duration::from_millis(500));
+        assert_eq!(
+            rx.try_iter().count(),
+            0,
+            "blocked worker still owns the pending pass"
         );
-
-        state.note_walk_cost(Duration::from_millis(13_500));
-        let out = state.barrier(Duration::from_secs(5));
-        assert!(!out.fresh, "an unaffordable proof is not a proof");
-        assert!(
-            out.waited_ms < 500,
-            "the bound must hold: waited {} ms",
-            out.waited_ms
-        );
-        let note = out.note.unwrap();
-        assert!(note.contains("13500 ms"), "the cost must be named: {note}");
-        assert!(note.contains("5000 ms"), "the budget must be named: {note}");
     }
 
     #[test]
@@ -1537,8 +1362,7 @@ mod tests {
         // process spawn; it may not acquire a tree walk. Two proofs here: it
         // still waits for the sentinel (a state whose catalog covers the tree
         // perfectly stays stale until the sentinel is observed), and it never
-        // reads the tree (the basis points at a path that does not exist, and
-        // the fast path is unaffected).
+        // reads the tree; only the sentinel is involved in this fixture.
         let brain = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
         std::fs::write(brain.path().join("knowledge/a.md"), "one\n").unwrap();
@@ -1550,18 +1374,17 @@ mod tests {
                 dir.path().to_path_buf(),
                 dir.path().join("barrier"),
             )
-            .with_mode(BarrierMode::Ordered)
-            .with_basis(FingerprintBasis {
-                brain_root: PathBuf::from("/definitely/not/a/tree"),
-                native_root: None,
-                rules: crate::config::RingRules::default(),
-            }),
+            .with_mode(BarrierMode::Ordered),
         );
         state.mark_watches_ready();
         state.mark_pass(
             0,
             1,
-            Some(fingerprint_of(brain.path())),
+            Some(index::tree_fingerprint(
+                brain.path(),
+                None,
+                &crate::config::RingRules::default(),
+            )),
             Some(Instant::now()),
         );
         // Coverage by content is fully established — the ordered path does not

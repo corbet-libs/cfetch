@@ -1472,6 +1472,13 @@ pub fn rescan_changed(
 /// Monotonic and persisted in meta; incremented INSIDE each scan's
 /// transaction, so any reader always sees a (catalog, generation) pair from
 /// one commit. 0 = never scanned.
+/// Generation for a query snapshot: missing or corrupt metadata is an error,
+/// never an invented generation zero attached to otherwise valid hits.
+pub fn checked_generation(conn: &Connection) -> anyhow::Result<u64> {
+    let value: String = conn.query_row("SELECT value FROM meta WHERE key='generation'", [], |r| r.get(0))?;
+    Ok(value.parse()?)
+}
+
 pub fn generation(conn: &Connection) -> u64 {
     conn.query_row("SELECT value FROM meta WHERE key='generation'", [], |r| {
         r.get::<_, String>(0)

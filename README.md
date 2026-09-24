@@ -58,6 +58,7 @@ cfetch init
 cfetch recall "deployment decision"
 cfetch recall "deployment decision" --hybrid
 cfetch recall --id r3-<citation>
+cfetch recall "deployment decision" --fresh
 cfetch graph --focus "deployment"
 cfetch graph-path "Deployment" "Backups" --depth 6
 cfetch find SymbolName
@@ -84,6 +85,8 @@ qualified offline EmbeddingGemma pack. The pack binds graph, weights, tokenizer
 and pipeline by content digest. `cfetch qualify-model PACK REFERENCES` checks
 short/long canonical vectors and semantic ordering before enabling it. Model
 preparation lives in `scripts/prepare-local-model.py` and runs on a build worker.
+Ordinary recall, citation expansion and MCP memory queries return a committed cached snapshot with its generation and an explicit freshness note, and request one coalesced background refresh. `recall --fresh` (MCP `freshness: "strict"`) waits at most five seconds for a background scan begun after the request; it returns a freshness error if that proof is unavailable. When the daemon is unavailable, memory queries return a bounded error instead of scanning the source tree. Semantic ranking has its own bounded inference wait.
+
 No model is downloaded during recall. Inputs exceeding the model's context are
 reported as uncovered, never silently truncated.
 

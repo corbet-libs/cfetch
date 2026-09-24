@@ -250,6 +250,10 @@ enum Command {
         /// Also list docs wikilinked to the top hits (1-hop curated graph)
         #[arg(long)]
         expand: bool,
+        /// Require a background refresh started after this request (5-second wait);
+        /// otherwise return an explicit freshness error. Default: cached snapshot.
+        #[arg(long)]
+        fresh: bool,
         /// Rank purely by embedding cosine similarity (requires embeddings config)
         #[arg(long, conflicts_with = "hybrid")]
         semantic: bool,
@@ -1432,18 +1436,7 @@ fn graph_cmd(
 
 /// Coherence footer for answers that went through a serving daemon.
 fn print_served_by(resp: &daemon::Response) {
-    let origin = resp.origin.clone().unwrap_or_default();
-    let generation = resp.generation.unwrap_or(0);
-    if resp.fresh == Some(false) {
-        println!(
-            "\nserved by {origin} (generation {generation}) — STALE: {}",
-            resp.stale_note
-                .clone()
-                .unwrap_or_else(|| "barrier expired".to_string())
-        );
-    } else {
-        println!("\nserved by {origin} (generation {generation}, fresh)");
-    }
+    println!("\n{}", daemon::freshness_line(resp));
 }
 
 /// The rendered entries of a served hit list, best first.
@@ -1474,9 +1467,19 @@ fn recall_served(
     if let Some(cite) = id {
         let blocks = resp.blocks.clone().unwrap_or_default();
         if blocks.is_empty() {
-            println!(
-                "no block with citation {cite} (index may have moved on — content-addressed ids change when the entry changes)"
-            );
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"blocks": [], "cite": cite,
+                    "origin": resp.origin, "generation": resp.generation, "fresh": resp.fresh,
+                    "stale_note": resp.stale_note})
+                );
+            } else {
+                println!(
+                    "no block with citation {cite} (content-addressed ids change when the entry changes)"
+                );
+                print_served_by(resp);
+            }
             return Ok(());
         }
         if json {
@@ -1491,6 +1494,7 @@ fn recall_served(
                         "omitted_tokens": clipped.omitted_tokens,
                         "budget_tokens": budget_tokens,
                         "origin": resp.origin, "generation": resp.generation, "fresh": resp.fresh,
+                        "stale_note": resp.stale_note,
                     })
                 );
             }
@@ -1534,7 +1538,9 @@ fn recall_served(
         println!(
             "{}",
             serde_json::json!({
-                "hits": arr, "dropped": dropped, "budget_tokens": budget_tokens,
+                "hits": arr, "linked": resp.linked.as_deref().unwrap_or_default().iter()
+                    .map(|(path, ring)| serde_json::json!({"path": path, "ring": ring})).collect::<Vec<_>>(),
+                "dropped": dropped, "budget_tokens": budget_tokens,
                 "origin": resp.origin, "generation": resp.generation,
                 "fresh": resp.fresh, "stale_note": resp.stale_note, "note": resp.note,
             })
@@ -1547,24 +1553,28 @@ fn recall_served(
             "{}",
             answer::listing(wire_hit_entries(&hits), budget_tokens, answer::CLI_RECOVERY)
         );
+        if let Some(linked) = &resp.linked
+            && !linked.is_empty()
+        {
+            println!("\nlinked (curated wikilinks, 1 hop from top hits):");
+            for (path, ring) in linked {
+                println!("    {path} (ring {ring})");
+            }
+        }
         print_served_by(resp);
         println!("expand a hit: cfetch recall --id <citation>");
     }
     Ok(())
 }
 
-/// none-tier: recall/expand answered by the remote serving host. Unreachable
-/// is an explicit error naming the host — this host has no local index to
-/// fall back to, and must never pretend otherwise.
-/// A slice joined through an invite is routed through the daemon's persistent
-/// iroh endpoint. The line-JSON body is identical to the TCP serving path;
-/// transport authentication replaces the bearer token and the origin checks
-/// the caller's endpoint id against the slice grant.
-#[allow(clippy::too_many_arguments)] // thin CLI adapter, mirrors the flag set
+/// All memory queries go to the daemon before reading tree-owned config.
+/// An unavailable daemon is a bounded error, never a synchronous NFS scan.
+#[allow(clippy::too_many_arguments)]
 fn recall(
     query: &str,
     id: Option<&str>,
     expand: bool,
+    fresh: bool,
     semantic: bool,
     hybrid: bool,
     slice: Option<&str>,
@@ -1572,147 +1582,26 @@ fn recall(
     budget_tokens: u64,
     json: bool,
 ) -> anyhow::Result<()> {
-    let cfg = config::Config::load()?;
-
-    // On a serving host, plain recall/expand go through the local daemon's
-    // drain barrier when it answers. The direct path below is an equally
-    // coherent fallback: `ensure_fresh` stat-fingerprints the tree on every
-    // query — it just lacks the generation label and daemon batching.
-    if id.is_none() && query.trim().is_empty() {
-        anyhow::bail!("empty query (pass search terms or --id <citation>)");
-    }
-    if !expand
-        && let Some(resp) = daemon::call_req(
-            &match id {
-                Some(cite) => serde_json::json!({"op": "expand", "cite": cite, "slice": slice}),
-                None => {
-                    serde_json::json!({"op": "recall", "query": query, "limit": limit, "slice": slice, "semantic": semantic, "hybrid": hybrid})
-                }
-            },
-            std::time::Duration::from_secs(if semantic || hybrid { 60 } else { 8 }),
-        )
-        && resp.ok
-        && resp.fresh == Some(true)
-    {
-        return recall_served(&resp, id, budget_tokens, json);
-    }
-    let conn = index::ensure_fresh(&paths::state_dir(), &cfg.brain_root, None, &cfg.rings())?;
-
-    if let Some(cite) = id {
-        let blocks = index::expand(&conn, cite)?;
-        if blocks.is_empty() {
-            println!(
-                "no block with citation {cite} (index may have moved on — content-addressed ids change when the entry changes)"
-            );
-            return Ok(());
-        }
-        if json {
-            let mut budget = answer::BlockBudget::new(budget_tokens);
-            for b in &blocks {
-                let clipped = budget.take(&b.text);
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "cite": b.cite, "path": b.path, "ring": b.ring,
-                        "lines": [b.start_line, b.end_line], "text": clipped.text,
-                        "omitted_tokens": clipped.omitted_tokens,
-                        "budget_tokens": budget_tokens,
-                    })
-                );
-            }
-            return Ok(());
-        }
-        let ins: Vec<answer::BlockIn> = blocks
-            .into_iter()
-            .map(|b| answer::BlockIn {
-                cite: b.cite,
-                path: b.path,
-                ring: b.ring,
-                start_line: b.start_line,
-                end_line: b.end_line,
-                text: b.text,
-            })
-            .collect();
-        println!("{}", answer::blocks(&ins, budget_tokens));
-        return Ok(());
-    }
-
-    if query.trim().is_empty() {
-        anyhow::bail!("empty query (pass search terms or --id <citation>)");
-    }
-    // Semantic/hybrid answers carry their own degradation note: partial or
-    // absent vector coverage is reported, never hidden behind a result that
-    // silently fell back to lexical ranking.
-    // One ranking pipeline, shared with the serving daemon: the same query
-    // against the same tree must rank the same way whoever answers it.
-    let ranked = pipeline::ranked(&cfg, &conn, query, limit, semantic, hybrid, slice)?;
-    let (hits, note) = (ranked.hits, ranked.note);
-    if let Some(note) = &note {
-        eprintln!("cfetch recall: {note}");
-    }
-    let linked = if expand && !hits.is_empty() {
-        let top: Vec<String> = hits.iter().take(3).map(|h| h.path.clone()).collect();
-        index::linked_docs(&conn, &top, 8)?
-    } else {
-        Vec::new()
+    anyhow::ensure!(
+        id.is_some() || !query.trim().is_empty(),
+        "empty query (pass search terms or --id <citation>)"
+    );
+    anyhow::ensure!(
+        (1..=100).contains(&limit),
+        "--limit must be between 1 and 100"
+    );
+    let body = match id {
+        Some(cite) => serde_json::json!({"op": "expand", "cite": cite, "slice": slice}),
+        None => serde_json::json!({"op": "recall", "query": query, "limit": limit,
+            "slice": slice, "semantic": semantic, "hybrid": hybrid, "expand": expand}),
     };
-    if json {
-        let (arr, dropped) = answer::fit_json(
-            hits.iter()
-                .map(|h| {
-                    serde_json::json!({
-                        "cite": h.cite, "path": h.path, "ring": h.ring,
-                        "lines": [h.start_line, h.end_line], "snippet": h.snippet,
-                        "mirrors": h.mirrors,
-                    })
-                })
-                .collect(),
-            budget_tokens,
-        );
-        let links: Vec<_> = linked
-            .iter()
-            .map(|(p, r)| serde_json::json!({"path": p, "ring": r}))
-            .collect();
-        // The note rides in the JSON too: an agent parsing stdout must see
-        // the degradation its human would have read on stderr — and the same
-        // goes for what the answer budget dropped.
-        println!(
-            "{}",
-            serde_json::json!({
-                "hits": arr, "linked": links, "note": note,
-                "dropped": dropped, "budget_tokens": budget_tokens,
-            })
-        );
-    } else if hits.is_empty() {
-        println!("no hits for \"{query}\"");
-    } else {
-        let entries = hits
-            .iter()
-            .map(|h| {
-                answer::hit_entry(
-                    &h.cite,
-                    &h.path,
-                    h.ring,
-                    h.start_line,
-                    h.end_line,
-                    &h.snippet,
-                    &h.mirrors,
-                )
-            })
-            .collect();
-        println!(
-            "{}",
-            answer::listing(entries, budget_tokens, answer::CLI_RECOVERY)
-        );
-        if !linked.is_empty() {
-            println!("\nlinked (curated wikilinks, 1 hop from top hits):");
-            for (p, r) in &linked {
-                println!("    {p} (ring {r})");
-            }
-        }
-        println!("\nexpand a hit: cfetch recall --id <citation>");
-    }
-    Ok(())
+    let mut body = body;
+    body["freshness"] = serde_json::json!(if fresh { "strict" } else { "cached" });
+    let response = daemon::memory_query(
+        &body,
+        std::time::Duration::from_secs(if semantic || hybrid { 60 } else { 8 }),
+    )?;
+    recall_served(&response, id, budget_tokens, json)
 }
 
 /// Manual/debug view over ring-5 evidence in the shared tree. The autonomous
@@ -3158,6 +3047,7 @@ fn main() {
             query,
             id,
             expand,
+            fresh,
             semantic,
             hybrid,
             slice,
@@ -3169,6 +3059,7 @@ fn main() {
                 &query.join(" "),
                 id.as_deref(),
                 expand,
+                fresh,
                 semantic,
                 hybrid,
                 slice.as_deref(),

@@ -90,3 +90,7 @@ commands = [["bash", "scripts/ci-check.sh", "native-worker"]]
 [checks.admission-origin]
 kind = "commands"
 commands = [["bash", "scripts/ci-check.sh", "admission-origin"]]
+
+[checks.freshness]
+kind = "commands"
+commands = [["bash", "scripts/ci-check.sh", "freshness"]]

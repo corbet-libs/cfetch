@@ -15,9 +15,25 @@ use crate::{
     heartbeat, hooks, index, ipc, maintenance_worker, paths, resident, serve, vector_worker,
 };
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Freshness {
+    #[default]
+    Cached,
+    Strict,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Request {
     op: String,
+    #[serde(default)]
+    freshness: Freshness,
+    #[serde(default)]
+    expand: bool,
+    /// MCP lets the daemon choose its configured default without client-side
+    /// configuration reads. CLI still sends explicit semantic/hybrid flags.
+    #[serde(default)]
+    mode: Option<String>,
     #[serde(default)]
     token: Option<String>,
     #[serde(default)]
@@ -102,6 +118,8 @@ pub struct Response {
     pub hits: Option<Vec<serve::WireHit>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocks: Option<Vec<serve::WireBlock>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub linked: Option<Vec<(String, u8)>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_hits: Option<Vec<serve::WireFindHit>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -353,14 +371,94 @@ pub fn call(op: &str, timeout: Duration) -> Option<Response> {
 
 /// Structured client call over the local control channel.
 pub fn call_req(body: &serde_json::Value, timeout: Duration) -> Option<Response> {
+    let deadline = Instant::now().checked_add(timeout)?;
     let mut stream = ipc::connect(timeout)?;
-    // A no-op where the transport is access-controlled by the operating
-    // system: on unix the request goes out byte-for-byte as built here.
     let body = ipc::authenticate(body);
-    writeln!(stream, "{body}").ok()?;
-    let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line).ok()?;
-    serde_json::from_str(&line).ok()
+    let mut bytes = serde_json::to_vec(body.as_ref()).ok()?;
+    if bytes.len() >= MAX_LINE_REQUEST as usize {
+        return None;
+    }
+    bytes.push(b'\n');
+    exchange(&mut stream, &bytes, deadline)
+}
+
+/// Absolute deadline plus bounded framing: a peer cannot keep a request alive
+/// by sending one byte per socket timeout, or allocate an unbounded line.
+fn exchange(stream: &mut ipc::Stream, request: &[u8], deadline: Instant) -> Option<Response> {
+    let mut written = 0;
+    while written < request.len() {
+        stream
+            .set_write_timeout(Some(deadline.checked_duration_since(Instant::now())?))
+            .ok()?;
+        let n = stream.write(&request[written..]).ok()?;
+        if n == 0 {
+            return None;
+        }
+        written += n;
+    }
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        stream
+            .set_read_timeout(Some(deadline.checked_duration_since(Instant::now())?))
+            .ok()?;
+        let n = stream.read(&mut chunk).ok()?;
+        if n == 0 {
+            return None;
+        }
+        let end = chunk[..n].iter().position(|b| *b == b'\n');
+        let count = end.unwrap_or(n);
+        if bytes.len().saturating_add(count) > MAX_RESPONSE {
+            return None;
+        }
+        bytes.extend_from_slice(&chunk[..count]);
+        if end.is_some() {
+            let response = serde_json::from_slice(&bytes).ok()?;
+            return (Instant::now() < deadline).then_some(response);
+        }
+    }
+}
+
+/// Memory frontends share one daemon-only contract. A missing/slow daemon is
+/// unavailable; queries never open or rebuild a local catalog as a fallback.
+pub fn memory_query(body: &serde_json::Value, timeout: Duration) -> anyhow::Result<Response> {
+    let response = call_req(body, timeout).context(
+        "memory daemon unavailable or response deadline/framing limit exceeded; no source-tree scan was started"
+    )?;
+    anyhow::ensure!(
+        response.ok,
+        "{}",
+        response.error.as_deref().unwrap_or("memory query failed")
+    );
+    if body.get("freshness").and_then(serde_json::Value::as_str) == Some("strict") {
+        anyhow::ensure!(
+            response.fresh == Some(true),
+            "{}",
+            response
+                .stale_note
+                .as_deref()
+                .unwrap_or("freshness unavailable")
+        );
+    }
+    Ok(response)
+}
+
+pub fn freshness_line(response: &Response) -> String {
+    let origin = response.origin.as_deref().unwrap_or("local daemon");
+    let generation = response
+        .generation
+        .map_or_else(|| "unknown".into(), |n| n.to_string());
+    if response.fresh == Some(true) {
+        format!("served by {origin} (generation {generation}, fresh)")
+    } else {
+        format!(
+            "served by {origin} (generation {generation}) — {}",
+            response
+                .stale_note
+                .as_deref()
+                .unwrap_or("cached snapshot; freshness unverified")
+        )
+    }
 }
 
 /// Shared state of one daemon process across its connection threads.
@@ -421,21 +519,51 @@ fn serve_query(
     ctx: &Ctx,
     f: impl FnOnce(&rusqlite::Connection) -> anyhow::Result<Response>,
 ) -> Response {
+    serve_snapshot(ctx, None, f)
+}
+
+fn serve_snapshot(
+    ctx: &Ctx,
+    policy: Option<Freshness>,
+    f: impl FnOnce(&rusqlite::Connection) -> anyhow::Result<Response>,
+) -> Response {
     let Some(state) = &ctx.serve else {
         return Response::err("local index worker is unavailable");
     };
-    let outcome = state.barrier(serve::BARRIER_TIMEOUT);
+    let outcome = match policy {
+        Some(Freshness::Cached) => state.cached(),
+        _ => state.barrier(serve::BARRIER_TIMEOUT),
+    };
+    if policy == Some(Freshness::Strict) && !outcome.fresh {
+        return Response {
+            error: outcome.note.clone(),
+            fresh: Some(false),
+            stale_note: outcome.note,
+            barrier_ms: Some(outcome.waited_ms),
+            ..Response::default()
+        };
+    }
     let conn = match index::open_ro(state.state_dir()) {
         Ok(c) => c,
         Err(e) => return Response::err(format!("open index: {e}")),
     };
-    let mut resp = match f(&conn) {
+    let snapshot = match conn.unchecked_transaction() {
+        Ok(tx) => tx,
+        Err(e) => return Response::err(format!("read snapshot: {e}")),
+    };
+    // This first read pins generation, hits, citation contents and links to
+    // one committed SQLite snapshot even while a writer commits a new one.
+    let generation = match index::checked_generation(&snapshot) {
+        Ok(generation) => generation,
+        Err(e) => return Response::err(format!("snapshot generation unavailable: {e}")),
+    };
+    let mut resp = match f(&snapshot) {
         Ok(r) => r,
         Err(e) => return Response::err(e.to_string()),
     };
     resp.ok = true;
     resp.origin = Some(state.origin.clone());
-    resp.generation = Some(index::generation(&conn));
+    resp.generation = Some(generation);
     resp.fresh = Some(outcome.fresh);
     resp.stale_note = outcome.note;
     resp.barrier_ms = Some(outcome.waited_ms);
@@ -549,12 +677,18 @@ fn handle(req: &Request, ctx: &Ctx) -> (Response, bool) {
         "recall" => {
             let query = req.query.clone().unwrap_or_default();
             let limit = req.limit.unwrap_or(8);
-            let semantic = req.semantic.unwrap_or(false);
-            let hybrid = req.hybrid.unwrap_or(false);
+            let (semantic, hybrid) = match req.mode.as_deref() {
+                None => (req.semantic.unwrap_or(false), req.hybrid.unwrap_or(false)),
+                Some("auto") => (false, ctx.cfg.embeddings.enabled),
+                Some("lexical") => (false, false),
+                Some("semantic") => (true, false),
+                Some("hybrid") => (false, true),
+                Some(_) => return (Response::err("unknown recall mode"), false),
+            };
             let slice = req.slice.clone();
             let cfg = ctx.cfg.clone();
             (
-                serve_query(ctx, |conn| {
+                serve_snapshot(ctx, Some(req.freshness), |conn| {
                     let r = crate::pipeline::ranked(
                         &cfg,
                         conn,
@@ -564,7 +698,25 @@ fn handle(req: &Request, ctx: &Ctx) -> (Response, bool) {
                         hybrid,
                         slice.as_deref(),
                     )?;
+                    let linked = if req.expand {
+                        let top: Vec<_> =
+                            r.hits.iter().take(3).map(|hit| hit.path.clone()).collect();
+                        let model = cfg.slice_model()?;
+                        Some(
+                            index::linked_docs(conn, &top, 8)?
+                                .into_iter()
+                                .filter(|(path, _)| {
+                                    slice
+                                        .as_deref()
+                                        .is_none_or(|slice| model.contains(slice, path))
+                                })
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    };
                     Ok(Response {
+                        linked,
                         hits: Some(r.hits.into_iter().map(Into::into).collect()),
                         note: r.note,
                         ..Response::default()
@@ -576,10 +728,22 @@ fn handle(req: &Request, ctx: &Ctx) -> (Response, bool) {
         "expand" => {
             let cite = req.cite.clone().unwrap_or_default();
             (
-                serve_query(ctx, |conn| {
-                    let blocks = index::expand(conn, &cite)?;
+                serve_snapshot(ctx, Some(req.freshness), |conn| {
+                    let model = ctx.cfg.slice_model()?;
+                    if let Some(slice) = req.slice.as_deref() {
+                        anyhow::ensure!(
+                            slice == crate::config::ROOT_SLICE
+                                || model.names().any(|name| name == slice),
+                            "unknown slice {slice:?}"
+                        );
+                    }
+                    let blocks = index::expand(conn, &cite)?.into_iter().filter(|block| {
+                        req.slice
+                            .as_deref()
+                            .is_none_or(|slice| model.contains(slice, &block.path))
+                    });
                     Ok(Response {
-                        blocks: Some(blocks.into_iter().map(Into::into).collect()),
+                        blocks: Some(blocks.map(Into::into).collect()),
                         ..Response::default()
                     })
                 }),
@@ -1191,6 +1355,142 @@ mod tests {
             edges: 1,
         }));
         assert!(c.status().last_error.is_none(), "success clears the error");
+    }
+
+    #[test]
+    fn cached_memory_uses_only_the_committed_catalog_with_snapshot_citations() {
+        let brain = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(brain.path().join("knowledge")).unwrap();
+        let document = brain.path().join("knowledge/example.md");
+        std::fs::write(&document, "# Subject\n\noriginal cachedtoken evidence\n").unwrap();
+        let rules = crate::config::RingRules::default();
+        let mut writer = index::open(dir.path()).unwrap();
+        let initial = index::scan(&mut writer, brain.path(), None, &rules).unwrap();
+        let state = Arc::new(serve::ServeState::new(
+            "fixture".into(),
+            dir.path().to_path_buf(),
+            dir.path().join("barrier"),
+        ));
+        let ctx = Ctx {
+            cfg: Arc::new(Config {
+                brain_root: brain.path().join("absent"),
+                ..Config::default()
+            }),
+            serve: Some(state),
+            local_token: None,
+            shutdown: AtomicBool::new(false),
+        };
+        let response = serve_snapshot(&ctx, Some(Freshness::Cached), |conn| {
+            let hits = index::recall(conn, "cachedtoken", 8)?;
+            let cite = hits[0].cite.clone();
+            std::fs::write(&document, "# Subject\n\nreplacement cachedtoken evidence\n")?;
+            index::scan(&mut writer, brain.path(), None, &rules)?;
+            let blocks = index::expand(conn, &cite)?;
+            assert!(
+                blocks[0].text.contains("original"),
+                "citation belongs to the same read snapshot"
+            );
+            Ok(Response {
+                hits: Some(hits.into_iter().map(Into::into).collect()),
+                blocks: Some(blocks.into_iter().map(Into::into).collect()),
+                ..Response::default()
+            })
+        });
+        assert!(response.ok, "{response:?}");
+        assert_eq!(response.generation, Some(initial.generation));
+        assert_eq!(response.fresh, Some(false));
+        let old_cite = response.hits.unwrap()[0].cite.clone();
+        let request = Request {
+            op: "expand".into(),
+            cite: Some(old_cite),
+            ..Request::default()
+        };
+        let (current, _) = handle(&request, &ctx);
+        assert!(current.ok, "{current:?}");
+        assert!(
+            current.blocks.unwrap().is_empty(),
+            "old content-addressed citation disappears only in the new committed snapshot"
+        );
+        assert!(current.generation.unwrap() > initial.generation);
+    }
+
+    #[test]
+    fn cached_query_does_not_create_or_rebuild_an_unavailable_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(serve::ServeState::new(
+            "fixture".into(),
+            dir.path().to_path_buf(),
+            dir.path().join("barrier"),
+        ));
+        let ctx = Ctx {
+            serve: Some(state),
+            ..no_serve_ctx()
+        };
+        let request = Request {
+            op: "recall".into(),
+            query: Some("anything".into()),
+            ..Request::default()
+        };
+        assert!(!handle(&request, &ctx).0.ok);
+        assert!(!dir.path().join("index.db").exists());
+        std::fs::write(dir.path().join("index.db"), b"incompatible catalog").unwrap();
+        assert!(!handle(&request, &ctx).0.ok);
+        assert_eq!(
+            std::fs::read(dir.path().join("index.db")).unwrap(),
+            b"incompatible catalog"
+        );
+    }
+
+    #[test]
+    fn absent_freshness_is_never_rendered_as_fresh() {
+        let response = Response {
+            ok: true,
+            generation: Some(42),
+            ..Response::default()
+        };
+        let line = freshness_line(&response);
+        assert!(line.contains("generation 42"));
+        assert!(line.contains("freshness unverified"));
+        assert!(!line.contains(", fresh)"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ipc_deadline_is_absolute_even_when_a_peer_trickles_bytes() {
+        let (mut client, mut peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let sender = std::thread::spawn(move || {
+            for _ in 0..50 {
+                if peer.write_all(b" ").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        });
+        let start = Instant::now();
+        assert!(exchange(&mut client, b"", start + Duration::from_millis(80)).is_none());
+        assert!(start.elapsed() < Duration::from_millis(400));
+        drop(client);
+        sender.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ipc_rejects_oversize_and_unterminated_frames() {
+        for oversized in [false, true] {
+            let (mut client, mut peer) = std::os::unix::net::UnixStream::pair().unwrap();
+            let sender = std::thread::spawn(move || {
+                let data = if oversized {
+                    vec![b' '; MAX_RESPONSE + 1]
+                } else {
+                    b"{\"ok\":true}".to_vec()
+                };
+                let _ = peer.write_all(&data);
+            });
+            assert!(exchange(&mut client, b"", Instant::now() + Duration::from_secs(2)).is_none());
+            drop(client);
+            sender.join().unwrap();
+        }
     }
 
     fn no_serve_ctx() -> Ctx {

@@ -78,7 +78,11 @@ fn new_token() -> String {
         );
         h.finish()
     };
-    format!("{:016x}{:016x}", mix(0x9e37_79b9_7f4a_7c15), mix(0xbf58_476d_1ce4_e5b9))
+    format!(
+        "{:016x}{:016x}",
+        mix(0x9e37_79b9_7f4a_7c15),
+        mix(0xbf58_476d_1ce4_e5b9)
+    )
 }
 
 /// The credential a fresh daemon should publish for its local channel:
@@ -87,7 +91,11 @@ fn new_token() -> String {
 /// Minted BEFORE the listener binds so the daemon's request context can carry
 /// it without reordering anything else in the boot sequence.
 pub fn new_local_token() -> Option<String> {
-    if LOCAL_REQUIRES_TOKEN { Some(new_token()) } else { None }
+    if LOCAL_REQUIRES_TOKEN {
+        Some(new_token())
+    } else {
+        None
+    }
 }
 
 #[cfg(unix)]
@@ -155,7 +163,21 @@ mod imp {
 
     /// Client connect with the caller's deadline on both directions.
     pub fn connect(timeout: Duration) -> Option<Stream> {
-        let stream = UnixStream::connect(paths::socket_path()).ok()?;
+        use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType};
+        // A full Unix listener backlog must not turn connect into an
+        // unbounded wait. Local sockets either connect immediately or report
+        // unavailable; callers can retry without leaving background threads.
+        let socket = rustix::net::socket_with(
+            AddressFamily::UNIX,
+            SocketType::STREAM,
+            SocketFlags::NONBLOCK | SocketFlags::CLOEXEC,
+            None,
+        )
+        .ok()?;
+        let address = SocketAddrUnix::new(paths::socket_path()).ok()?;
+        rustix::net::connect(&socket, &address).ok()?;
+        let stream = UnixStream::from(socket);
+        stream.set_nonblocking(false).ok()?;
         stream.set_read_timeout(Some(timeout)).ok()?;
         stream.set_write_timeout(Some(timeout)).ok()?;
         Some(stream)
@@ -272,7 +294,9 @@ mod imp {
     /// Stamps the published token onto the request: loopback TCP is not
     /// access-controlled, so every local request is a credentialed request.
     pub fn authenticate(body: &serde_json::Value) -> super::Cow<'_, serde_json::Value> {
-        let Some((_, token)) = published() else { return super::Cow::Borrowed(body) };
+        let Some((_, token)) = published() else {
+            return super::Cow::Borrowed(body);
+        };
         let mut owned = body.clone();
         match owned.as_object_mut() {
             Some(map) => {
@@ -284,7 +308,7 @@ mod imp {
     }
 }
 
-pub use imp::{authenticate, connect, describe, listen, wake};
+pub use imp::{Stream, authenticate, connect, describe, listen, wake};
 
 #[cfg(test)]
 mod tests {
@@ -310,9 +334,18 @@ mod tests {
     fn a_half_written_endpoint_reads_as_no_daemon() {
         // Never as an endpoint without a credential.
         assert!(parse_endpoint("").is_none());
-        assert!(parse_endpoint("127.0.0.1:1\n").is_none(), "address alone is not an endpoint");
-        assert!(parse_endpoint("127.0.0.1:1\n\n").is_none(), "an empty token is not a token");
-        assert!(parse_endpoint("\ntoken\n").is_none(), "an empty address is not an address");
+        assert!(
+            parse_endpoint("127.0.0.1:1\n").is_none(),
+            "address alone is not an endpoint"
+        );
+        assert!(
+            parse_endpoint("127.0.0.1:1\n\n").is_none(),
+            "an empty token is not a token"
+        );
+        assert!(
+            parse_endpoint("\ntoken\n").is_none(),
+            "an empty address is not an address"
+        );
     }
 
     #[test]

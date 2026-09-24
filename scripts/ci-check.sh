@@ -84,6 +84,15 @@ for check in "$@"; do
       fi
       "$python_bin" experiments/npu-ort-foundation/run_cached_cpu.py
       ;;
+    freshness)
+      cargo test --locked --bin cfetch serve::tests
+      cargo test --locked --bin cfetch daemon::tests
+      cargo test --locked --bin cfetch mcp::tests
+      cargo test --locked --test freshness_cli
+      cargo test --locked --test coherence
+      cargo test --locked --test mcp_stdio
+      cargo clippy --locked --bin cfetch -- -D warnings
+      ;;
     native-worker)
       rustc --version
       cargo test --locked --features native-openvino --bin cfetch inference_governor::tests
@@ -99,6 +108,7 @@ for check in "$@"; do
       cargo clippy --locked --bin cfetch -- -D warnings
       ;;
     admission-origin)
+      export PYTHONDONTWRITEBYTECODE=1
       cargo test --locked --bin cfetch local_inference::tests
       cargo test --locked --bin cfetch embedding_profile::tests
       "$python_bin" -m unittest -v scripts.test_stage_local_inference scripts.test_apply_admission_activation
