@@ -84,6 +84,10 @@ pub struct Response {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
+    /// Validated startup policy needed to book a resident hook answer without
+    /// reopening tree-owned configuration on the hook process.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resident_ledger_max_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub degraded_hooks: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -587,24 +591,20 @@ fn handle(req: &Request, ctx: &Ctx) -> (Response, bool) {
             false,
         ),
         "resident" => {
-            // Config is reloaded per request: a startup snapshot would make
-            // the warm path silently diverge from the daemon-less fallback
-            // after a config edit.
-            match Config::load() {
-                Ok(cfg) => {
-                    let scope = resident::SessionScope::from_cwd(req.cwd.as_deref());
-                    let d = resident::build(&cfg, &scope);
-                    (
-                        Response {
-                            ok: true,
-                            digest: Some(d.text),
-                            ..Response::default()
-                        },
-                        false,
-                    )
-                }
-                Err(e) => (Response::err(e.to_string()), false),
-            }
+            // Like recall ranking, resident injection uses the configuration
+            // validated at daemon startup. Config changes take effect on a
+            // normal daemon restart; queries never reload source-tree config.
+            let scope = resident::SessionScope::from_cwd(req.cwd.as_deref());
+            let digest = resident::build(&ctx.cfg, &scope);
+            (
+                Response {
+                    ok: true,
+                    digest: Some(digest.text),
+                    resident_ledger_max_bytes: Some(ctx.cfg.ledger_max_bytes),
+                    ..Response::default()
+                },
+                false,
+            )
         }
         "health" => {
             let degraded = heartbeat::degraded().into_iter().map(|(n, _)| n).collect();

@@ -94,3 +94,7 @@ commands = [["bash", "scripts/ci-check.sh", "admission-origin"]]
 [checks.freshness]
 kind = "commands"
 commands = [["bash", "scripts/ci-check.sh", "freshness"]]
+
+[checks.hook-deadline]
+kind = "commands"
+commands = [["bash", "scripts/ci-check.sh", "hook-deadline"]]

@@ -97,17 +97,41 @@ pub fn run(event_name: &str, agent_hint: Option<&str>) {
     // Exit 0 unconditionally — see module doc.
 }
 
-/// Direct-read fallback with a hard deadline: the tree may be NFS, and a hung
-/// mount must not eat the whole hook timeout. The worker thread is detached on
-/// overrun.
-fn resident_with_deadline(cfg: &Config, scope: &SessionScope) -> String {
-    let cfg = cfg.clone();
+/// A healthy daemon supplies both the resident digest and its validated
+/// ledger cap without a source-tree configuration read on the hook path.
+/// Only daemon-less configuration/direct reads use the existing worker.
+/// A blocked read is not cancelled by the deadline: that worker remains until
+/// it finishes or the short-lived hook process exits.
+fn resident_with_deadline(
+    scope: &SessionScope,
+    cwd: Option<&str>,
+) -> (anyhow::Result<u64>, String) {
+    let request = serde_json::json!({ "op": "resident", "cwd": cwd });
+    if let Some(response) = daemon::call_req(&request, DAEMON_BUDGET)
+        && response.ok
+        && let (Some(cap), Some(digest)) = (response.resident_ledger_max_bytes, response.digest)
+    {
+        return (Ok(cap), digest);
+    }
     let scope = scope.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(resident::build(&cfg, &scope).text);
+        let result = Config::load().map(|cfg| {
+            let digest = resident::build(&cfg, &scope).text;
+            (cfg.ledger_max_bytes, digest)
+        });
+        let _ = tx.send(result);
     });
-    rx.recv_timeout(Duration::from_secs(2)).unwrap_or_default()
+    match rx.recv_timeout(Duration::from_secs(2)) {
+        Ok(Ok((cap, digest))) => (Ok(cap), digest),
+        Ok(Err(error)) => (Err(error), String::new()),
+        Err(_) => (
+            Err(anyhow::anyhow!(
+                "SessionStart configuration/resident work exceeded its 2-second deadline; source filesystem reads may still be blocked until this hook process exits"
+            )),
+            String::new(),
+        ),
+    }
 }
 
 /// The state half of SessionStart: decides from the start reason whether the
@@ -144,23 +168,11 @@ fn session_start(event: &HookEvent, agent_hint: Option<&str>) -> anyhow::Result<
     // Everything below the digest is CONFIG-INDEPENDENT and must reach the
     // model even when the config is the thing that broke — otherwise the one
     // surface built to announce breakage is suppressed by the breakage.
-    let cfg = Config::load();
-    // Which entries this session is entitled to is decided from the session
-    // itself — the machine and the directory the agent was started in.
+    // The serving daemon validates its config at startup. A warm response
+    // also carries the ledger cap, so a blocked config path cannot withhold
+    // an otherwise available resident digest.
     let scope = SessionScope::from_event(event);
-    let digest = match &cfg {
-        Ok(cfg) => {
-            // Prefer the warm daemon; fall back to a bounded direct read —
-            // session start works with no daemon at all. The daemon shares
-            // the host but not the cwd, so the scope travels with the call.
-            let req = serde_json::json!({ "op": "resident", "cwd": event.cwd });
-            match daemon::call_req(&req, DAEMON_BUDGET) {
-                Some(r) if r.ok => r.digest.unwrap_or_default(),
-                _ => resident_with_deadline(cfg, &scope),
-            }
-        }
-        Err(_) => String::new(),
-    };
+    let (ledger_cap, digest) = resident_with_deadline(&scope, event.cwd.as_deref());
 
     if !digest.is_empty() {
         match start.continuation_label() {
@@ -183,7 +195,7 @@ fn session_start(event: &HookEvent, agent_hint: Option<&str>) -> anyhow::Result<
         emit.add_context(recap);
     }
 
-    if let Err(e) = &cfg {
+    if let Err(e) = &ledger_cap {
         emit.add_context(format!(
             "[cfetch degraded: config unusable ({e}) — memory injection disabled; run `cfetch selfcheck`]"
         ));
@@ -198,7 +210,11 @@ fn session_start(event: &HookEvent, agent_hint: Option<&str>) -> anyhow::Result<
     }
 
     let emitted = emit.finish();
-    let sink = LedgerSink::of(cfg.as_ref().ok());
+    // Config cannot override brain_root; only this cap was needed from it.
+    let mut sink = LedgerSink::of(None);
+    if let Ok(cap) = &ledger_cap {
+        sink.cap = *cap;
+    }
     sink.book(event.session(), "compact-recap", recap_chars);
     sink.book(event.session(), "runtime-status", runtime_chars);
     sink.book(
@@ -209,7 +225,7 @@ fn session_start(event: &HookEvent, agent_hint: Option<&str>) -> anyhow::Result<
             .saturating_sub(runtime_chars),
     );
     // The config failure still counts as a hook failure for the heartbeat.
-    cfg.map(|_| ())
+    ledger_cap.map(|_| ())
 }
 
 /// UserPromptSubmit: drains the reminder queue onto the prompt — the

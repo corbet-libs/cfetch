@@ -84,6 +84,13 @@ for check in "$@"; do
       fi
       "$python_bin" experiments/npu-ort-foundation/run_cached_cpu.py
       ;;
+    hook-deadline)
+      cargo test --locked --bin cfetch hooks::tests
+      cargo test --locked --bin cfetch daemon::tests
+      cargo test --locked --test hook_deadline
+      cargo test --locked --test freshness_cli
+      cargo clippy --locked --bin cfetch -- -D warnings
+      ;;
     freshness)
       cargo test --locked --bin cfetch serve::tests
       cargo test --locked --bin cfetch daemon::tests
