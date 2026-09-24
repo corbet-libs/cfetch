@@ -60,6 +60,7 @@ pub enum VectorCoverageState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InferenceMode {
+    Unknown,
     Disabled,
     Local,
     Endpoint,
@@ -254,20 +255,18 @@ fn origin_label(route: MemoryRoute) -> String {
     }
 }
 
-fn baseline_from_config() -> RuntimeStatusV1 {
+/// Missing status is not permission to read source configuration. This path
+/// is shared by cached UI/hooks and query telemetry; either must stay local.
+fn unavailable_cached_status() -> RuntimeStatusV1 {
     let mut status = RuntimeStatusV1::default();
-    match Config::load() {
-        Ok(cfg) => apply_config(&mut status, &cfg),
-        Err(_) => {
-            status.service.state = ServiceState::Unavailable;
-            upsert_failure(
-                &mut status,
-                "config_unusable",
-                FailureSeverity::Critical,
-                "run cfetch selfcheck",
-            );
-        }
-    }
+    status.service.state = ServiceState::Unavailable;
+    status.inference.configured = InferenceMode::Unknown;
+    upsert_failure(
+        &mut status,
+        "runtime_status_unavailable",
+        FailureSeverity::Critical,
+        "run cfetch status to refresh runtime metadata",
+    );
     status
 }
 
@@ -365,6 +364,7 @@ fn apply_config(status: &mut RuntimeStatusV1, cfg: &Config) {
         );
     }
     remove_failure(status, "config_unusable");
+    remove_failure(status, "runtime_status_unavailable");
     recover_if_clean(status);
 }
 
@@ -377,7 +377,7 @@ pub(crate) fn load_cached_in(state_dir: &Path) -> RuntimeStatusV1 {
         .ok()
         .and_then(|raw| serde_json::from_str::<RuntimeStatusV1>(&raw).ok())
         .filter(|status| status.schema_version == SCHEMA_VERSION)
-        .unwrap_or_else(baseline_from_config);
+        .unwrap_or_else(unavailable_cached_status);
     normalize(&mut status);
     status
 }
@@ -487,6 +487,10 @@ fn normalize(status: &mut RuntimeStatusV1) {
 
 fn canonical_failure(code: &str) -> Option<RuntimeFailure> {
     let (severity, action) = match code {
+        "runtime_status_unavailable" => (
+            FailureSeverity::Critical,
+            "run cfetch status to refresh runtime metadata",
+        ),
         "config_unusable" => (FailureSeverity::Critical, "run cfetch selfcheck"),
         "daemon_unavailable" => (
             FailureSeverity::Warning,
@@ -1042,6 +1046,7 @@ fn coverage_label(status: &RuntimeStatusV1) -> Option<String> {
 
 fn inference_label(status: &RuntimeStatusV1) -> String {
     match status.inference.configured {
+        InferenceMode::Unknown => "embed:unknown".to_string(),
         InferenceMode::Disabled => "embed:off".to_string(),
         InferenceMode::Local | InferenceMode::Endpoint => {
             if let Some(last) = &status.inference.last_used {
@@ -1082,7 +1087,7 @@ fn inference_label(status: &RuntimeStatusV1) -> String {
                     }
                     (InferenceMode::Local, _) => "embed:local configured".to_string(),
                     (InferenceMode::Endpoint, None) => "embed:endpoint configured".to_string(),
-                    (InferenceMode::Disabled, _) => unreachable!(),
+                    (InferenceMode::Unknown | InferenceMode::Disabled, _) => unreachable!(),
                 }
             }
         }
@@ -1100,6 +1105,16 @@ fn truncate_to_width(value: String, width: usize) -> String {
 }
 
 pub fn render_line_with_width(status: &RuntimeStatusV1, width: Option<usize>) -> String {
+    if status
+        .failures
+        .iter()
+        .any(|failure| failure.code == "runtime_status_unavailable")
+    {
+        return truncate_to_width(
+            "cfetch ? cached status unavailable · configuration unverified".to_string(),
+            width.unwrap_or(usize::MAX),
+        );
+    }
     let glyph = match status.service.state {
         ServiceState::Ready => "●",
         ServiceState::Degraded => "!",
@@ -1240,6 +1255,8 @@ pub fn adaptation_context(status: &RuntimeStatusV1) -> Option<String> {
         .collect();
     let text = if codes.contains(&"config_unusable") {
         "[cfetch degraded: memory configuration is unusable; do not assume recall or capture is active. Run `cfetch selfcheck`.]"
+    } else if codes.contains(&"runtime_status_unavailable") {
+        "[cfetch cached status unavailable: service and inference configuration are unverified. This does not establish that recall is down. Run `cfetch status` to refresh runtime metadata.]"
     } else if codes.contains(&"remote_unavailable") || codes.contains(&"memory_unavailable") {
         "[cfetch degraded: the configured memory route is unavailable; do not claim memory-backed results until it recovers.]"
     } else if codes.contains(&"memory_stale") {
@@ -1796,6 +1813,56 @@ mod tests {
                 .unwrap()
                 .contains("not being folded into Markdown automatically")
         );
+    }
+
+    #[test]
+    fn missing_corrupt_and_wrong_schema_cache_are_explicitly_unavailable() {
+        for contents in [None, Some("{broken"), Some(r#"{"schema_version":999}"#)] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = snapshot_path_in(dir.path());
+            if let Some(contents) = contents {
+                std::fs::write(&path, contents).unwrap();
+            }
+            let status = load_cached_in(dir.path());
+            assert_eq!(status.service.state, ServiceState::Unavailable);
+            assert_eq!(status.inference.configured, InferenceMode::Unknown);
+            assert_eq!(
+                status.memory_route.last_answer.state,
+                FreshnessState::Unknown
+            );
+            assert_eq!(status.memory_route.generation, None);
+            assert_eq!(status.failures[0].code, "runtime_status_unavailable");
+            assert!(render_line_with_width(&status, None).contains("configuration unverified"));
+            assert!(
+                adaptation_context(&status)
+                    .unwrap()
+                    .contains("does not establish that recall is down")
+            );
+            assert_eq!(
+                std::fs::read_to_string(path).ok().as_deref(),
+                contents,
+                "a cache read must not create or repair the snapshot"
+            );
+        }
+    }
+
+    #[test]
+    fn telemetry_does_not_invent_configuration_and_explicit_refresh_recovers() {
+        let dir = tempfile::tempdir().unwrap();
+        let status = update_in(dir.path(), |status| {
+            status.service.state = ServiceState::Ready;
+            status.memory_route.generation = Some(7);
+        })
+        .unwrap();
+        assert_eq!(status.service.state, ServiceState::Unavailable);
+        assert_eq!(status.inference.configured, InferenceMode::Unknown);
+        assert_eq!(status.memory_route.generation, Some(7));
+        let mut refreshed = load_cached_in(dir.path());
+        apply_config(&mut refreshed, &Config::default());
+        normalize(&mut refreshed);
+        assert!(refreshed.failures.is_empty());
+        assert_eq!(refreshed.inference.configured, InferenceMode::Disabled);
+        assert_eq!(refreshed.service.state, ServiceState::Ready);
     }
 
     #[test]

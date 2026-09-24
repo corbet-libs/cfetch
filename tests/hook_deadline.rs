@@ -58,18 +58,51 @@ impl Fixture {
             json!({"session_id":"deadline-test", "source":"startup", "cwd":self.dir.path()})
         )
         .unwrap();
-        let deadline = started + Duration::from_secs(5);
-        while child.try_wait().unwrap().is_none() {
-            if Instant::now() >= deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                panic!("hook blocked beyond its process budget");
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        (child.wait_with_output().unwrap(), started.elapsed())
+        (wait_output(child), started.elapsed())
     }
 }
+fn wait_output(mut child: Child) -> Output {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("cached status or hook blocked beyond its process budget");
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn missing_and_corrupt_cached_status_never_open_blocked_config() {
+    for contents in [None, Some("{broken")] {
+        let fixture = Fixture::new();
+        fixture.blocked_config();
+        let snapshot = fixture.dir.path().join("state/runtime-status-v1.json");
+        if let Some(contents) = contents {
+            std::fs::write(&snapshot, contents).unwrap();
+        }
+        let start = Instant::now();
+        let out = wait_output(
+            fixture
+                .command()
+                .args(["status", "--line"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        assert!(out.status.success());
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert!(text.contains("cached status unavailable"), "{text}");
+        assert!(!text.contains("embed:off"), "{text}");
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert_eq!(std::fs::read_to_string(snapshot).ok().as_deref(), contents);
+    }
+}
+
 #[test]
 fn warm_resident_ignores_blocked_config_and_preserves_daemon_ledger_cap() {
     let fixture = Fixture::new();
@@ -182,7 +215,18 @@ fn resident_daemon_uses_its_validated_startup_policy_after_config_path_blocks() 
         assert!(Instant::now() < deadline, "daemon did not become ready");
         std::thread::sleep(Duration::from_millis(10));
     }
+    // A fresh read also proves the index has finished its initial pass.
+    let initial = request(
+        &socket,
+        json!({"op":"recall", "query":"fixture", "freshness":"strict"}),
+    )
+    .expect("initial index did not become ready");
+    assert_eq!(initial["ok"], true, "{initial}");
     fixture.blocked_config();
+    std::fs::remove_file(fixture.dir.path().join("state/runtime-status-v1.json")).unwrap();
+    let answer = request(&socket, json!({"op":"recall", "query":"fixture"}))
+        .expect("query telemetry reopened blocked config after cached status disappeared");
+    assert_eq!(answer["ok"], true, "{answer}");
     let response =
         request(&socket, json!({"op":"resident"})).expect("resident reloaded blocked config");
     assert_eq!(response["ok"], true, "{response}");
