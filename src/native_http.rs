@@ -226,7 +226,7 @@ fn request_headers<B>(
         .filter(|value| lower_hex(value, 32))
         .ok_or((400, "one lowercase attestation nonce is required"))?;
     let mut decoded = [0; 32];
-    for (out, pair) in decoded.iter_mut().zip(nonce.as_bytes().chunks_exact(2)) {
+    for (out, pair) in decoded.iter_mut().zip(nonce.as_bytes().as_chunks::<2>().0) {
         let digit = |b: u8| if b <= b'9' { b - b'0' } else { b - b'a' + 10 };
         *out = digit(pair[0]) * 16 + digit(pair[1]);
     }

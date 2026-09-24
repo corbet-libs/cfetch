@@ -716,7 +716,7 @@ fn signing_key(file: &PinnedFile, expected: &str) -> anyhow::Result<ed25519_dale
         "invalid private attestation key encoding"
     );
     let mut seed = [0u8; 32];
-    for (byte, pair) in seed.iter_mut().zip(raw.chunks_exact(2)) {
+    for (byte, pair) in seed.iter_mut().zip(raw.as_chunks::<2>().0) {
         *byte = u8::from_str_radix(std::str::from_utf8(pair)?, 16)?;
     }
     let key = ed25519_dalek::SigningKey::from_bytes(&seed);
