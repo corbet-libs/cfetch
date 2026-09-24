@@ -89,6 +89,7 @@ for check in "$@"; do
       cargo test --locked --bin cfetch daemon::tests
       cargo test --locked --bin cfetch mcp::tests
       cargo test --locked --test freshness_cli
+      cargo check --locked --features embedded-embeddings --test local_memory
       cargo test --locked --test coherence
       cargo test --locked --test mcp_stdio
       cargo clippy --locked --bin cfetch -- -D warnings
