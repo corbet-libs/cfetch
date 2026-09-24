@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::inference_governor::Device;
 
+pub const PROTOCOL_VERSION: u32 = 2;
 pub const MAX_COMMAND_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 128 * 1024;
 const MAX_TOKENS: usize = 32768;
@@ -83,7 +84,30 @@ pub struct Response {
     pub runtime_build: Option<String>,
     pub execution_devices: Vec<String>,
     pub output: Option<Vec<f32>>,
-    pub error: Option<String>,
+    pub error: Option<WorkerFailure>,
+}
+
+/// ScopeUnavailable has no production emitter until a vendor API supplies a
+/// proven typed absence signal. An arbitrary native error is always HardStop.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerFailureKind {
+    ScopeUnavailable,
+    HardStop,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkerFailure {
+    pub kind: WorkerFailureKind,
+    pub message: String,
+}
+
+fn hard_failure(error: &anyhow::Error) -> WorkerFailure {
+    WorkerFailure {
+        kind: WorkerFailureKind::HardStop,
+        message: bounded_error(&format!("{error:#}")),
+    }
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -115,7 +139,7 @@ fn identifier(value: &str, limit: usize) -> bool {
 impl Command {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure!(
-            self.schema_version == 1,
+            self.schema_version == PROTOCOL_VERSION,
             "unsupported native worker protocol"
         );
         ensure!(
@@ -614,7 +638,7 @@ pub fn run_stdio(expected_parent_pid: u32) -> anyhow::Result<()> {
             serde_json::from_slice(&line).context("decode native worker command")?;
         command.validate()?;
         let mut response = Response {
-            schema_version: 1,
+            schema_version: PROTOCOL_VERSION,
             request_id: Some(command.request_id.clone()),
             request_sha256: sha256(&line),
             identity: Some(command.identity.clone()),
@@ -654,7 +678,7 @@ pub fn run_stdio(expected_parent_pid: u32) -> anyhow::Result<()> {
         }
         if let Err(error) = result {
             failed = true;
-            response.error = Some(bounded_error(&format!("{error:#}")));
+            response.error = Some(hard_failure(&error));
         }
         assert_parent(expected_parent_pid)?;
         let bytes = serde_json::to_vec(&response)?;
@@ -720,6 +744,27 @@ mod tests {
         assert_eq!(output.stderr, b"vendor diagnostic\n");
     }
 
+    #[test]
+    fn native_error_text_never_grants_scope_fallback() {
+        for text in [
+            "device unavailable",
+            "NOT_FOUND",
+            "model hash mismatch",
+            "runtime changed",
+        ] {
+            let failure = hard_failure(&anyhow::anyhow!(text));
+            assert_eq!(failure.kind, WorkerFailureKind::HardStop);
+        }
+        assert!(
+            serde_json::from_str::<WorkerFailure>(r#"{"message":"device unavailable"}"#).is_err()
+        );
+        assert!(
+            serde_json::from_str::<WorkerFailure>(r#"{"kind":"unknown","message":"unavailable"}"#)
+                .is_err()
+        );
+        assert!(serde_json::from_str::<WorkerFailure>(r#""device unavailable""#).is_err());
+    }
+
     fn identity(pooling: Pooling) -> Identity {
         Identity {
             device: Device::Cpu,
@@ -774,7 +819,7 @@ mod tests {
         assert!(validate_inputs(&[1, 2], &[1, 2], None, 2).is_err());
         assert!(validate_inputs(&[1, 2], &[1, 0], Some(&[0]), 2).is_err());
         let mut command = Command {
-            schema_version: 1,
+            schema_version: PROTOCOL_VERSION,
             request_id: "request-2".into(),
             identity: identity(Pooling::MeanMaskL2),
             operation: Operation::Infer {
@@ -824,7 +869,7 @@ mod tests {
     #[test]
     fn compile_identity_pairs_weights_and_bounds_resources() {
         let mut command = Command {
-            schema_version: 1,
+            schema_version: PROTOCOL_VERSION,
             request_id: "request-1".into(),
             identity: identity(Pooling::MeanMaskL2),
             operation: Operation::Compile {

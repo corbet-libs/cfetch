@@ -578,6 +578,16 @@ impl Lease {
     }
 }
 
+/// Real durable files and deadline accounting for supervisor tests only. This
+/// cannot provision, reset or bypass the installed production namespace.
+#[cfg(all(test, feature = "native-openvino"))]
+pub(crate) fn fixture_lease(duration: Duration) -> (Lease, File, File) {
+    let lease = tests::lease(duration);
+    let state = lease.state_file.try_clone().unwrap();
+    let intent = lease.intent_file.try_clone().unwrap();
+    (lease, state, intent)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -787,7 +797,7 @@ mod tests {
         file.write_all(&vec![b'x'; MAX_BYTES as usize + 1]).unwrap();
         assert!(read(&mut file).is_err());
     }
-    fn lease(duration: Duration) -> Lease {
+    pub(super) fn lease(duration: Duration) -> Lease {
         let mut intent_file = tempfile::tempfile().unwrap();
         intent_file.write_all(b"durable pending intent").unwrap();
         intent_file.sync_all().unwrap();

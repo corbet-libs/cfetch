@@ -11,10 +11,68 @@ use std::path::Path;
 use std::process::{Child, Command as ProcessCommand, Stdio};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 
-use crate::inference_governor::{Checkpoint, Governor, Kind};
+use crate::inference_governor::{Checkpoint, Governor, Kind, Lease};
 use crate::native_worker::{
-    Command, Identity, MAX_COMMAND_BYTES, MAX_RESPONSE_BYTES, Operation, Response,
+    Command, Identity, MAX_COMMAND_BYTES, MAX_RESPONSE_BYTES, Operation, PROTOCOL_VERSION,
+    Response, WorkerFailureKind,
 };
+
+/// Only a completed, durable and stopped worker can yield Controlled. Every
+/// uncertain outcome blocks all fallback, including a different CPU backend.
+#[derive(Debug)]
+pub enum NativeFailure {
+    Controlled(ControlledFailure),
+    HardStop(anyhow::Error),
+}
+
+#[derive(Debug)]
+pub struct ControlledFailure {
+    message: String,
+    checkpoint_sha256: String,
+}
+impl ControlledFailure {
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+    pub fn checkpoint_sha256(&self) -> &str {
+        &self.checkpoint_sha256
+    }
+}
+impl std::fmt::Display for NativeFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Controlled(failure) => write!(
+                f,
+                "native scope unavailable: {} (checkpoint {})",
+                failure.message(),
+                failure.checkpoint_sha256()
+            ),
+            Self::HardStop(error) => write!(f, "native execution stopped: {error:#}"),
+        }
+    }
+}
+impl std::error::Error for NativeFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Controlled(_) => None,
+            Self::HardStop(error) => Some(error.as_ref()),
+        }
+    }
+}
+impl From<anyhow::Error> for NativeFailure {
+    fn from(error: anyhow::Error) -> Self {
+        Self::HardStop(error)
+    }
+}
+
+/// Fabricated only for outer selection tests; never compiled into production.
+#[cfg(test)]
+pub(crate) fn fixture_controlled_failure() -> NativeFailure {
+    NativeFailure::Controlled(ControlledFailure {
+        message: "fixture scope unavailable".into(),
+        checkpoint_sha256: "a".repeat(64),
+    })
+}
 
 fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -41,7 +99,7 @@ fn validate_response(
     response: &Response,
 ) -> anyhow::Result<()> {
     ensure!(
-        response.schema_version == 1
+        response.schema_version == PROTOCOL_VERSION
             && response.request_id.as_deref() == Some(&command.request_id)
             && response.request_sha256 == request_hash
             && response.identity.as_ref() == Some(&command.identity),
@@ -49,9 +107,16 @@ fn validate_response(
     );
     if let Some(error) = &response.error {
         ensure!(
-            !error.is_empty() && error.len() <= 4096 && response.output.is_none(),
-            "invalid controlled native error"
+            !error.message.is_empty() && error.message.len() <= 4096 && response.output.is_none(),
+            "invalid structured native error"
         );
+        if error.kind == WorkerFailureKind::ScopeUnavailable {
+            ensure!(
+                response.runtime_build.as_deref() == Some(&command.identity.runtime_build)
+                    && response.execution_devices.is_empty(),
+                "scope unavailability lacks verified runtime identity or claims execution"
+            );
+        }
         return Ok(());
     }
     ensure!(
@@ -145,6 +210,70 @@ fn persist(directory: &Path, request_hash: &str, bytes: &[u8]) -> anyhow::Result
         Err(error) => return Err(error.into()),
     }
     Ok(())
+}
+
+/// A returned failure frame is insufficient: the exact still-owned worker
+/// must be alive before the stop request and reaped with SIGKILL afterward.
+/// This confirms death, not which actor sent a racing SIGKILL. A previously
+/// exited/reaped child or a different exit status cannot authorize fallback.
+fn stop_for_controlled_failure(child: &mut Child) -> anyhow::Result<()> {
+    use std::os::unix::process::ExitStatusExt as _;
+    ensure!(
+        child.try_wait()?.is_none(),
+        "worker exited before controlled stop"
+    );
+    child
+        .kill()
+        .context("send controlled stop to owned worker")?;
+    crate::local_adapter::terminate(child)?;
+    let status = child
+        .try_wait()?
+        .context("owned worker death is unconfirmed")?;
+    ensure!(
+        status.signal() == Some(9),
+        "worker exited independently of controlled stop"
+    );
+    Ok(())
+}
+
+fn settle_response(
+    lease: Lease,
+    child: &mut Child,
+    command: &Command,
+    request_hash: &str,
+    response_bytes: &[u8],
+    evidence: &Path,
+) -> Result<Response, NativeFailure> {
+    let response = (|| -> anyhow::Result<Response> {
+        let response: Response = serde_json::from_slice(response_bytes).with_context(|| {
+            format!(
+                "decode native response; bounded frame prefix {:?}",
+                String::from_utf8_lossy(&response_bytes[..response_bytes.len().min(160)])
+            )
+        })?;
+        validate_response(command, request_hash, &response)?;
+        // Durable response publication precedes intent clearing. All failures
+        // below retain that intent, even after a checkpoint has been written.
+        persist(evidence, request_hash, response_bytes)?;
+        if let Some(failure) = &response.error {
+            if failure.kind == WorkerFailureKind::HardStop {
+                anyhow::bail!("worker reported a hard failure: {}", failure.message);
+            }
+            stop_for_controlled_failure(child)?;
+        }
+        lease.complete(Checkpoint {
+            request_sha256: request_hash.into(),
+            result_sha256: digest(response_bytes),
+        })?;
+        Ok(response)
+    })()?;
+    match response.error {
+        Some(failure) => Err(NativeFailure::Controlled(ControlledFailure {
+            message: failure.message,
+            checkpoint_sha256: digest(response_bytes),
+        })),
+        None => Ok(response),
+    }
 }
 
 fn bounded_cpu(raw: &str) -> anyhow::Result<bool> {
@@ -271,101 +400,101 @@ impl Adapter {
             }
         }
     }
+    /// Confirm owned-child death before changing bucket or releasing scope.
+    pub fn stop(&mut self) -> anyhow::Result<()> {
+        self.unavailable = true;
+        crate::local_adapter::terminate(&mut self.child)
+    }
+
     pub fn execute(
         &mut self,
         governor: &Governor,
         command: &Command,
         evidence: &Path,
-    ) -> anyhow::Result<Response> {
-        ensure!(
-            !self.unavailable,
-            "native worker is unavailable; no automatic retry"
-        );
-        command.validate()?;
-        ensure!(command.identity == self.identity, "worker profile changed");
-        let kind = match &command.operation {
-            Operation::Compile { bucket, .. } => {
-                ensure!(
-                    !self.compiled && *bucket == self.bucket,
-                    "worker was already compiled or bucket changed"
-                );
-                Kind::Compile
+    ) -> Result<Response, NativeFailure> {
+        let outcome = self.execute_inner(governor, command, evidence);
+        if outcome.is_err() {
+            // Preflight, transport and settlement errors all latch this worker.
+            // Failed cleanup can never preserve a Controlled classification.
+            if let Err(error) = self.stop() {
+                return Err(NativeFailure::HardStop(
+                    error.context("native worker cleanup failed"),
+                ));
             }
-            Operation::Infer {
-                input_ids,
-                attention_mask,
-                token_type_ids,
-            } => {
-                ensure!(
-                    self.compiled
-                        && input_ids.len() == self.bucket
-                        && attention_mask.len() == self.bucket
-                        && token_type_ids
-                            .as_ref()
-                            .is_none_or(|v| v.len() == self.bucket),
-                    "inference must match the compiled static bucket"
-                );
-                Kind::Inference
-            }
-        };
-        let raw = serde_json::to_vec(command)?;
-        ensure!(
-            raw.len() < MAX_COMMAND_BYTES,
-            "native command exceeds framing bound"
-        );
-        let request_hash = digest(&raw);
-        require_resource_ceiling()?;
-        let lease = governor.begin(kind, command.identity.device, self.bucket.try_into()?)?;
-        let outcome = (|| {
-            self.requests
-                .try_send(raw)
-                .context("native worker request channel unavailable")?;
-            let response_bytes =
-                lease.supervise(&mut self.child, || match self.replies.try_recv() {
-                    Ok(Ok(bytes)) => Ok(Some(bytes)),
-                    Ok(Err(error)) => Err(error),
-                    Err(TryRecvError::Empty) => Ok(None),
-                    Err(TryRecvError::Disconnected) => {
-                        anyhow::bail!("native worker I/O channel closed")
-                    }
-                })?;
-            let response: Response =
-                serde_json::from_slice(&response_bytes).with_context(|| {
-                    format!(
-                        "decode native response; bounded frame prefix {:?}",
-                        String::from_utf8_lossy(&response_bytes[..response_bytes.len().min(160)])
-                    )
-                })?;
-            validate_response(command, &request_hash, &response)?;
-            // This fsync precedes completion/intent clearing. A crash on either
-            // side of that boundary leaves evidence or a blocking pending intent.
-            persist(evidence, &request_hash, &response_bytes)?;
-            if response.error.is_some() {
-                // A controlled failure permits fallback only after the idle
-                // worker has exited. Failed cleanup leaves the intent pending.
-                crate::local_adapter::terminate(&mut self.child)?;
-            }
-            lease.complete(Checkpoint {
-                request_sha256: request_hash,
-                result_sha256: digest(&response_bytes),
-            })?;
-            Ok::<_, anyhow::Error>(response)
-        })();
-        match outcome {
-            Ok(response) => {
-                if response.error.is_some() {
-                    self.unavailable = true;
-                } else if kind == Kind::Compile {
-                    self.compiled = true;
-                }
-                Ok(response)
-            }
-            Err(error) => {
-                self.unavailable = true;
-                crate::local_adapter::terminate(&mut self.child)?;
-                Err(error)
-            }
+        } else if matches!(command.operation, Operation::Compile { .. }) {
+            self.compiled = true;
         }
+        outcome
+    }
+
+    fn execute_inner(
+        &mut self,
+        governor: &Governor,
+        command: &Command,
+        evidence: &Path,
+    ) -> Result<Response, NativeFailure> {
+        let (raw, request_hash, mut lease) = (|| -> anyhow::Result<_> {
+            ensure!(
+                !self.unavailable,
+                "native worker is unavailable; no automatic retry"
+            );
+            command.validate()?;
+            ensure!(command.identity == self.identity, "worker profile changed");
+            let kind = match &command.operation {
+                Operation::Compile { bucket, .. } => {
+                    ensure!(
+                        !self.compiled && *bucket == self.bucket,
+                        "worker was already compiled or bucket changed"
+                    );
+                    Kind::Compile
+                }
+                Operation::Infer {
+                    input_ids,
+                    attention_mask,
+                    token_type_ids,
+                } => {
+                    ensure!(
+                        self.compiled
+                            && input_ids.len() == self.bucket
+                            && attention_mask.len() == self.bucket
+                            && token_type_ids
+                                .as_ref()
+                                .is_none_or(|v| v.len() == self.bucket),
+                        "inference must match the compiled static bucket"
+                    );
+                    Kind::Inference
+                }
+            };
+            let raw = serde_json::to_vec(command)?;
+            ensure!(
+                raw.len() < MAX_COMMAND_BYTES,
+                "native command exceeds framing bound"
+            );
+            let request_hash = digest(&raw);
+            require_resource_ceiling()?;
+            let lease = governor.begin(kind, command.identity.device, self.bucket.try_into()?)?;
+            Ok((raw, request_hash, lease))
+        })()?;
+        self.requests
+            .try_send(raw)
+            .context("native worker request channel unavailable")?;
+        let response_bytes =
+            lease.supervise(&mut self.child, || match self.replies.try_recv() {
+                Ok(Ok(bytes)) => Ok(Some(bytes)),
+                Ok(Err(error)) => Err(error),
+                Err(TryRecvError::Empty) => Ok(None),
+                Err(TryRecvError::Disconnected) => {
+                    anyhow::bail!("native worker I/O channel closed")
+                }
+            })?;
+        settle_response(
+            lease,
+            &mut self.child,
+            command,
+            &request_hash,
+            &response_bytes,
+            evidence,
+        )
     }
 }
 impl Drop for Adapter {
@@ -441,12 +570,7 @@ pub fn probe(plan_path: &Path, evidence: &Path, policy_sha256: String) -> anyhow
             );
             continue;
         }
-        let response = adapter.execute(&governor, command, evidence)?;
-        ensure!(
-            response.error.is_none(),
-            "native probe failed: {}",
-            response.error.as_deref().unwrap_or("")
-        );
+        adapter.execute(&governor, command, evidence)?;
     }
     Ok(())
 }
@@ -455,10 +579,10 @@ pub fn probe(plan_path: &Path, evidence: &Path, policy_sha256: String) -> anyhow
 mod tests {
     use super::*;
     use crate::inference_governor::Device;
-    use crate::native_worker::Pooling;
+    use crate::native_worker::{Pooling, WorkerFailure};
     fn command() -> Command {
         Command {
-            schema_version: 1,
+            schema_version: PROTOCOL_VERSION,
             request_id: "q1".into(),
             identity: Identity {
                 device: Device::Gpu,
@@ -479,7 +603,7 @@ mod tests {
     }
     fn response(command: &Command) -> Response {
         Response {
-            schema_version: 1,
+            schema_version: PROTOCOL_VERSION,
             request_id: Some(command.request_id.clone()),
             request_sha256: digest(&serde_json::to_vec(command).unwrap()),
             identity: Some(command.identity.clone()),
@@ -526,14 +650,222 @@ mod tests {
     fn controlled_error_has_no_vector_but_retains_exact_request_identity() {
         let command = command();
         let mut result = response(&command);
-        result.error = Some("device unavailable".into());
+        result.error = Some(WorkerFailure {
+            kind: WorkerFailureKind::ScopeUnavailable,
+            message: "fixture unavailable".into(),
+        });
         assert!(validate_response(&command, &result.request_sha256, &result).is_err());
         result.output = None;
-        result.runtime_build = None;
         result.execution_devices.clear();
         validate_response(&command, &result.request_sha256, &result).unwrap();
         result.identity = None;
         assert!(validate_response(&command, &result.request_sha256, &result).is_err());
+    }
+    fn unavailable(command: &Command) -> Response {
+        let mut response = response(command);
+        response.output = None;
+        response.execution_devices.clear();
+        response.error = Some(WorkerFailure {
+            kind: WorkerFailureKind::ScopeUnavailable,
+            message: "fixture explicit absence".into(),
+        });
+        response
+    }
+    fn file_bytes(file: &mut File) -> Vec<u8> {
+        use std::io::Seek as _;
+        file.rewind().unwrap();
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).unwrap();
+        bytes
+    }
+    fn idle_child() -> Child {
+        ProcessCommand::new("sleep").arg("60").spawn().unwrap()
+    }
+    #[test]
+    fn controlled_failure_requires_durable_checkpoint_owned_death_and_completed_lease() {
+        let command = command();
+        let response = unavailable(&command);
+        let bytes = serde_json::to_vec(&response).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let (lease, mut state, mut intent) =
+            crate::inference_governor::fixture_lease(std::time::Duration::from_secs(3));
+        let mut child = idle_child();
+        let mut other = idle_child();
+        let result = settle_response(
+            lease,
+            &mut child,
+            &command,
+            &response.request_sha256,
+            &bytes,
+            root.path(),
+        );
+        let dead = child.try_wait().unwrap().is_some();
+        let other_alive = other.try_wait().unwrap().is_none();
+        crate::local_adapter::terminate(&mut child).unwrap();
+        crate::local_adapter::terminate(&mut other).unwrap();
+        let NativeFailure::Controlled(failure) = result.unwrap_err() else {
+            panic!("expected completed controlled failure")
+        };
+        assert!(dead && other_alive);
+        assert_eq!(failure.message(), "fixture explicit absence");
+        assert_eq!(failure.checkpoint_sha256(), digest(&bytes));
+        assert_eq!(
+            std::fs::read(
+                root.path()
+                    .join(format!("{}.json", response.request_sha256))
+            )
+            .unwrap(),
+            bytes
+        );
+        assert!(file_bytes(&mut intent).is_empty());
+        let completed: crate::inference_governor::State =
+            serde_json::from_slice(&file_bytes(&mut state)).unwrap();
+        let checkpoint = completed.last_completed.unwrap().checkpoint;
+        assert_eq!(checkpoint.request_sha256, response.request_sha256);
+        assert_eq!(checkpoint.result_sha256, failure.checkpoint_sha256());
+        assert!(matches!(
+            fixture_controlled_failure(),
+            NativeFailure::Controlled(_)
+        ));
+    }
+    #[test]
+    fn unclassified_hard_or_mismatched_reply_never_clears_intent() {
+        let command = command();
+        let response = unavailable(&command);
+        let root = tempfile::tempdir().unwrap();
+        for variant in 0..10 {
+            let evidence = root.path().join(variant.to_string());
+            std::fs::create_dir(&evidence).unwrap();
+            let mut value = serde_json::to_value(&response).unwrap();
+            match variant {
+                0 => {
+                    value["error"]["kind"] = serde_json::json!("hard_stop");
+                }
+                1 => {
+                    value["error"].as_object_mut().unwrap().remove("kind");
+                }
+                2 => {
+                    value["error"]["kind"] = serde_json::json!("unknown");
+                }
+                3 => {
+                    value["error"] = serde_json::json!("device unavailable");
+                }
+                4 => {
+                    value["identity"]["model_sha256"] = serde_json::json!("c".repeat(64));
+                }
+                5 => {
+                    value["runtime_build"] = serde_json::json!("different-runtime");
+                }
+                6 => {
+                    value["error"] = serde_json::Value::Null;
+                }
+                7 => {
+                    value["schema_version"] = serde_json::json!(1);
+                }
+                8 => {
+                    value["error"]["message"] = serde_json::json!("");
+                }
+                _ => (),
+            }
+            let mut bytes = serde_json::to_vec(&value).unwrap();
+            if variant == 9 {
+                bytes = b"{truncated".to_vec();
+            }
+            let (lease, mut state, mut intent) =
+                crate::inference_governor::fixture_lease(std::time::Duration::from_secs(3));
+            let mut child = idle_child();
+            let result = settle_response(
+                lease,
+                &mut child,
+                &command,
+                &response.request_sha256,
+                &bytes,
+                &evidence,
+            );
+            crate::local_adapter::terminate(&mut child).unwrap();
+            assert!(
+                matches!(result, Err(NativeFailure::HardStop(_))),
+                "variant {variant}"
+            );
+            assert_eq!(
+                file_bytes(&mut intent),
+                b"durable pending intent",
+                "variant {variant}"
+            );
+            assert!(file_bytes(&mut state).is_empty(), "variant {variant}");
+        }
+    }
+    #[test]
+    fn checkpoint_or_completion_failure_cannot_authorize_fallback() {
+        let command = command();
+        let response = unavailable(&command);
+        let bytes = serde_json::to_vec(&response).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        for variant in 0..3 {
+            let evidence = root.path().join(variant.to_string());
+            if variant != 0 {
+                std::fs::create_dir(&evidence).unwrap();
+            }
+            if variant == 1 {
+                std::fs::write(
+                    evidence.join(format!("{}.json", response.request_sha256)),
+                    b"prior conflicting result",
+                )
+                .unwrap();
+            }
+            let duration = if variant == 2 {
+                std::time::Duration::ZERO
+            } else {
+                std::time::Duration::from_secs(3)
+            };
+            let (lease, mut state, mut intent) = crate::inference_governor::fixture_lease(duration);
+            let mut child = idle_child();
+            let result = settle_response(
+                lease,
+                &mut child,
+                &command,
+                &response.request_sha256,
+                &bytes,
+                &evidence,
+            );
+            crate::local_adapter::terminate(&mut child).unwrap();
+            assert!(
+                matches!(result, Err(NativeFailure::HardStop(_))),
+                "variant {variant}"
+            );
+            assert_eq!(file_bytes(&mut intent), b"durable pending intent");
+            assert!(file_bytes(&mut state).is_empty());
+        }
+    }
+    #[test]
+    fn exited_or_reused_child_proof_cannot_authorize_fallback() {
+        let command = command();
+        let response = unavailable(&command);
+        let bytes = serde_json::to_vec(&response).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        for status in ["0", "7"] {
+            let mut child = ProcessCommand::new("sh")
+                .args(["-c", &format!("exit {status}")])
+                .spawn()
+                .unwrap();
+            child.wait().unwrap();
+            let (lease, mut state, mut intent) =
+                crate::inference_governor::fixture_lease(std::time::Duration::from_secs(3));
+            let result = settle_response(
+                lease,
+                &mut child,
+                &command,
+                &response.request_sha256,
+                &bytes,
+                root.path(),
+            );
+            assert!(matches!(result, Err(NativeFailure::HardStop(_))));
+            assert!(!file_bytes(&mut intent).is_empty());
+            assert!(file_bytes(&mut state).is_empty());
+        }
+        let mut child = idle_child();
+        stop_for_controlled_failure(&mut child).unwrap();
+        assert!(stop_for_controlled_failure(&mut child).is_err());
     }
     #[test]
     fn checkpoints_never_overwrite_changed_or_symlinked_evidence() {

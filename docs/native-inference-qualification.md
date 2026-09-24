@@ -9,7 +9,9 @@ working CPU backend, write vectors, or populate `release/inference-backends.json
 
 `cfetch native-probe PLAN EVIDENCE --policy-sha256 SHA256` consumes one finite
 JSON plan: schema version 1, one compile command followed by 1–64 inference
-commands. Every command has the same model, pipeline, output, dimensions,
+commands. The plan envelope remains schema 1; each command and response uses
+internal protocol schema 2 with structured failure kinds. Older protocol
+commands/checkpoints are rejected. Every command has the same model, pipeline, output, dimensions,
 runtime build, and requested device. A plan has one static token bucket and
 batch size one. The hidden `native-worker` command is its internal child entry
 point; callers use the parent probe so the governor and checkpoint contract
@@ -40,9 +42,15 @@ operator inspection. A CPU/GPU test policy must omit NPU.
 Each operation retains the permanent host lock across the request and bounded
 child supervision. Request intent is fsynced before native work. The parent
 fsyncs an exact response checkpoint and its directory before committing usage
-and clearing intent. A controlled error is committed only after the child has
-exited. Timeout, crash, protocol mismatch, checkpoint failure, or uncertain child
-termination leaves intent pending and blocks another scope. Fallback cannot
+and clearing intent. `NativeFailure::Controlled` requires an explicit
+`scope_unavailable` classification, exact identity, durable error checkpoint,
+confirmed owned-child death and successful lease completion. Its payload cannot
+be constructed by callers. The current worker has no proven typed vendor absence
+signal, so all actual native/runtime/model errors are `hard_stop`; error text
+never authorizes fallback. The reserved controlled path is exercised only by
+injected tests. An already exited/reaped worker, unknown or missing error kind,
+timeout, crash, protocol mismatch, checkpoint failure, failed completion, or
+uncertain child termination leaves intent pending and blocks another scope. Fallback cannot
 clear that evidence. A restarted finite plan can reuse a successful inference
 checkpoint only for byte-identical request identity; its new worker still pays
 a compile lease. Completed error checkpoints are not retried automatically.
