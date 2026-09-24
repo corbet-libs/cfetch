@@ -433,7 +433,7 @@ impl Adapter {
         command: &Command,
         evidence: &Path,
     ) -> Result<Response, NativeFailure> {
-        let (raw, request_hash, mut lease) = (|| -> anyhow::Result<_> {
+        let (raw, request_hash, lease) = (|| -> anyhow::Result<_> {
             ensure!(
                 !self.unavailable,
                 "native worker is unavailable; no automatic retry"
