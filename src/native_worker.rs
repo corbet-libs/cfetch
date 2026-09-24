@@ -691,6 +691,15 @@ impl ExecutableClosure {
     }
 
     fn verify_text(&self, raw: &str) -> anyhow::Result<()> {
+        // A previously hashed dependency can be unmapped or mapped without
+        // executable permissions. Its identity still binds signed host evidence.
+        // Check every entry at each boundary without rehashing model weights.
+        for (path, bound) in &self.0 {
+            ensure!(
+                FileIdentity::read(path)? == *bound,
+                "pinned dependency changed after closure verification"
+            );
+        }
         ensure!(!raw.is_empty(), "empty executable mapping inventory");
         for (number, line) in raw.lines().enumerate() {
             ensure!(number < 32768, "too many process mappings");
@@ -1233,6 +1242,34 @@ mod tests {
             }])
             .is_err()
         );
+    }
+
+    #[test]
+    fn unmapped_and_nonexecutable_pinned_dependencies_must_remain_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("host-dependency.bin");
+        std::fs::write(&path, b"original").unwrap();
+        let file = PinnedFile {
+            path: path.clone(),
+            sha256: sha256(b"original"),
+            bytes: 8,
+            executable: false,
+        };
+        let closure = ExecutableClosure::capture(&[file]).unwrap();
+        let unmapped = "1000-2000 r-xp 00000000 00:00 0 [vdso]\n";
+        let nonexecutable =
+            mapped_row(&path, &FileIdentity::read(&path).unwrap()).replace("r-xp", "r--p");
+        assert!(closure.verify_text(unmapped).is_ok());
+        assert!(closure.verify_text(&nonexecutable).is_ok());
+        // The same path and size must not conceal changed bytes, even when
+        // neither executable-mapping branch examines the dependency.
+        std::fs::write(&path, b"modified").unwrap();
+        assert!(closure.verify_text(unmapped).is_err());
+        assert!(closure.verify_text(&nonexecutable).is_err());
     }
 
     #[test]
