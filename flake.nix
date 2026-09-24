@@ -16,6 +16,8 @@
           src = self;
           craneLib = (crane.mkLib pkgs).overrideScope (_final: prev:
             pkgs.lib.optionalAttrs (!(pkgs.cargo-auditable.meta.broken or false)) {
+              # Crane's spliced scope keeps the complete overridden toolchain.
+              inherit (pkgs) rustc clippy rustfmt;
               # Preserve the dependency metadata emitted by buildRustPackage.
               cargo = pkgs.buildPackages.cargo-auditable-cargo-wrapper.override {
                 cargo = prev.cargo;
