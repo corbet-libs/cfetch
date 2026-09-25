@@ -8,7 +8,42 @@ use sha2::{Digest as _, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-pub const PIPELINE: &str = "embeddinggemma-local-cpu-v1-fastembed6.0.2-ort2.0.0rc13";
+/// A model-pack format this binary knows how to load and qualify.
+pub struct Pipeline {
+    pub id: &'static str,
+    /// Minimum cosine against every canonical reference row.
+    reference_floor: f64,
+    /// ORT session entries required for faithful execution of this graph.
+    session_config: &'static [(&'static str, &'static str)],
+}
+
+pub const PIPELINES: &[Pipeline] = &[
+    // Community fp32 export with fused Microsoft attention operators.
+    Pipeline {
+        id: "embeddinggemma-local-cpu-v1-fastembed6.0.2-ort2.0.0rc13",
+        reference_floor: 0.999,
+        session_config: &[],
+    },
+    // Standard-operator export (plain MatMul/Softmax attention, opset 17) with
+    // symmetric per-channel int8 weights and fp32 activations. Quantization
+    // moves vectors deliberately, hence the lower floor; a broken graph still
+    // fails it by a wide margin. The CPU session folds the int8 weights into
+    // fp32 once at load: executing the QDQ pattern lets ORT substitute kernels
+    // that also quantize activations, which this model does not tolerate.
+    Pipeline {
+        id: "embeddinggemma-plain-int8w-v1-fastembed6-ort2.0.0rc13",
+        reference_floor: 0.998,
+        session_config: &[("session.disable_quant_qdq", "1")],
+    },
+];
+
+fn pipeline(id: &str) -> anyhow::Result<&'static Pipeline> {
+    PIPELINES
+        .iter()
+        .find(|p| p.id == id)
+        .ok_or_else(|| anyhow::anyhow!("unsupported local embedding pipeline"))
+}
+
 const FILES: &[&str] = &[
     "model.onnx",
     "model.onnx_data",
@@ -57,10 +92,7 @@ fn manifest(dir: &Path) -> anyhow::Result<(Manifest, String)> {
         "local model manifest is too large"
     );
     let manifest: Manifest = serde_json::from_slice(&bytes)?;
-    ensure!(
-        manifest.pipeline == PIPELINE,
-        "unsupported local embedding pipeline"
-    );
+    pipeline(&manifest.pipeline)?;
     ensure!(
         manifest.model == crate::embedding_profile::MODEL,
         "local model must be EmbeddingGemma"
@@ -97,13 +129,14 @@ pub fn available(dir: &Path) -> anyhow::Result<()> {
         cfg!(feature = "embedded-embeddings"),
         "this binary needs the embedded-embeddings feature for local vectors"
     );
-    let (_, digest) = manifest(dir)?;
+    let (manifest, digest) = manifest(dir)?;
+    let floor = pipeline(&manifest.pipeline)?.reference_floor;
     let proof: Qualification = serde_json::from_slice(
         &std::fs::read(dir.join("qualification.json"))
             .context("local model has not passed `cfetch qualify-model`")?,
     )?;
     ensure!(
-        proof.pipeline == PIPELINE && proof.manifest_sha256 == digest,
+        proof.pipeline == manifest.pipeline && proof.manifest_sha256 == digest,
         "local model qualification belongs to another pipeline or manifest"
     );
     ensure!(
@@ -112,7 +145,7 @@ pub fn available(dir: &Path) -> anyhow::Result<()> {
             && proof
                 .reference_cosines
                 .iter()
-                .all(|v| v.is_finite() && *v >= 0.999)
+                .all(|v| v.is_finite() && *v >= floor)
             && proof.token_counts.contains(&13)
             && proof.token_counts.iter().any(|n| *n >= 1900),
         "local model qualification is incomplete or failed"
@@ -177,12 +210,13 @@ mod cpu {
         )
         .with_pooling(fastembed::Pooling::Mean);
         source.output_key = Some(fastembed::OutputKey::ByName("sentence_embedding"));
-        let mut model = fastembed::TextEmbedding::try_new_from_user_defined(
-            source,
-            fastembed::InitOptionsUserDefined::new()
-                .with_max_length(2048)
-                .with_intra_threads(2),
-        )?;
+        let mut options = fastembed::InitOptionsUserDefined::new()
+            .with_max_length(2048)
+            .with_intra_threads(2);
+        for (key, value) in pipeline(&manifest.pipeline)?.session_config {
+            options = options.with_session_config(*key, *value);
+        }
+        let mut model = fastembed::TextEmbedding::try_new_from_user_defined(source, options)?;
         // Count untruncated tokens before every call; never claim full coverage
         // of an input which the library silently shortened.
         model
@@ -268,13 +302,15 @@ mod cpu {
             (2..=8).contains(&references.len()),
             "qualification needs 2..8 canonical reference rows"
         );
+        let (manifest, manifest_sha256) = manifest(dir)?;
+        let floor = pipeline(&manifest.pipeline)?.reference_floor;
         let loaded = load(dir, false)?;
         let mut model = loaded
             .lock()
             .map_err(|_| anyhow::anyhow!("local model poisoned"))?;
         let mut proof = Qualification {
-            pipeline: PIPELINE.into(),
-            manifest_sha256: manifest(dir)?.1,
+            pipeline: manifest.pipeline,
+            manifest_sha256,
             reference_cosines: Vec::new(),
             token_counts: Vec::new(),
             semantic_ordering_passed: false,
@@ -307,7 +343,7 @@ mod cpu {
             cosine(&vectors[0], &vectors[1])? > cosine(&vectors[0], &vectors[2])?;
         ensure!(
             proof.semantic_ordering_passed
-                && proof.reference_cosines.iter().all(|v| *v >= 0.999)
+                && proof.reference_cosines.iter().all(|v| *v >= floor)
                 && proof.token_counts.contains(&13)
                 && proof.token_counts.iter().any(|n| *n >= 1900),
             "local model failed semantic or short/long canonical parity: {}",
@@ -329,3 +365,61 @@ mod cpu {
 }
 #[cfg(feature = "embedded-embeddings")]
 pub use cpu::{Model, load, qualify};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_pack(dir: &Path, pipeline: &str) {
+        let files: BTreeMap<_, _> = FILES
+            .iter()
+            .map(|n| (*n, serde_json::json!({"bytes": 1, "sha256": "0".repeat(64)})))
+            .collect();
+        let manifest = serde_json::json!({
+            "pipeline": pipeline,
+            "model": crate::embedding_profile::MODEL,
+            "files": files,
+        });
+        std::fs::write(dir.join("manifest.json"), manifest.to_string()).unwrap();
+    }
+
+    #[test]
+    fn every_known_pipeline_is_accepted_with_its_own_floor() {
+        for known in PIPELINES {
+            let dir = tempfile::tempdir().unwrap();
+            write_pack(dir.path(), known.id);
+            let (loaded, _) = manifest(dir.path()).unwrap();
+            assert_eq!(pipeline(&loaded.pipeline).unwrap().id, known.id);
+            assert!((0.99..1.0).contains(&known.reference_floor));
+        }
+        let plain = pipeline("embeddinggemma-plain-int8w-v1-fastembed6-ort2.0.0rc13").unwrap();
+        assert_eq!(plain.session_config, &[("session.disable_quant_qdq", "1")]);
+    }
+
+    #[test]
+    fn unknown_pipeline_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        write_pack(dir.path(), "embeddinggemma-unknown");
+        let error = manifest(dir.path()).err().unwrap();
+        assert!(error.to_string().contains("unsupported local embedding pipeline"));
+    }
+
+    #[test]
+    fn qualification_from_another_pipeline_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        write_pack(dir.path(), PIPELINES[1].id);
+        let (_, digest) = manifest(dir.path()).unwrap();
+        let proof = serde_json::json!({
+            "pipeline": PIPELINES[0].id,
+            "manifest_sha256": digest,
+            "reference_cosines": [1.0, 1.0],
+            "token_counts": [13, 1946],
+            "semantic_ordering_passed": true,
+        });
+        std::fs::write(dir.path().join("qualification.json"), proof.to_string()).unwrap();
+        if cfg!(feature = "embedded-embeddings") {
+            let error = available(dir.path()).err().unwrap();
+            assert!(error.to_string().contains("another pipeline"));
+        }
+    }
+}

@@ -17,6 +17,7 @@ if [[ ! -e "$model_tools/ready" ]]; then
     onnx==1.19.1 numpy==2.3.3 protobuf==6.32.1 typing_extensions==4.15.0 ml_dtypes==0.5.3
   touch "$model_tools/ready"
 fi
+PYTHONPATH="$model_tools" "$python_bin" -m unittest -v scripts.test_export_plain_model
 if [[ ! -f "$CFETCH_LOCAL_MODEL_OUTPUT/manifest.json" ]]; then
   PYTHONPATH="$model_tools" "$python_bin" scripts/prepare-local-model.py "$CFETCH_LOCAL_MODEL_SOURCE" "$CFETCH_LOCAL_MODEL_OUTPUT"
 fi
