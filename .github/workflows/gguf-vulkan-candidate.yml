@@ -44,7 +44,7 @@ jobs:
           sha256sum -- *.tar.gz > SHA256SUMS
 
       - name: Upload candidate runtime inputs
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: gguf-vulkan-b10516-${{ github.run_id }}
           path: ${{ runner.temp }}/cfetch-gguf-vulkan-artifacts/*
@@ -53,7 +53,7 @@ jobs:
 
       - name: Preserve compiler diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: gguf-vulkan-build-diagnostics-${{ github.run_id }}
           path: ${{ runner.temp }}/cfetch-gguf-vulkan/runtime/provenance/
